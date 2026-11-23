@@ -60,10 +60,10 @@ export function createWorld({ now = Date.now() } = {}) {
         number: p.number, title: p.title, url: url("pull", p.number), author: { login: p.author, is_bot: false }, isDraft: p.isDraft, additions: 40, deletions: 12, changedFiles: 3,
         reviewDecision: p.reviewDecision, mergeStateStatus: "BLOCKED", mergeable: "MERGEABLE", statusCheckRollup: p.checks, latestReviews: p.reviews,
         reviewRequests: p.requested.map((login) => ({ __typename: "User", login })), labels: p.labels.map((name) => ({ name })), updatedAt: ago(p.updated), createdAt: ago(p.created),
-        autoMergeRequest: null, baseRefName: "main", body: p.body, headRefOid: (p.head || HEAD[p.number]),
+        autoMergeRequest: p.autoMerge || null, baseRefName: "main", body: p.body, headRefOid: (p.head || HEAD[p.number]),
     });
     const activityNode = (p) => ({
-        number: p.number, mergeStateStatus: "BLOCKED", autoMergeRequest: null, commits: { nodes: [{ commit: { committedDate: ago(p.updated + 5) } }] },
+        number: p.number, mergeStateStatus: "BLOCKED", autoMergeRequest: p.autoMerge || null, commits: { nodes: [{ commit: { committedDate: ago(p.updated + 5) } }] },
         timelineItems: { nodes: [{ __typename: "PullRequestCommit", url: `${url("pull", p.number)}/commits/${HEAD[p.number] || p.head}`, commit: { oid: HEAD[p.number] || p.head, committedDate: ago(p.updated + 5), messageHeadline: "Make the change" } }, ...(p.requestedMin ? [{ __typename: "ReviewRequestedEvent", createdAt: ago(p.requestedMin) }] : []), ...p.reviews.map((r, k) => ({ __typename: "PullRequestReview", id: `PRR_${p.number}_${k}`, url: `${url("pull", p.number)}#pullrequestreview-${k}`, bodyText: "", ...r })), ...(p.events || [])] },
     });
     const readinessJson = (p) => ({
@@ -77,6 +77,48 @@ export function createWorld({ now = Date.now() } = {}) {
         commits: { nodes: [{ commit: { committedDate: ago(p.updated + 5), statusCheckRollup: { contexts: { nodes: p.checks.map((c) => ({ __typename: "CheckRun", name: c.name, status: c.status, conclusion: c.conclusion, detailsUrl: c.detailsUrl, isRequired: c.name === "build-and-package" })) } } } }] },
         reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
     });
+    // The Merge dialog's read: queue entry, auto-merge, reviews on which commit, who pushed last, required checks.
+    const mergeJson = (p) => {
+        const entry = world.queue.find((q) => q.pullRequest.number === p.number);
+        return {
+            autoMergeAllowed: world.autoMergeAllowed, squashMergeAllowed: true, mergeCommitAllowed: false, rebaseMergeAllowed: false,
+            pullRequest: {
+                id: `PR_${p.number}`, number: p.number, title: p.title, url: url("pull", p.number), state: p.state || "OPEN", isDraft: p.isDraft, headRefOid: p.head || HEAD[p.number], headRefName: p.headRefName, baseRefName: "main",
+                mergeable: p.mergeable || "MERGEABLE", mergeStateStatus: p.mergeStateStatus || "BLOCKED", reviewDecision: p.reviewDecision, author: { login: p.author },
+                autoMergeRequest: p.autoMerge ? { enabledAt: p.autoMerge.enabledAt, mergeMethod: "SQUASH", enabledBy: { login: VIEWER } } : null,
+                isInMergeQueue: !!entry, mergeQueueEntry: entry ? { position: entry.position, state: entry.state } : null,
+                latestReviews: { nodes: p.reviews.map((r) => ({ author: r.author, state: r.state, commit: r.commit })) },
+                reviewRequests: { nodes: p.requested.map((login) => ({ requestedReviewer: { login } })) },
+                commits: { nodes: [{ commit: { author: { user: { login: p.pusher || p.author } }, statusCheckRollup: { state: "SUCCESS", contexts: { nodes: p.checks.map((c) => ({ __typename: "CheckRun", name: c.name, status: c.status, conclusion: c.conclusion, isRequired: c.name === "build-and-package" })) } } } }] },
+            },
+        };
+    };
+    // What a merge, queue, auto-merge or undo does in this fake repo (only when a test allows writes).
+    const applyWrite = (args) => {
+        const a = args.join(" ");
+        const n = Number(args[2]);
+        const p = world.prs.find((x) => x.number === n);
+        if (args[0] === "pr" && args[1] === "merge") {
+            if (world.mergeError) throw new Error(world.mergeError);
+            if (args.includes("--disable-auto")) { if (!p.autoMerge) throw new Error("auto-merge is not enabled"); p.autoMerge = null; p.updated = 0; return ""; }
+            const head = args[args.indexOf("--match-head-commit") + 1];
+            if (head !== (p.head || HEAD[n])) throw new Error("GraphQL: Head branch was modified. Review and try the merge again.");
+            const ready = p.reviewDecision === "APPROVED" && p.checks.every((c) => c.conclusion === "SUCCESS");
+            if (args.includes("--auto") && world.hasQueue && ready) { world.queue.push({ position: world.queue.length + 1, state: "QUEUED", enqueuedAt: new Date().toISOString(), pullRequest: { number: n } }); p.updated = 0; return `! Pull request #${n} will be added to the merge queue for main when ready\n`; }
+            if (args.includes("--auto")) { p.autoMerge = { enabledAt: new Date().toISOString() }; p.updated = 0; return `! Pull request #${n} will be automatically merged when all requirements are met\n`; }
+            world.prs = world.prs.filter((x) => x !== p);
+            world.merged.unshift({ number: n, title: p.title, author: p.author, mergedAt: new Date().toISOString(), createdAt: ago(p.created), additions: 40, deletions: 12, changedFiles: 3, latestReviews: [], body: p.body, url: url("pull", n) });
+            return `✓ Squashed and merged pull request #${n}\n`;
+        }
+        if (/dequeuePullRequest/.test(a)) {
+            const id = Number((args.find((x) => x.startsWith("id=")) || "").replace("id=PR_", ""));
+            world.queue = world.queue.filter((q) => q.pullRequest.number !== id).map((q, i) => ({ ...q, position: i + 1 }));
+            const d = world.prs.find((x) => x.number === id);
+            if (d) { d.autoMerge = null; d.updated = 0; }
+            return { data: { dequeuePullRequest: { clientMutationId: null } } };
+        }
+        return "{}";
+    };
     // The GitHub tab. The PR description carries markup the board must never run.
     const prView = (p) => ({
         number: p.number, title: p.title, url: url("pull", p.number), state: "OPEN", isDraft: p.isDraft, createdAt: ago(p.created), updatedAt: ago(p.updated),
@@ -107,7 +149,7 @@ export function createWorld({ now = Date.now() } = {}) {
 
     const world = {
         now, prs, merged, queue, issues, viewer: VIEWER,
-        mutations: [], unmocked: [], calls: 0,
+        mutations: [], unmocked: [], calls: 0, listCalls: 0,
         // Files on main, for the Code tab of an issue with no branch.
         files: {
             "src/icons/render.js": ["import { theme } from \"../theme\";", "export function draw(icon) {", "  const scale = window.devicePixelRatio;", "  return icon.render({ scale: Math.round(scale) });", "}", "export const SIZE = 16;"].join("\n"),
@@ -152,8 +194,10 @@ export function createWorld({ now = Date.now() } = {}) {
             return oid;
         },
         allowMutations: false,
+        hasQueue: true, autoMergeAllowed: true, mergeError: null,
         async handle(args) {
             world.calls++;
+            if (args[0] === "pr" && args[1] === "list" && args.includes("open")) world.listCalls++; // a real board refresh, even one that fails
             const f = world.fault;
             if (f && f.match(args)) {
                 if (f.delayMs) await new Promise((r) => setTimeout(r, f.delayMs));
@@ -165,7 +209,7 @@ export function createWorld({ now = Date.now() } = {}) {
             if (isGhWrite(args)) {
                 world.mutations.push(args);
                 if (!world.allowMutations) throw new Error(`test world refuses a GitHub write: gh ${a.slice(0, 120)}`);
-                return "{}";
+                return applyWrite(args);
             }
             if (a === "api user --jq .login") return `${VIEWER}\n`;
             if (a === "repo view --json nameWithOwner --jq .nameWithOwner") return `${REPO}\n`;
@@ -178,7 +222,7 @@ export function createWorld({ now = Date.now() } = {}) {
             if (a.startsWith(`issue list -R ${REPO} --assignee @me`)) return Object.values(world.issues).filter((i) => i.assignees.some((x) => x.login === VIEWER)).map(issueJson);
             if (/^issue view \d+/.test(a)) { const i = world.issues[Number(args[2])]; if (!i) throw new Error("not found"); return issueJson(i); }
             if (a.startsWith(`api repos/${REPO}/branches/`) && a.endsWith("--jq .commit.sha")) return `${HEAD[203]}\n`;
-            if (a === `api repos/${REPO}/rules/branches/main`) return [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "build-and-package" }] } }];
+            if (a === `api repos/${REPO}/rules/branches/main`) return [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "build-and-package" }] } }, { type: "pull_request", parameters: { required_approving_review_count: 1, require_last_push_approval: true } }];
             if (a === `api repos/${REPO}/branches/main/protection/required_status_checks`) throw new Error("HTTP 404: Branch not protected");
             if (a.startsWith(`api repos/${REPO}/compare/`) && a.endsWith("--jq .behind_by")) return "0\n";
             if (a.startsWith(`api repos/${REPO}/compare/`) && a.endsWith("--jq .status")) return world.otherMerges.has(a.split("...")[1].split(" ")[0]) ? "diverged\n" : "behind\n";
@@ -198,6 +242,8 @@ export function createWorld({ now = Date.now() } = {}) {
             if (pullRe.test(a)) { const [, num, revs] = a.match(pullRe); return revs ? [{ user: { login: VIEWER }, commit_id: sha(Number(num), "r"), submitted_at: ago(200) }] : { head: { sha: HEAD[Number(num)] } }; }
             if (a.startsWith("api graphql")) {
                 if (q.includes("pullRequests(states:OPEN")) return { data: { repository: { pullRequests: { nodes: world.prs.map(activityNode) } } } };
+                if (q.includes("isInMergeQueue")) { const p = world.prs.find((x) => x.number === n); return { data: { repository: p ? mergeJson(p) : { pullRequest: null } } }; }
+                if (q.includes("configuration { mergeMethod }")) return { data: { repository: { mergeQueue: world.hasQueue ? { url: `https://github.com/${REPO}/queue/main`, configuration: { mergeMethod: "SQUASH" } } : null } } };
                 if (q.includes("mergeQueue(")) return { data: { repository: { mergeQueue: { entries: { nodes: world.queue } } } } };
                 if (q.includes("issueOrPullRequest")) return { data: { repository: Object.fromEntries([...q.matchAll(/n(\d+): issueOrPullRequest/g)].map(([, k]) => [`n${k}`, { __typename: world.issues[k] ? "Issue" : "PullRequest" }])) } };
                 if (q.includes("history: commits")) { const p = world.prs.find((x) => x.number === n); return { data: { repository: { pullRequest: p ? readinessJson(p) : null } } }; }

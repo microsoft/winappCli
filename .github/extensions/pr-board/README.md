@@ -65,6 +65,14 @@ for a typed answer, **Review**, **Post review…**, **Ask the agent to fix**, or
 - **Snooze ▾:** for 1 hour, until tomorrow 9:00, or until Monday 9:00. Then it
   comes back by itself. **Unsnooze** is in its panel.
 
+When the move isn't yours, the item's sheet says so under the ball line:
+**Nothing needed from you right now.** If the agent left something you may
+weigh in on, it shows next to that as **Optional: …** with a **Reply…** button.
+
+On your own PR, pr-review is a self-check: it's recorded, not posted. So the
+sheet never leads with **Post review…** or **Re-review** there, and a reviewer
+re-checking your changes shows as *Waiting on re-review*, not *Your re-review*.
+
 The chips at the top count each state and filter the list to it. **Watching N**
 filters to the PRs Agent merge is watching.
 
@@ -273,7 +281,7 @@ for example `Author: changes requested` with `for 2 days` under it:
 | Author still preparing it | The author's agent is still working (`agent-preparing`) | 3 days |
 | Waiting on a reviewer | Your PR; nobody has reviewed it yet | 3 days |
 | Approval doesn't count | Someone approved (maybe you), but GitHub still needs another approval | 1 day |
-| Approved, ready to merge | Someone else's PR is approved and green; the author merges it (**Ship** still works) | none |
+| Approved, ready to merge | Someone else's PR is approved and green; the author merges it (**Merge…** still works) | none |
 | Approved, blocked | Approved, but failing checks, conflicts, or behind main | 1 day |
 | Approved, waiting on CI | Approved; checks still running (says whether auto-merge is on) | 2 hours |
 | Auto-merge on | Approved and green; waiting to enter the merge queue | 3 hours |
@@ -284,7 +292,7 @@ A stuck PR shows `⚠️ Stuck: no response to changes requested for 12 days`. T
 thresholds live in `STUCK_AFTER_HOURS` at the top of the rules in `github.mjs`.
 
 The Overview's Status section shows the reason, since when, and a **suggested
-next action**: open a link (the checks or the merge queue), Review, Ship, or a
+next action**: open a link (the checks or the merge queue), Review, Merge…, or a
 nudge such as **Nudge the author…**. A nudge puts a draft comment in the
 message box:
 
@@ -446,7 +454,7 @@ post, and **Story** otherwise. The thread is always beside it.
 
 Everything else (next steps, status, the PR description) is under **More**.
 
-Buttons: the one that fits the stage is blue (Review, Post review…, Ship, or
+Buttons: the one that fits the stage is blue (Review, Post review…, Merge…, or
 Answer). **Summarize** is next to it, and **More** holds Open full chat, Pin to
 top, Open on GitHub, and Reset agent status. Tabs:
 
@@ -548,6 +556,11 @@ Panel:  What changed since you last looked · 12m ago
           bob moved the refresh lock into TokenStore, which fixes "Two refreshes can race".
 ```
 
+When newer commits land after a summary (for example your session's own fixes),
+the box says **Superseded by 3 newer commits**, shows the agent's latest message
+instead, and folds the old summary under **Earlier summary**. The row says
+*What changed: 3 newer commits since the last summary*.
+
 **When things start:**
 - After every GitHub read while the board is open.
 - When the board is closed, from `pr_board_tick`, which the coordinator can call on a schedule.
@@ -572,6 +585,40 @@ merges, labels or comments on GitHub, and never pushes to someone else's branch.
 drafts, and you decide. Every run is logged on the item's timeline, for example
 `Auto · re-review after a push because bob pushed 104aaaa (layer 2)`.
 
+## Merging from the board
+
+**Merge…** is on your own PRs and on approved PRs, and is the move when an
+approved PR is ready. In a merge-queue repo like winappCli it adds the PR to the
+queue. The dialog reads GitHub first and shows the PR, its branch and commit,
+and what will happen:
+
+```text
+Merge PR #1359?
+  Stop the DevTools inspector from growing app memory   main ← nmetulev-…  commit e9f832d
+  WHAT HAPPENS   Turns on auto-merge. As soon as the items below are done, GitHub adds it
+                 to the merge queue for main, which tests it and squash-merges it.
+  IT WAITS FOR   ◷ zateutsch approved an older commit. The branch rules need a fresh
+                   approval of the latest push.
+                                          [Check again]  [Cancel]  [Add to queue when ready]
+```
+
+| The PR | The button | What GitHub does |
+|--------|------------|------------------|
+| Approved, checks green | **Add to merge queue** | Adds it to the queue now |
+| Only waiting on an approval or running checks | **Add to queue when ready** | Turns on auto-merge; it joins the queue when ready |
+| Failing required checks, conflicts, changes requested, or a draft | none | The dialog lists what's in the way |
+| Already queued, or auto-merge on | **Take it out of the queue** / **Turn off auto-merge** | Removes it |
+
+In a repo without a merge queue, the buttons are **Squash and merge** and
+**Merge when ready** instead.
+
+The board runs `gh pr merge <n> --squash --auto --match-head-commit <sha>`, never
+`--admin`. It reads GitHub again when you confirm, and refuses if new commits
+landed after you opened the dialog. The result shows in the item's thread and on
+its card (*In merge queue #2*, *Auto-merge on*, or merged). There's no agent tool
+for this, so agents and Auto can't merge. When the agent offers you a **Merge**
+choice, it opens this dialog.
+
 ## What the buttons do
 
 Nothing is posted, approved, or merged unless you click the button for it.
@@ -580,7 +627,7 @@ Nothing is posted, approved, or merged unless you click the button for it.
 |--------|---------------------|
 | **Review** | Opens or reuses a session for the PR (`open_pr_session`, `send_session_message`, or `create_session`, whichever it has; otherwise it reviews inline), runs `.github/skills/pr-review`, and fills in the structured review (`pr_board_review_guide`, then `pr_board_set_review`). Moves the PR to Reviewing if it isn't yours. Nothing is posted. |
 | **Post review…** | With a structured review, goes to the Review tab to pick findings and preview the post (see above). With only a Markdown draft from `pr_board_attach_draft`, pick Approve, Request changes, or Comment, then click again to confirm; the agent runs `gh pr review --body-file <draft>` with that file. |
-| **Ship** | Enabled when the PR is approved and checks aren't failing. Click again to confirm. The agent follows `.github/skills/pr-lifecycle` and runs `gh pr merge --squash` (never `--admin`). If the PR isn't ready, it says what's blocking it. |
+| **Merge…** | Opens the Merge dialog (see [Merging from the board](#merging-from-the-board)). The board itself runs `gh pr merge` after you confirm; the agent isn't involved. |
 | **✨ Summarize** | Reads the PR and sets a one-sentence summary for a non-expert, up to 3 next steps, and a risk level. |
 | **Open full chat** | A `ghapp://sessions/<id>` link to the linked session. **↪** asks the agent to call `navigate_to` instead. |
 | **Reset status** | Clears a stuck agent status. |
@@ -595,7 +642,7 @@ Every request from the board tells the agent which of these to call.
 | Tool | Use |
 |------|-----|
 | `pr_board_sync_sessions` | Report the sessions on each PR or issue: activity, a pending question, Agent merge state, and when pr-review ran (on which commit). `untrack: true` stops tracking an item. For an issue, `branch` (the session's branch) or `linkedPr` lets the board show its PR |
-| `pr_board_set_next_step` | Say whose move it is: `{ pr` or `issue, owner, action, choices?, blocked? }` (owner: `you`, `agent`, `author`, `reviewer`, `reporter` or `ci`), or `clear: true`. Owner `you` puts it in **Your move** (choices become buttons that come back to the agent); `agent` shows the spinner |
+| `pr_board_set_next_step` | Say whose move it is: `{ pr` or `issue, owner, action, choices?, optional?, blocked? }` (owner: `you`, `agent`, `author`, `reviewer`, `reporter` or `ci`), or `clear: true`. Owner `you` puts it in **Your move** (choices become buttons that come back to the agent; a `Merge` choice opens the Merge dialog); `agent` shows the spinner. `optional` lists non-blocking asks shown next to *Nothing needed from you* |
 | `pr_board_set_explainer` | Write the "Explain like I'm 5" and "Where we are" sections for a PR or issue (`{ pr \| issue, eli5, progress }`, Markdown) |
 | `pr_board_set_summary` | Set the plain-words summary (≤140 characters), next steps, and risk (`low`, `medium`, `high`) |
 | `pr_board_reply` | Post a reply in a PR's thread (Markdown, with optional [anchors](#the-agent-can-point-at-things) and `focus`) |
@@ -662,7 +709,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ thread column: an anchor chip switches the tab on the left while the thread stays put (893ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-77 passed, 0 failed, 77 total (258s)
+88 passed, 0 failed, 88 total (322s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

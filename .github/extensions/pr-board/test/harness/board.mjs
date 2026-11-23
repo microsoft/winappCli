@@ -44,10 +44,10 @@ export async function startBoard({ live = false } = {}) {
     // Force a re-read from GitHub. The board allows one forced read every 5 seconds, so retry until it happens.
     board.refresh = async () => {
         const act = canvas.actions.find((a) => a.name === "refresh");
-        const before = board.world.calls;
+        const before = board.world.listCalls;
         for (let i = 0; i < 30; i++) {
             await act.handler({ instanceId: "ui-test", input: {} });
-            if (board.world.calls > before) return;
+            if (board.world.listCalls > before) return;
             await new Promise((r) => setTimeout(r, 250));
         }
         throw new Error("The board never re-read GitHub");

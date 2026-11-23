@@ -938,6 +938,187 @@ export function register(test) {
         assert.equal(await exists(page, '#wsScroll [data-act="gh-refresh"]'), true, "there's a way to retry");
     });
 
+    // ---- Merge from the board ------------------------------------------------------------------------
+    const openMergeDlg = async (page, sel = '#wsHead [data-act="merge-open"]') => {
+        await page.click(sel);
+        await page.waitFor(`!!document.querySelector('.merge-dlg') && !/Reading the PR/.test(document.querySelector('.merge-dlg').innerText)`, 5000, "the merge dialog");
+    };
+    const dlg = (page) => text(page, ".merge-dlg");
+    const merges = (world) => world.mutations.map((a) => a.join(" "));
+
+    test("merge: an approved, green PR shows what will happen, and Add to merge queue queues it", async (ctx) => {
+        const { page, world } = ctx;
+        world.allowMutations = true;
+        await openRow(page, 107);
+        await openMergeDlg(page);
+        const d = await dlg(page);
+        assert.match(d, /Merge PR #107\?/);
+        assert.match(d, /Add CSV export/);
+        assert.match(d, new RegExp(`branch-107 → main · commit ${HEAD[107].slice(0, 7)}`));
+        assert.match(d, /adds it to the merge queue for main now/);
+        assert.equal(world.mutations.length, 0, "opening the dialog wrote to GitHub");
+        await page.click('.merge-dlg [data-act="merge-confirm"]');
+        await page.waitFor(`/In the merge queue/.test(document.querySelector('.merge-dlg .mg-done')?.innerText || '')`, 8000, "the queued result");
+        assert.deepEqual(merges(world), [`pr merge 107 -R ${REPO} --squash --match-head-commit ${HEAD[107]} --auto`]);
+        assert.ok(!merges(world).some((m) => m.includes("--admin")));
+        assert.equal(ctx.host.sends.length, 0, "the agent was asked to merge");
+        await page.key("Escape");
+        await page.waitFor(`!document.querySelector('.merge-dlg')`, 2000, "the dialog to close");
+        assert.equal(await sheetOpen(page), true, "Esc closed the sheet too");
+        await page.waitFor(`/In merge queue #2/.test(document.getElementById('wsHead').innerText)`, 5000, "the header to show the queue");
+        assert.match(await text(page, "#tScroll"), /You added it to the merge queue for main/);
+    }, { changesGitHub: true, allowMutations: true });
+
+    test("merge: Cancel, Esc and the backdrop close the dialog without touching GitHub", async (ctx) => {
+        const { page, world } = ctx;
+        await openRow(page, 107);
+        await openMergeDlg(page);
+        await page.key("Escape");
+        await page.waitFor(`!document.querySelector('.merge-dlg')`, 2000, "Esc");
+        await openMergeDlg(page);
+        await page.click('.merge-dlg footer [data-act="merge-close"]');
+        await page.waitFor(`!document.querySelector('.merge-dlg')`, 2000, "Cancel");
+        await openMergeDlg(page);
+        await page.click(null, { at: { x: 10, y: 990 } });
+        await page.waitFor(`!document.querySelector('.merge-dlg')`, 2000, "the backdrop");
+        assert.equal(await sheetOpen(page), true);
+        assert.equal(world.mutations.length, 0);
+    });
+
+    test("merge: a PR waiting on approval offers Add to queue when ready, and auto-merge can be turned off again", async (ctx) => {
+        const { page, world } = ctx;
+        world.allowMutations = true;
+        await openRow(page, 101);
+        await openMergeDlg(page);
+        let d = await dlg(page);
+        assert.match(d, /It waits for/i);
+        assert.match(d, /Needs 1 approving review \(requested from zed\)/);
+        assert.match(await text(page, '.merge-dlg [data-act="merge-confirm"]'), /Add to queue when ready/);
+        await ctx.shot("merge-dialog-waits");
+        await page.click('.merge-dlg [data-act="merge-confirm"]');
+        await page.waitFor(`/Auto-merge is on/.test(document.querySelector('.merge-dlg')?.innerText || '')`, 8000, "auto-merge on");
+        assert.match(merges(world)[0], /^pr merge 101 .*--auto$/);
+        d = await dlg(page);
+        assert.match(d, /Turn off auto-merge/);
+        await page.click('.merge-dlg [data-act="merge-undo"]');
+        await page.waitFor(`/Auto-merge is off/.test(document.querySelector('.merge-dlg .mg-done')?.innerText || '')`, 8000, "auto-merge off");
+        assert.equal(merges(world)[1], `pr merge 101 -R ${REPO} --disable-auto`);
+        assert.match(await text(page, "#tScroll"), /You turned on auto-merge.*You turned off auto-merge/);
+    }, { changesGitHub: true, allowMutations: true });
+
+    test("merge: the last-push rule explains why an approval doesn't count", async (ctx) => {
+        const { page, world } = ctx;
+        world.prs.find((p) => p.number === 107).pusher = "zed";
+        await openRow(page, 107);
+        await openMergeDlg(page);
+        assert.match(await dlg(page), /zed pushed the latest commit, so their approval doesn't count here/);
+        assert.match(await text(page, '.merge-dlg [data-act="merge-confirm"]'), /Add to queue when ready/);
+        await page.key("Escape");
+        world.prs.find((p) => p.number === 107).pusher = null;
+        world.push(107, "One more fix");
+        await openMergeDlg(page);
+        assert.match(await dlg(page), /zed approved an older commit\. The branch rules need a fresh approval of the latest push/);
+        assert.equal(world.mutations.length, 0);
+    }, { changesGitHub: true });
+
+    test("merge: failing required checks or conflicts say why, with no merge button", async (ctx) => {
+        const { page, world } = ctx;
+        const p = world.prs.find((x) => x.number === 107);
+        p.checks[0].conclusion = "FAILURE";
+        p.mergeable = "CONFLICTING";
+        await openRow(page, 107);
+        await openMergeDlg(page);
+        const d = await dlg(page);
+        assert.match(d, /What's in the way/i);
+        assert.match(d, /Required check failed: build-and-package/);
+        assert.match(d, /merge conflicts with main/);
+        assert.equal(await exists(page, '.merge-dlg [data-act="merge-confirm"]'), false, "a merge button for a PR that can't merge");
+        assert.match(await text(page, '.merge-dlg footer'), /Close/);
+    }, { changesGitHub: true });
+
+    test("merge: if new commits land after the dialog opened, nothing merges", async (ctx) => {
+        const { page, world } = ctx;
+        page.allowStatus.add("POST /api/merge 409");
+        await openRow(page, 107);
+        await openMergeDlg(page);
+        world.push(107, "Late change");
+        await page.click('.merge-dlg [data-act="merge-confirm"]');
+        await page.waitFor(`/New commits landed after you opened this/.test(document.querySelector('.merge-dlg .mg-err')?.innerText || '')`, 6000, "the refusal");
+        assert.equal(world.mutations.length, 0);
+    }, { changesGitHub: true });
+
+    test("merge: an agent's \"Merge\" choice opens the dialog instead of asking the agent", async (ctx) => {
+        const { page } = ctx;
+        await ctx.board.tool("pr_board_set_next_step", { repo: REPO, pr: 105, owner: "you", action: "Looks good: merge it?", choices: ["Merge", "Not yet"] });
+        await page.waitFor(`!!document.querySelector('#overview .ym-card [data-act="choose"][data-pr="105"][data-choice="Merge"]')`, 4000, "the choice");
+        const before = ctx.host.sends.length;
+        await openMergeDlg(page, '#overview .ym-card [data-act="choose"][data-pr="105"][data-choice="Merge"]');
+        assert.match(await dlg(page), /Merge PR #105\?/);
+        assert.equal(ctx.host.sends.length, before, "the agent was asked instead");
+        assert.equal(ctx.world.mutations.length, 0);
+    });
+
+    test("merge: a PR in the queue can be taken out", async (ctx) => {
+        const { page, world } = ctx;
+        world.allowMutations = true;
+        await openRow(page, 106);
+        assert.match(await text(page, '#wsHead [data-act="merge-open"]'), /In merge queue #1/);
+        await openMergeDlg(page);
+        assert.match(await dlg(page), /PR #106 is in the merge queue.*position 1/);
+        await page.click('.merge-dlg [data-act="merge-undo"]');
+        await page.waitFor(`/Taken out of the merge queue/.test(document.querySelector('.merge-dlg .mg-done')?.innerText || '')`, 8000, "the result");
+        assert.match(merges(world)[0], /^api graphql -f query=mutation.*dequeuePullRequest.* -f id=PR_106$/s);
+    }, { changesGitHub: true, allowMutations: true });
+
+    // ---- #1359: own PRs, stale summaries, and "nothing needed from you" --------------------------------
+    test("regression (#1359): a What changed summary older than newer pushes says it's superseded", async (ctx) => {
+        const { page, world } = ctx;
+        await ctx.board.tool("pr_board_set_what_changed", { repo: REPO, pr: 107, text: "zed requested changes: **fix the retry count**." });
+        world.push(107, "Fix the retry count");
+        await refresh(ctx);
+        await ctx.board.tool("pr_board_reply", { repo: REPO, pr: 107, text: "Fixed the retry count; waiting on zed.", from: "PR #107 session" });
+        await page.waitFor(`/\\d+ newer commits? since the last summary/.test(document.querySelector('#overview .ov-title[data-pr="107"]').closest('.ov-row, .ym-card').innerText)`, 5000, "the row to say it's superseded");
+        assert.doesNotMatch(await rowText(page, 107), /fix the retry count\b(?!;)/i, "the row still shows the old ask");
+        await openRow(page, 107);
+        await tabTo(page, "overview");
+        const box = await text(page, "#wsScroll .wc-box");
+        assert.match(box, /Superseded by \d+ newer commits?/);
+        assert.match(box, /Latest from PR #107 session.*Fixed the retry count; waiting on zed/);
+        assert.equal(await page.eval(`document.querySelector('#wsScroll .wc-box .wc-old').open`), false, "the old summary is open");
+        await ctx.shot("what-changed-superseded");
+    }, { changesGitHub: true });
+
+    test("regression (#1359): your own PR never leads with Post review or Your re-review", async (ctx) => {
+        const { page, world } = ctx;
+        await ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 107, review: { headSha: HEAD[107], verdict: "approve", risk: "low", summary: "Self-check.", findings: [] } });
+        const p = world.prs.find((x) => x.number === 107);
+        p.reviewDecision = "CHANGES_REQUESTED";
+        p.reviews.push({ id: "", author: { login: "zed" }, state: "CHANGES_REQUESTED", submittedAt: new Date(Date.now() - 180 * 60000).toISOString(), body: "", commit: { oid: HEAD[107] } });
+        world.push(107, "Address zed's review");
+        await refresh(ctx);
+        await openRow(page, 107);
+        const primaries = await page.eval(`[...document.querySelectorAll('#wsHead .actions button.primary')].map((b) => b.innerText.trim())`);
+        assert.ok(!primaries.some((t) => /Post review|Re-review|Review/.test(t)), `primary: ${primaries}`);
+        assert.equal(await exists(page, '#wsHead .actions [data-act="tab"][data-tab="review"]'), false, "Post review… on your own PR");
+        const head = await text(page, "#wsHead .ws-meta");
+        assert.doesNotMatch(head, /Your re-review/);
+        assert.match(head, /Waiting on re-review/);
+    }, { changesGitHub: true });
+
+    test("regression (#1359): when the move isn't yours, the sheet says Nothing needed from you, with optional asks", async (ctx) => {
+        const { page } = ctx;
+        await ctx.board.tool("pr_board_set_next_step", { repo: REPO, pr: 101, owner: "reviewer", action: "zed re-reviews the retry fix", optional: ["Judge whether the empty-upload edge case matters"] });
+        await openRow(page, 101);
+        const line = await text(page, "#wsHead .nothing-you");
+        assert.match(line, /Nothing needed from you right now/);
+        assert.match(line, /Optional: Judge whether the empty-upload edge case matters/);
+        await ctx.shot("nothing-needed");
+        await page.click('#wsHead .nothing-you [data-act="ball-reply"]');
+        assert.equal(await page.eval(`document.activeElement?.id`), "input");
+        await closeSheet(page);
+        await openRow(page, 107);
+        assert.equal(await exists(page, "#wsHead .nothing-you"), false, "Nothing needed on a PR that's your move");
+    });
     // ---- Anchors -----------------------------------------------------------------------------------
     test("anchors: a finding chip opens the Review tab and highlights it", async ({ page }) => {
         await openRow(page, 104);

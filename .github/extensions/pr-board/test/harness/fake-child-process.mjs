@@ -11,7 +11,8 @@ export const calls = [];
 // gh commands that change something on GitHub. Tests never let these through.
 export function isGhWrite(args) {
     const verbs = { pr: ["edit", "merge", "review", "ready", "close", "comment", "create"], issue: ["edit", "close", "comment", "create"] };
-    return args.includes("-X") || args.includes("--method") || !!verbs[args[0]]?.includes(args[1]);
+    return args.includes("-X") || args.includes("--method") || !!verbs[args[0]]?.includes(args[1])
+        || (args[0] === "api" && args[1] === "graphql" && args.some((a) => /^query=\s*mutation\b/.test(a)));
 }
 globalThis.__prBoardGhCalls = calls;
 let n = 0;

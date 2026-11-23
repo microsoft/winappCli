@@ -555,8 +555,23 @@ body.tc-narrow .tcol { width: auto; border-top: 1px solid var(--border); }
 body.tc-narrow .tcol-body { flex: none; max-height: 42vh; }
 body.tc-narrow:not(.tc-open) .tcol-body { display: none; }
 
-/* ---- Backdrop behind the sheet and the Auto panel ---- */
-.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.28); z-index: 30; }
+/* ---- Merge dialog ---- */
+#mergeHost .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .32); z-index: 70; }
+.merge-dlg { position: fixed; z-index: 71; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 32px); overflow-y: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, .3); padding: var(--s5); display: flex; flex-direction: column; gap: var(--s3); font-size: var(--t-small); }
+.merge-dlg h2 { margin: 0; font-size: var(--t-title, 16px); display: flex; align-items: center; gap: var(--s2); }
+.merge-dlg h3 { margin: var(--s2) 0 0; font-size: var(--t-meta); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.merge-dlg p { margin: 0; }
+.merge-dlg .mg-pr { padding: var(--s3); border: 1px solid var(--border); border-radius: 8px; background: var(--subtle); display: flex; flex-direction: column; gap: 4px; }
+.merge-dlg .mg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.merge-dlg .mg-list li { display: flex; gap: var(--s2); align-items: flex-start; }
+.merge-dlg .mg-list li svg { flex: none; margin-top: 2px; }
+.merge-dlg .mg-state { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; padding: var(--s2) var(--s3); border-radius: 8px; background: color-mix(in srgb, var(--green) 10%, var(--bg)); }
+.merge-dlg .mg-why { padding: var(--s2) var(--s3); border-radius: 8px; background: color-mix(in srgb, var(--orange) 10%, var(--bg)); }
+.merge-dlg .mg-err { color: var(--red); }
+.merge-dlg .mg-done { color: var(--green); font-weight: var(--w-strong); }
+.merge-dlg footer { display: flex; justify-content: flex-end; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s2); }
+
+/* ---- Backdrop behind the sheet and the Auto panel ---- */.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.28); z-index: 30; }
 .quick-cmds { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .changes { display: flex; flex-direction: column; gap: var(--s2); font-size: var(--t-small); }
 .changes ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
@@ -779,6 +794,13 @@ tr.dl.hit td { background: var(--yellow-muted); }
 .wc-box { border: 1px solid var(--hairline); border-left: 3px solid var(--blue, #0969da); border-radius: 8px; padding: var(--s2) var(--s3); margin-bottom: var(--s3); }
 .wc-box h4 { margin: 0 0 var(--s1, 4px); font-size: var(--t-meta); display: flex; gap: var(--s2); align-items: center; }
 .wc-box h4 .when { color: var(--muted); font-weight: normal; }
+.wc-box.stale { border-left-color: var(--muted); }
+.wc-box .wc-sup { margin: 0 0 var(--s2); }
+.wc-box .wc-old summary { cursor: pointer; color: var(--muted); font-size: var(--t-meta); }
+.wc-box .wc-old .md { opacity: .75; }
+.nothing-you { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); font-size: var(--t-small); color: var(--muted); }
+.nothing-you b { color: var(--text, inherit); font-weight: var(--w-strong); }
+.nothing-you .opt { display: inline-flex; align-items: center; gap: var(--s2); padding: 2px var(--s2); border: 1px dashed var(--border); border-radius: 999px; color: var(--fg); }
 .wc-box ul { margin: var(--s1, 4px) 0 0; padding-left: 18px; font-size: var(--t-meta); color: var(--muted); }
 
 /* ---- Narrow panel ---- */
@@ -830,6 +852,7 @@ body.narrow header.top { flex-wrap: wrap; row-gap: var(--s2); gap: var(--s2); }
   </section>
 </div>
 <div id="autoHost"></div>
+<div id="mergeHost"></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -1007,6 +1030,7 @@ const RISK = { low: ["checkCircle", "tone-ok", "Low risk"], medium: ["alert", "t
 const SHORT = {
   "Waiting on your review": ["eye", "Your review"],
   "Author responded, needs re-review": ["eye", "Your re-review"],
+  "Waiting on a re-review": ["person", "Waiting on re-review"],
   "Changes requested, no response": ["xCircle", "Author: changes requested"],
   "Draft, author still working": ["pencil", "Draft"],
   "Author still preparing it": ["running", "Author: preparing"],
@@ -1060,6 +1084,8 @@ const cardsOf = () => snap?.cards || [];
 const current = () => cardsOf().find((c) => c.number === selected) || issuesOf().find((c) => c.number === selected) || null;
 const isBusy = (c) => c.local?.agent?.status === "running";
 const draftOf = (c) => (c.local?.draft && !c.local.draft.postedAt) ? c.local.draft : null;
+// PRs the user wrote, or that a session here works on as the author.
+const ownPr = (c) => c.kind !== "issue" && (c.section === "yours" || (!!snap?.viewer && c.author === snap.viewer) || c.local?.role === "author");
 const canShip = (c) => c.group !== "merged" && !c.queue && c.reviewDecision === "APPROVED" && c.ci?.state !== "failing" && !isBusy(c);
 
 // A drafted review for the current commit means the next step is posting it, not reviewing.
@@ -1082,10 +1108,10 @@ function ciHtml(c) {
 function primaryAction(c) {
   const local = c.local || {};
   if (c.group === "merged" || isBusy(c)) return null;
-  if (draftOf(c)) return { act: "row-post", label: "Post review", primary: true };
+  if (draftOf(c) && !ownPr(c)) return { act: "row-post", label: "Post review", primary: true };
   if (local.agent?.status === "waiting") return { act: "row-answer", label: "Answer", primary: true };
-  if (c.shippable && canShip(c)) return armed?.key === c.number + ":ship" ? { act: "ship", label: "Click again to ship", confirm: true } : { act: "ship", label: "Ship", primary: true };
-  if (c.group === "you" && !c.isDraft) return { act: "review", label: c.reason?.label === "Author responded, needs re-review" ? "Re-review" : "Review", primary: true };
+  if (c.shippable && canShip(c)) return { act: "merge-open", label: "Merge…", primary: true };
+  if (c.group === "you" && !c.isDraft && !ownPr(c)) return { act: "review", label: c.reason?.label === "Author responded, needs re-review" ? "Re-review" : "Review", primary: true };
   if (!local.summary && !local.summarizing) return { act: "summarize", label: "Summarize" };
   return null;
 }
@@ -1122,7 +1148,7 @@ function renderHead(c) {
   const isOpen = c.group !== "merged";
   const pa = primaryAction(c);
   const postArmed = armed?.key?.startsWith(c.number + ":post:");
-  const shipArmed = armed?.key === c.number + ":ship";
+  const own = ownPr(c);
   const det = details.get(c.number)?.data;
   const s = statusOf(c);
   const ghv = ghViews.get("pr:" + c.number)?.data;
@@ -1135,11 +1161,13 @@ function renderHead(c) {
 
   const buttons = [];
   if (isOpen) {
-    if (rvOf(c) && !draft) buttons.push(`<button class="primary" data-act="tab" data-tab="review">Post review…</button>`);
-    if (draft) buttons.push(`<button data-act="post-menu" class="${postArmed ? "confirm" : "primary"}" ${busy ? "disabled" : ""} aria-haspopup="menu" aria-expanded="${openMenu === "post"}">${postArmed ? "Click again: " + esc(armed.label) : "Post review"}${postArmed ? "" : icon("chevDown", "sm")}</button>`);
+    if (rvOf(c) && !draft && !own) buttons.push(`<button class="primary" data-act="tab" data-tab="review">Post review…</button>`);
+    if (draft) buttons.push(`<button data-act="post-menu" class="${postArmed ? "confirm" : own ? "" : "primary"}" ${busy ? "disabled" : ""} aria-haspopup="menu" aria-expanded="${openMenu === "post"}">${postArmed ? "Click again: " + esc(armed.label) : "Post review"}${postArmed ? "" : icon("chevDown", "sm")}</button>`);
     if (pa?.act === "row-answer") buttons.push(`<button class="primary" data-act="row-answer">Answer the agent</button>`);
-    if (c.shippable || shipArmed) buttons.push(`<button data-act="ship" class="${shipArmed ? "confirm" : "primary"}" ${canShip(c) ? "" : "disabled"}>${shipArmed ? "Click again to ship" : "Ship"}</button>`);
-    const reviewPrimary = pa?.act === "review";
+    if (c.queue || c.autoMerge) buttons.push(`<button data-act="merge-open" data-pr="${c.number}" title="See its merge status, or take it out">${icon(c.queue ? "queue" : "merged", "sm")}${c.queue ? `In merge queue #${c.queue.position}` : "Auto-merge on"}…</button>`);
+    else if (c.reviewDecision === "APPROVED" || (own && !c.isDraft)) buttons.push(`<button data-act="merge-open" data-pr="${c.number}" class="${c.shippable && canShip(c) ? "primary" : ""}" title="Merge it, or add it to the merge queue. You confirm first.">${icon("merged", "sm")}Merge…</button>`);
+    // On your own PR, pr-review is a self-check: it's recorded, not posted, so it never leads.
+    const reviewPrimary = pa?.act === "review" && !own;
     buttons.push(`<button data-act="review" class="${reviewPrimary ? "primary" : ""}" ${busy ? "disabled" : ""} title="${esc(REVIEW_TIP)} Nothing is posted.">${local.draft || rvOf(c) ? "Re-review" : pa?.label === "Re-review" ? "Re-review" : "Review"}</button>`);
   }
   buttons.push(`<button data-act="summarize" ${local.summarizing ? "disabled" : ""} title="Ask the agent for a plain-words summary and next steps">${icon("sparkle", "sm")}${local.summarizing ? "Summarizing…" : "Summarize"}</button>`);
@@ -1159,7 +1187,7 @@ function renderHead(c) {
       ${c.review ? mkChip(c.review.state === "done" ? "ok" : c.review.state === "stale" ? "you" : "neutral", c.review.state === "done" ? "checkCircle" : c.review.state === "stale" ? "reset" : "dash", "pr-review: " + c.review.label, c.review.text) : ""}
       ${watchBadge(c)}${readyMeter(c)}${issueChips(c)}
     </div>
-    ${ballLine(c, ball(c), { buttons: false })}
+    ${ballLine(c, ball(c), { buttons: false })}${nothingNeeded(c)}
     <div class="actions">${buttons.join("")}
       <span class="quick-cmds" role="group" aria-label="Quick commands">${cmdButtons(c, "pr", ["review", "summarize"])}</span>
       ${openMenu === "post" ? `<div class="menu" role="menu" aria-label="Post review as">
@@ -1193,7 +1221,7 @@ function overviewHtml(c) {
     <div class="ov-where">${whereHtml(c)}</div>${c.section === "reviewing" ? `<div class="ov-story">${storyHtml(c)}</div>` : ""}`;
   const stands = (c.lifecycle ? readinessHtml(c) : "") + `<section class="sec story-where"><h3>Where it is</h3>${where}</section>`;
   return step(1, "What this is", whatChangedBox(c) + explainerHtml(c)) + step(2, "What changed", changed + changesHtml(c.number)) + step(3, "What we found", found) + step(4, "Where it stands", stands)
-    + step(5, "What's needed from you", askHtml(c) + ballLine(c, ball(c), { buttons: false }))
+    + step(5, "What's needed from you", askHtml(c) + ballLine(c, ball(c), { buttons: false }) + nothingNeeded(c))
     + `<details class="panel" data-k="story-more"><summary>${icon("chevRight", "sm chev")}More: status, description, timeline</summary><div class="body">${overviewHtmlBase(c, { story: true })}</div></details>`;
 }
 function overviewHtmlBase(c, { story = false } = {}) {
@@ -2046,7 +2074,7 @@ function renderIssueHead(c) {
       ${issuePrChip(c)}
       ${agentCell(c).replace('class="ov-cell"', 'class="ov-cell inline"')}
     </div>
-    ${ballLine(c, ball(c), { buttons: false })}
+    ${ballLine(c, ball(c), { buttons: false })}${nothingNeeded(c)}
     <div class="actions"><span class="quick-cmds" role="group" aria-label="Quick commands">${cmdButtons(c, "issue")}</span>
       <button data-act="more-menu" class="quiet" aria-haspopup="menu" aria-expanded="${openMenu === "more"}" aria-label="More actions">${icon("more")}More</button>
       ${openMenu === "more" ? moreMenu(c) : ""}</div>
@@ -2131,7 +2159,7 @@ function readinessHtml(c) {
   const approved = c.reviewDecision === "APPROVED";
   const next = c.queue ? `<span class="hint">In the merge queue at position ${c.queue.position}. Nothing to do unless it drops out.</span>`
     : r.ready
-    ? (approved ? `<button class="primary" data-act="open" data-pr="${c.number}">Merge…</button>` : r.requestedHumans.length ? `<span class="hint">Review requested from ${esc(r.requestedHumans.join(", "))}</span>` : reviewerButtons(c))
+    ? (approved ? `<button class="primary" data-act="merge-open" data-pr="${c.number}">Merge…</button>` : r.requestedHumans.length ? `<span class="hint">Review requested from ${esc(r.requestedHumans.join(", "))}</span>` : reviewerButtons(c))
     : keep ? `<span class="hint">${icon("eye", "sm")} Keeping it ready: the agent works through the gates, and the board requests a Copilot review and a pr-review rerun for each new commit.</span>`
     : KEEP_BTN(c, "primary", "Get it ready & keep it ready");
   return `<section class="sec rd">
@@ -2311,7 +2339,7 @@ function moveButtons(c, b, { withDone = true } = {}) {
   else if (b.st === "decide" && b.explicit) out.push(...(b.choices || []).slice(0, 3).map((x, i) => `<button class="${i ? "" : "primary"}" data-act="choose" ${at} data-choice="${esc(x)}">${esc(x)}</button>`));
   if (b.st === "decide" && !b.findings && (b.reply || b.question || !b.choices?.length)) out.push(`<button class="${out.length ? "" : "primary"}" data-act="ball-reply" ${at}>Reply…</button>`);
   if (b.st === "ready" && b.reqReviewer) out.push(reviewerButtons(c));
-  else if (b.st === "ready" && b.ship) out.push(`<button class="primary" data-act="open" ${at}>Merge…</button>`);
+  else if (b.st === "ready" && b.ship) out.push(`<button class="primary" data-act="merge-open" ${at}>Merge…</button>`);
   else if (b.st === "ready" && b.brSend) out.push(`<button class="primary" data-act="br-send" ${at}>Send ${b.brSend} comment${b.brSend === 1 ? "" : "s"}</button><button data-act="br-open" ${at}>Open the diff</button>`);
   else if (b.st === "ready" && b.brReview) out.push(`<button class="primary" data-act="br-open" ${at}>Re-review</button>`);
   else if (b.st === "ready" && b.post) out.push(`<button class="primary" data-act="ball-post" ${at}>Post review…</button>`);
@@ -2339,6 +2367,13 @@ const SNOOZE = [
 
 // One line for headers and rows: the ball's state and the ask.
 const hintHtml = (c) => c.hint ? ` <span class="row-hint" title="GitHub still needs an Approve review before this can merge.">· ${esc(c.hint)}</span>` : "";
+// When the move isn't yours, say so plainly, and list any optional asks the agent left for you.
+function nothingNeeded(c, b = ball(c)) {
+  if (c.group === "merged" || BALL[b.st].you || b.st === "snoozed") return "";
+  const kind = c.kind === "issue" ? "issue" : "pr";
+  const opt = c.local?.next?.optional || [];
+  return `<div class="nothing-you">${icon("checkCircle", "sm tone-ok")}<b>Nothing needed from you right now.</b>${opt.map((o) => `<span class="opt">Optional: ${esc(o)} <button class="quiet" data-act="ball-reply" data-pr="${c.number}" data-kind="${kind}">Reply…</button></span>`).join("")}</div>`;
+}
 function ballLine(c, b = ball(c), { buttons = true } = {}) {
   const meta = BALL[b.st];
   const lead = BALL[b.st].you || b.st === "agent" ? `<b>${esc(meta.label)}:</b> ` : b.st === "waiting" && b.owner ? `<b>${esc(b.owner)}:</b> ` : b.st === "snoozed" ? `<b>Snoozed</b> ` : "";
@@ -2834,9 +2869,21 @@ function eventsText(evs) {
   return [...by].map(([who, x]) => [x.push ? `pushed ${x.push} commit${x.push === 1 ? "" : "s"}` : "", x.merged ? "merged main" : "", x.review ? `${x.review.state === "APPROVED" ? "approved" : x.review.state === "CHANGES_REQUESTED" ? "requested changes" : "reviewed"}` : "", x.comment ? `commented “${(x.comment.preview || "").slice(0, 80)}${(x.comment.preview || "").length > 80 ? "…" : ""}”` : ""].filter(Boolean).join(", ").replace(/^/, `${who} `)).join("; ");
 }
 const plainLine = (s) => String(s || "").replace(/\[\[[^\]]+\]\]/g, "").replace(/[*_`#>]/g, "").replace(/\s+/g, " ").trim();
+// A "What changed" summary describes the PR up to one commit. Once newer commits land (often our own session's
+// fixes), it no longer reads as the current state: say so, and show the latest word from the agent instead.
+function wcStale(c) {
+  const w = c.local?.whatChanged;
+  if (!w || c.kind === "issue") return null;
+  const pushes = (c.activity || []).filter((e) => e.kind === "push" && !e.baseMerge && tms(e.at) > tms(w.upTo || w.at));
+  if (!(w.head ? c.headSha && c.headSha !== w.head && pushes.length : pushes.length)) return null;
+  const latest = [...(c.local?.thread || [])].reverse().find((m) => m.role === "agent" && tms(m.at) > tms(w.at)) || null;
+  return { n: pushes.length, latest };
+}
 function whatChangedLine(c) {
   if (!involvedItem(c)) return "";
   const w = c.local?.whatChanged;
+  const st = w && wcStale(c);
+  if (st && tms(w.at) > seenAt(c)) return `<div class="wc-line stale" title="The summary is older than the latest commits">${icon("refresh", "sm")} <b>What changed:</b> ${st.n} newer commit${st.n === 1 ? "" : "s"} since the last summary${st.latest ? ` · ${esc(plainLine(st.latest.text).slice(0, 140))}` : ""}</div>`;
   if (w && tms(w.at) > seenAt(c)) return `<div class="wc-line" title="${esc(plainLine(w.text))}">${icon("refresh", "sm")} <b>What changed:</b> ${esc(plainLine(w.text))}</div>`;
   const ev = unseenEvents(c);
   return ev.length ? `<div class="wc-line" title="${esc(eventsText(ev))}">${icon("refresh", "sm")} <b>New:</b> ${esc(eventsText(ev))}</div>` : "";
@@ -2847,6 +2894,11 @@ function whatChangedBox(c) {
   if (!w && !ev.length) return "";
   if (w && !ev.length && Date.now() - tms(w.at) > 3 * 86400e3) return "";
   const evName = (e) => (e.kind === "push" ? `pushed ${esc(String(e.id).slice(0, 7))}` : e.kind === "review" ? "reviewed" : "commented");
+  const st = w && wcStale(c);
+  if (st) return `<section class="wc-box stale" aria-label="What changed since you last looked"><h4>${icon("refresh", "sm")}What changed since you last looked<span class="when">superseded</span></h4>
+    <p class="wc-sup"><b>Superseded by ${st.n} newer commit${st.n === 1 ? "" : "s"}.</b> The summary below was written before them, so its asks may already be done.${st.latest ? ` Latest from ${esc(st.latest.from || "the agent")}, ${esc(ago(st.latest.at))} ago:` : ""}</p>
+    ${st.latest ? `<div class="md">${md(st.latest.text.length > 600 ? st.latest.text.slice(0, 600) + "…" : st.latest.text)}</div>` : ""}
+    <details class="wc-old"><summary>Earlier summary, ${esc(ago(w.at))} ago</summary><div class="md">${md(w.text)}</div></details></section>`;
   return `<section class="wc-box" aria-label="What changed since you last looked"><h4>${icon("refresh", "sm")}What changed since you last looked${w ? `<span class="when">${esc(ago(w.at))}</span>` : ""}</h4>${w ? `<div class="md">${md(w.text)}</div>` : ""}${ev.length ? `<ul>${ev.slice(-6).map((e) => `<li>${esc(e.who)} ${evName(e)}${e.preview ? `: “${esc(e.preview.slice(0, 120))}”` : ""}${e.url ? ` <a href="${esc(e.url)}" target="_blank" rel="noopener" aria-label="Open on GitHub">↗</a>` : ""}</li>`).join("")}</ul>` : ""}</section>`;
 }
 
@@ -3027,6 +3079,89 @@ document.addEventListener("pointerdown", (e) => {
 });
 addEventListener("resize", () => { applyThreadLayout(); if (view === "detail") render(); });
 
+// ---- Merge from the board: a confirmation dialog, then the extension runs gh pr merge, pinned to the commit shown ----
+// Only a click here merges. The agent and proactive runs have no way to call it.
+let mergeDlg = null; // { pr, info, loading, error, busy, done, opener }
+const MERGE_CHOICE = /^(merge|merge it|merge now|ship|ship it|add (it )?to (the )?merge queue|merge when ready|queue it)[.!]?$/i;
+const kindOf = (el) => (el.dataset.kind === "issue" ? "issue" : "pr");
+async function openMerge(n, opener) {
+  if (!n) return;
+  mergeDlg = { pr: n, loading: true, opener };
+  renderMerge();
+  await loadMerge();
+}
+async function loadMerge(keepError = false) {
+  const n = mergeDlg?.pr;
+  if (!n) return;
+  try {
+    const res = await fetch(`/api/merge-info?repo=${encodeURIComponent(REPO)}&n=${n}`);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || res.statusText);
+    if (mergeDlg?.pr === n) Object.assign(mergeDlg, { info: d, loading: false }, keepError ? {} : { error: null });
+  } catch (e) { if (mergeDlg?.pr === n) Object.assign(mergeDlg, { loading: false, error: e.message }); }
+  renderMerge();
+}
+function closeMerge() {
+  const o = mergeDlg?.opener;
+  mergeDlg = null;
+  renderMerge();
+  if (o?.isConnected) o.focus();
+}
+async function runMerge(undo) {
+  const d = mergeDlg, i = d?.info;
+  if (!i || d.busy) return;
+  d.busy = true; d.error = null; d.done = null;
+  renderMerge();
+  try {
+    const r = undo ? await post("/api/merge-cancel", { pr: d.pr }) : await post("/api/merge", { pr: d.pr, head: i.head, op: i.action.op, auto: !!i.action.auto });
+    if (mergeDlg !== d) return;
+    d.done = undo ? (i.inQueue ? "Taken out of the merge queue." : "Auto-merge is off.")
+      : r.info?.state === "merged" ? `Merged into ${i.base}.` : r.info?.inQueue ? `In the merge queue${r.info.inQueue.position ? ` at position ${r.info.inQueue.position}` : ""}.` : r.info?.autoMerge ? "Auto-merge is on." : "Done.";
+    if (r.info) d.info = r.info;
+    toast(d.done);
+  } catch (e) {
+    if (mergeDlg !== d) return;
+    d.error = e.message;
+    loadMerge(true);
+  } finally { d.busy = false; renderMerge(); }
+}
+function renderMerge() {
+  const host = $("mergeHost");
+  if (!mergeDlg) { host.innerHTML = ""; return; }
+  const d = mergeDlg, i = d.info, c = itemOf("pr", d.pr);
+  const keep = document.activeElement?.closest?.("#mergeHost")?.dataset.act;
+  let head = `Merge PR #${d.pr}?`, body = "", btns = "";
+  if (d.loading && !i) body = `<p class="hint">${icon("running", "sm")} Reading the PR from GitHub…</p>`;
+  else if (!i) body = `<p class="mg-err" role="alert">Couldn't read it from GitHub: ${esc(d.error || "")}</p>`;
+  else {
+    if (i.state === "merged") head = `PR #${d.pr} is merged`;
+    else if (i.inQueue) head = `PR #${d.pr} is in the merge queue`;
+    else if (i.autoMerge) head = `Auto-merge is on for PR #${d.pr}`;
+    const pr = `<div class="mg-pr"><b>${esc(i.title)}</b><span class="hint"><code>${esc(i.branch)}</code> → <code>${esc(i.base)}</code> · commit <code>${esc(i.head.slice(0, 7))}</code>${i.author ? ` · by ${esc(i.author)}` : ""}</span></div>`;
+    const state = i.inQueue ? `<div class="mg-state">${icon("queue", "sm")}<span>In the merge queue for ${esc(i.base)}${i.inQueue.position ? ` at position ${i.inQueue.position}` : ""}. GitHub merges it once the queue's checks pass.</span></div>`
+      : i.autoMerge ? `<div class="mg-state">${icon("merged", "sm")}<span>Auto-merge is on${i.autoMerge.by ? ` (turned on by ${esc(i.autoMerge.by)})` : ""}. GitHub ${i.queue ? "adds it to the merge queue" : "merges it"} as soon as it's ready.</span></div>` : "";
+    const items = i.blockers.map((x) => `<li class="mg-${x.kind}">${icon(x.kind === "block" ? "xCircle" : "clock", "sm " + (x.kind === "block" ? "tone-bad" : "tone-mute"))}<span>${esc(x.text)}</span></li>`).join("");
+    const notes = i.notes.map((x) => `<li>${icon("dash", "sm tone-mute")}<span class="hint">${esc(x)}</span></li>`).join("");
+    body = `${pr}${state}
+      ${i.action ? `<h3>What happens</h3><p>${esc(i.action.explain)}</p>` : !state && i.why ? `<p class="mg-why">${esc(i.why)}</p>` : ""}
+      ${items ? `<h3>${i.action ? "It waits for" : "What's in the way"}</h3><ul class="mg-list">${items}</ul>` : ""}
+      ${notes ? `<ul class="mg-list">${notes}</ul>` : ""}
+      ${d.error ? `<p class="mg-err" role="alert">${esc(d.error)}</p>` : ""}
+      ${d.done ? `<p class="mg-done" role="status">${icon("checkCircle", "sm")} ${esc(d.done)}</p>` : ""}`;
+    if (i.cancel) btns += `<button data-act="merge-undo" ${d.busy ? "disabled" : ""}>${esc(i.cancel.label)}</button>`;
+    if (i.action) btns += `<button class="primary" data-act="merge-confirm" ${d.busy ? "disabled" : ""}>${d.busy ? "Working…" : esc(i.action.label)}</button>`;
+  }
+  host.innerHTML = `<div class="scrim" data-act="merge-close" aria-hidden="true"></div>
+  <div class="merge-dlg" role="dialog" aria-modal="true" aria-labelledby="mergeTitle">
+    <h2 id="mergeTitle">${icon("merged", "sm")}${esc(head)}</h2>
+    ${!i && c ? `<div class="mg-pr"><b>${esc(c.title)}</b></div>` : ""}
+    ${body}
+    <footer><button class="quiet" data-act="merge-recheck" ${d.loading || d.busy ? "disabled" : ""}>${icon("refresh", "sm")}Check again</button><span style="flex:1"></span><button data-act="merge-close">${d.done || !i?.action ? "Close" : "Cancel"}</button>${btns}</footer>
+  </div>`;
+  const target = (keep && host.querySelector(`[data-act="${keep}"]:not([disabled])`)) || host.querySelector('[data-act="merge-confirm"]:not([disabled]), [data-act="merge-undo"]:not([disabled])') || host.querySelector('footer [data-act="merge-close"]');
+  target?.focus();
+}
+
 function select(pr, { tabTo, focus } = {}) {
   if (tabTo) { tab = tabTo; store.set("prb-tab", tab); }
   document.body.classList.add("detail");
@@ -3065,6 +3200,11 @@ document.addEventListener("click", (e) => {
   }
   const a = el.dataset.act;
   const rowPr = el.dataset.pr ? Number(el.dataset.pr) : null;
+  if (a === "merge-open") { openMenu = null; return openMerge(rowPr ?? selected, el); }
+  if (a === "merge-close") return closeMerge();
+  if (a === "merge-recheck") { mergeDlg.loading = true; mergeDlg.error = null; renderMerge(); return loadMerge(); }
+  if (a === "merge-confirm" || a === "merge-undo") return runMerge(a === "merge-undo");
+  if (a === "choose" && kindOf(el) === "pr" && MERGE_CHOICE.test(el.dataset.choice || "")) return openMerge(rowPr, el);
   if (a === "auto-open") { autoOpen = !autoOpen; renderAutoHeader(); renderAutoPanel(); if (autoOpen) $("autoHost").querySelector("[data-act=auto-pause]")?.focus(); return; }
   if (a === "auto-close") { autoOpen = false; renderAutoHeader(); renderAutoPanel(); return $("autoBtn").focus(); }
   if (a === "auto-pause") return saveAuto({ paused: !autoOf()?.settings.paused });
@@ -3175,15 +3315,12 @@ document.addEventListener("click", (e) => {
     return openMenuAndFocus("post");
   }
   if (a === "post") { openMenu = null; arm(`${pr}:post:${el.dataset.event}`, el.textContent.trim()); return $("wsHead").querySelector('[data-act="post-menu"]')?.focus(); }
-  if (a === "ship") {
-    if (armed?.key === `${pr}:ship`) { clearTimeout(armed.timer); armed = null; render(); return act(pr, "ship"); }
-    return arm(`${pr}:ship`, "ship");
-  }
   openMenu = null;
   return act(pr, a);
 });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && mergeDlg) { e.preventDefault(); e.stopPropagation(); return closeMerge(); }
   if (e.key === "Escape" && autoOpen) { e.preventDefault(); autoOpen = false; renderAutoHeader(); renderAutoPanel(); return $("autoBtn").focus(); }
   if (e.key === "Escape") {
     if (openMenu) { const which = openMenu; openMenu = null; render(); return $("wsHead").querySelector(`[data-act="${which}-menu"]`)?.focus(); }

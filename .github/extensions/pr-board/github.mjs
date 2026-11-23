@@ -716,7 +716,7 @@ export function classify(pr, ctx, local) {
         const reqAt = maxIso(...allReqs.map((r) => r.submittedAt));
         if (reqAt && ts(act.authorActivity) > ts(reqAt)) {
             const since = act.authorActivity;
-            const r = reason("Author responded, needs re-review", `${by.join(", ")} requested changes; the author pushed or replied ${duration(since)} ago.`, since, stuckIf(since, "reReview", "no re-review since the author responded"),
+            const r = reason(isMine ? "Waiting on a re-review" : "Author responded, needs re-review", isMine ? `${by.join(", ")} requested changes; you pushed or replied ${duration(since)} ago, so it's their move.` : `${by.join(", ")} requested changes; the author pushed or replied ${duration(since)} ago.`, since, stuckIf(since, "reReview", "no re-review since the author responded"),
                 isMine ? { label: "Ask for a re-review", nudge: `@${by.join(", @")}, I've addressed your feedback. Could you take another look?` } : { label: "Re-review the new changes", act: "review" });
             if (isMine) return { lane: "waiting", waitingOn: `${by.join(", ")}: re-review your changes`, who: "others", ci, reason: r };
             return { lane: "needs-review", waitingOn: `You: re-review (author responded to ${by.join(", ")})`, who: "you", ci, reason: r };
@@ -752,9 +752,9 @@ export function classify(pr, ctx, local) {
         }
         // Someone else's PR: once it's approved and green, merging is the author's move.
         if (!isMine && local?.role !== "author" && !isBot(pr.author)) return { lane: "approved", waitingOn: `${author}: merge it (approved, checks pass)`, who: "author", ci, shippable: true,
-            reason: reason("Approved, ready to merge", "Approved and checks pass; the author can merge it.", approvedAt, null, { label: "Ship it", act: "ship" }) };
+            reason: reason("Approved, ready to merge", "Approved and checks pass; the author can merge it.", approvedAt, null, { label: "Merge…", act: "merge-open" }) };
         return { lane: "approved", waitingOn: "You: ready to ship", who: "you", ci, shippable: true,
-            reason: reason("Ready to ship", "Approved and checks pass.", approvedAt, null, { label: "Ship it", act: "ship" }) };
+            reason: reason("Ready to ship", "Approved and checks pass.", approvedAt, null, { label: "Merge…", act: "merge-open" }) };
     }
     if (pr.mergeable === "CONFLICTING") {
         const since = act.lastPush;
@@ -902,6 +902,7 @@ export function buildCards(data, localPrs) {
             reviewShas: t.reviewShas,
             who: c.who,
             shippable: !!c.shippable,
+            autoMerge: pr.autoMergeRequest ? { enabledAt: pr.autoMergeRequest.enabledAt || null } : null,
             myReviewAt: maxIso(t.viewerReviewAt, my?.submittedAt),
             hint: pr.author?.login !== data.viewer && my?.state === "COMMENTED" && pr.reviewDecision === "REVIEW_REQUIRED" ? "Your comment doesn't count as approval" : null,
             updatedAt: pr.updatedAt,
@@ -1164,4 +1165,163 @@ export function computeReadiness(raw, local = {}, ctx = {}) {
     const humans = raw.reviewRequests.nodes.map((r) => r.requestedReviewer?.login || r.requestedReviewer?.name).filter((l) => l && !COPILOT.test(l));
     return { head, reviewHead, keepReady, label, gates, extras, passed, total: gates.length, ready, allGreen: ready, outOfDate, findings, requestedHumans: humans,
         copilot: { covered: copNow.length > 0, requested: copRequested, open: copOpen.length }, reviewCovered: rvItem.state === "pass" || !!rvItem.items, fetchedAt: raw.fetchedAt };
+}
+
+// ---- Merging from the board (only ever on the user's click, after a confirmation) ---------------
+
+const MERGE_QUERY = `query($owner: String!, $name: String!, $n: Int!) { repository(owner: $owner, name: $name) {
+    autoMergeAllowed squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed
+    pullRequest(number: $n) {
+        id number title url state isDraft headRefOid headRefName baseRefName mergeable mergeStateStatus reviewDecision author { login }
+        autoMergeRequest { enabledAt mergeMethod enabledBy { login } }
+        isInMergeQueue mergeQueueEntry { position state }
+        latestReviews(first: 30) { nodes { author { login } state commit { oid } } }
+        reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
+        commits(last: 1) { nodes { commit { author { user { login } } statusCheckRollup { state contexts(first: 100) { nodes { __typename
+            ... on CheckRun { name status conclusion isRequired(pullRequestNumber: $n) }
+            ... on StatusContext { context state isRequired(pullRequestNumber: $n) } } } } } } }
+    } } }`;
+const QUEUE_CONFIG_QUERY = `query($owner: String!, $name: String!, $branch: String!) { repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { url configuration { mergeMethod } } } }`;
+
+const reviewRuleCache = new Map();
+// The base branch's pull request rule: how many approvals, and whether the last push needs its own approval.
+async function fetchReviewRule(repo, base) {
+    const key = `${repo}#${base}`;
+    const hit = reviewRuleCache.get(key);
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.value;
+    let value = null;
+    try {
+        const rules = JSON.parse(await gh(["api", `repos/${repo}/rules/branches/${encodeURIComponent(base)}`]));
+        const pr = rules.filter((r) => r.type === "pull_request").map((r) => r.parameters || {});
+        value = { approvals: Math.max(0, ...pr.map((p) => p.required_approving_review_count || 0)), lastPush: pr.some((p) => p.require_last_push_approval) };
+    } catch { value = null; }
+    reviewRuleCache.set(key, { value, at: Date.now() });
+    return value;
+}
+
+const FAILED = new Set(["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"]);
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+const list = (xs) => xs.length <= 2 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`;
+
+// What merging would do right now, and what's still in the way, in plain words.
+//   blockers: { kind: "wait" } can be waited out by auto-merge; { kind: "block" } needs someone to act first.
+export function mergePlan(raw) {
+    const { repo: r, pr, queue, rule } = raw;
+    const base = pr.baseRefName;
+    const out = {
+        number: pr.number, title: pr.title, url: pr.url, id: pr.id, base, branch: pr.headRefName, head: pr.headRefOid, author: pr.author?.login || null,
+        state: pr.state === "MERGED" ? "merged" : pr.state === "CLOSED" ? "closed" : "open",
+        queue: queue ? { url: queue.url, method: queue.configuration?.mergeMethod || null } : null,
+        inQueue: pr.isInMergeQueue ? { position: pr.mergeQueueEntry?.position ?? null, state: pr.mergeQueueEntry?.state || null } : null,
+        autoMerge: pr.autoMergeRequest ? { enabledAt: pr.autoMergeRequest.enabledAt, by: pr.autoMergeRequest.enabledBy?.login || null } : null,
+        blockers: [], notes: [], action: null, why: null, cancel: null,
+    };
+    if (out.state !== "open") { out.why = out.state === "merged" ? "It's already merged." : "It's closed."; return out; }
+    if (out.inQueue || out.autoMerge) {
+        out.cancel = out.inQueue ? { op: "dequeue", label: "Take it out of the queue" } : { op: "disable-auto", label: "Turn off auto-merge" };
+        out.why = out.inQueue ? `It's already in the merge queue${out.inQueue.position ? ` at position ${out.inQueue.position}` : ""}.` : "Auto-merge is already on.";
+        return out;
+    }
+    const block = (text) => out.blockers.push({ kind: "block", text });
+    const wait = (text) => out.blockers.push({ kind: "wait", text });
+
+    if (pr.isDraft) block("It's a draft. Mark it ready for review first.");
+    if (pr.mergeable === "CONFLICTING" || pr.mergeStateStatus === "DIRTY") block(`It has merge conflicts with ${base}. Resolve them first.`);
+    else if (pr.mergeable === "UNKNOWN") out.notes.push("GitHub is still checking it for conflicts.");
+    if (pr.mergeStateStatus === "BEHIND") (queue ? out.notes.push(`It's behind ${base}; the queue tests it on top of ${base} anyway.`) : block(`It's behind ${base}. Update the branch first.`));
+
+    const checks = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes || [];
+    const nameOf = (c) => c.name || c.context;
+    const failed = (c) => c.__typename === "CheckRun" ? c.status === "COMPLETED" && FAILED.has(c.conclusion) : FAILED.has(c.state);
+    const running = (c) => c.__typename === "CheckRun" ? c.status !== "COMPLETED" : ["PENDING", "EXPECTED"].includes(c.state);
+    const req = checks.filter((c) => c.isRequired);
+    const badReq = req.filter(failed).map(nameOf), runReq = req.filter(running).map(nameOf);
+    const badOpt = checks.filter((c) => !c.isRequired && failed(c)).map(nameOf);
+    if (badReq.length) block(`Required check${badReq.length === 1 ? "" : "s"} failed: ${list(badReq)}.`);
+    if (runReq.length) wait(`Required check${runReq.length === 1 ? " is" : "s are"} still running: ${list(runReq)}.`);
+    if (badOpt.length) out.notes.push(`Optional check${badOpt.length === 1 ? "" : "s"} failed (${list(badOpt)}); they don't block merging.`);
+
+    const reviews = pr.latestReviews?.nodes || [];
+    const changes = reviews.filter((x) => x.state === "CHANGES_REQUESTED").map((x) => x.author?.login).filter(Boolean);
+    if (pr.reviewDecision === "CHANGES_REQUESTED" || changes.length) block(`${changes.length ? list(changes) : "A reviewer"} asked for changes. They need to approve, or dismiss their review.`);
+    else {
+        const approvals = reviews.filter((x) => x.state === "APPROVED");
+        const pusher = pr.commits?.nodes?.[0]?.commit?.author?.user?.login || null;
+        const need = Math.max(rule?.approvals || 0, pr.reviewDecision === "REVIEW_REQUIRED" ? 1 : 0);
+        const counted = rule?.lastPush ? approvals.filter((x) => x.commit?.oid === pr.headRefOid && x.author?.login !== pusher) : approvals;
+        const requested = (pr.reviewRequests?.nodes || []).map((x) => x.requestedReviewer?.login || x.requestedReviewer?.name).filter(Boolean);
+        if (counted.length < need || pr.reviewDecision === "REVIEW_REQUIRED") {
+            const own = rule?.lastPush && approvals.filter((x) => x.commit?.oid === pr.headRefOid && x.author?.login === pusher).map((x) => x.author.login);
+            const older = rule?.lastPush && approvals.filter((x) => x.commit?.oid !== pr.headRefOid).map((x) => x.author?.login).filter(Boolean);
+            if (own?.length) wait(`${list(own)} pushed the latest commit, so their approval doesn't count here. Someone else needs to approve it.`);
+            else if (older?.length) wait(`${list(older)} approved an older commit. The branch rules need a fresh approval of the latest push.`);
+            else wait(`Needs ${plural(Math.max(need, 1), "approving review")}${requested.length ? ` (requested from ${list(requested)})` : ""}.`);
+        }
+    }
+    if (pr.mergeStateStatus === "BLOCKED" && !out.blockers.length && !queue) wait(`GitHub's branch rules still block it (for example a code owner's review).`);
+
+    const methods = [r.squashMergeAllowed && "squash", r.mergeCommitAllowed && "merge", r.rebaseMergeAllowed && "rebase"].filter(Boolean);
+    out.method = queue ? (out.queue.method || "SQUASH").toLowerCase() : methods[0] || "squash";
+    const how = out.method === "squash" ? "squash-merges" : out.method === "rebase" ? "rebases and merges" : "merges";
+    if (out.blockers.some((x) => x.kind === "block")) { out.why = "Fix the items below first. Merging can't wait them out."; return out; }
+    const ready = !out.blockers.length;
+    if (!ready && !r.autoMergeAllowed) { out.why = "This repo doesn't allow auto-merge, so it can only merge once everything below is done."; return out; }
+    if (queue) out.action = ready
+        ? { op: "queue", auto: true, label: "Add to merge queue", explain: `GitHub adds it to the merge queue for ${base} now. The queue tests it together with ${base}, then ${how} it. You can take it out until then.` }
+        : { op: "queue", auto: true, label: "Add to queue when ready", explain: `Turns on auto-merge. As soon as the items below are done, GitHub adds it to the merge queue for ${base}, which tests it and ${how} it. Nothing merges before then, and you can turn it off.` };
+    else out.action = ready
+        ? { op: "merge", auto: false, label: `${out.method === "squash" ? "Squash and merge" : out.method === "rebase" ? "Rebase and merge" : "Merge"}`, explain: `GitHub ${how} it into ${base} right away. This can't be undone from the board.` }
+        : { op: "merge", auto: true, label: "Merge when ready", explain: `Turns on auto-merge: GitHub ${how} it into ${base} as soon as the items below are done. You can turn it off until then.` };
+    return out;
+}
+
+export async function fetchMergeInfo(repo, number) {
+    const [owner, name] = repo.split("/");
+    const d = JSON.parse(await gh(["api", "graphql", "-f", `query=${MERGE_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `n=${number}`], { timeoutMs: 45000 }));
+    const r = d.data?.repository, pr = r?.pullRequest;
+    if (!pr) throw new Error(d.errors?.[0]?.message || `PR #${number} not found`);
+    let queue = null;
+    try {
+        const q = JSON.parse(await gh(["api", "graphql", "-f", `query=${QUEUE_CONFIG_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-f", `branch=${pr.baseRefName}`]));
+        queue = q.data?.repository?.mergeQueue || null;
+    } catch { queue = null; }
+    const rule = await fetchReviewRule(repo, pr.baseRefName);
+    return { ...mergePlan({ repo: r, pr, queue, rule }), fetchedAt: new Date().toISOString() };
+}
+
+// Turn gh's merge errors into one plain line. Some "errors" mean it's already done.
+function mergeError(text) {
+    const t = String(text || "");
+    if (/already (queued|in (the|a) merge queue)|is already enqueued/i.test(t)) return { done: true, state: "queued" };
+    if (/auto.?merge.*already (enabled|on)|already has auto.?merge/i.test(t)) return { done: true, state: "auto" };
+    if (/head (branch|commit|ref).*(modified|changed|expected|match)|expected.?head|matchHeadCommit/i.test(t)) return { message: "New commits landed after you opened this. Look again before merging." };
+    if (/auto.?merge is not allowed|not allowed to enable auto.?merge/i.test(t)) return { message: "This repo doesn't allow auto-merge. Try again once it's ready." };
+    if (/not mergeable|merge conflict|is not in a mergeable state|blocked by/i.test(t)) return { message: `GitHub says it can't merge yet: ${t.replace(/^.*?(X |error: )/i, "").slice(0, 200)}` };
+    if (/permission|not authorized|must have (write|admin)/i.test(t)) return { message: "Your GitHub account can't merge this PR." };
+    return { message: t.slice(0, 300) || "gh couldn't merge it." };
+}
+
+// Merge, queue, or turn on auto-merge, pinned to the commit the user confirmed. Never --admin.
+export async function mergePr(repo, number, { head, op, auto, method }) {
+    if (!/^[0-9a-f]{40}$/i.test(String(head || ""))) throw new Error("Missing the commit you confirmed.");
+    const args = ["pr", "merge", String(number), "-R", repo, `--${["squash", "merge", "rebase"].includes(method) ? method : "squash"}`, "--match-head-commit", head];
+    if (auto || op === "queue") args.push("--auto");
+    try {
+        const out = await gh(args, { timeoutMs: 60000 });
+        return { ok: true, output: String(out || "").trim().slice(0, 300) };
+    } catch (e) {
+        const m = mergeError(e.message);
+        if (m.done) return { ok: true, already: m.state };
+        throw new Error(m.message);
+    }
+}
+
+const DEQUEUE = `mutation($id: ID!) { dequeuePullRequest(input: { id: $id }) { clientMutationId } }`;
+export async function cancelMerge(repo, number, { id, inQueue, autoMerge }) {
+    if (inQueue) await gh(["api", "graphql", "-f", `query=${DEQUEUE}`, "-f", `id=${id}`]);
+    if (autoMerge || !inQueue) {
+        try { await gh(["pr", "merge", String(number), "-R", repo, "--disable-auto"]); }
+        catch (e) { if (!inQueue && !/not enabled|no auto.?merge/i.test(e.message)) throw e; }
+    }
+    return { ok: true };
 }

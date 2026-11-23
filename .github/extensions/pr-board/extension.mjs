@@ -1,21 +1,21 @@
 import { readdirSync } from "node:fs";
 // Extension: pr-board
 // An inbox of a repo's pull requests with a per-PR workspace: status, timeline,
-// draft review, review/post/ship buttons, and a thread with the hosting agent.
+// draft review, review/post/merge buttons, and a thread with the hosting agent.
 import { createServer } from "node:http";
 import { readFileSync, existsSync, statSync, watchFile, unwatchFile } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, requestCopilotReview, fetchBranchCompare, fetchChangesSince, fetchCodeRefs, fetchDetail, fetchPrFiles, fetchGitHubView, fetchIssues, fetchRepoData, GhError, GROUPS } from "./github.mjs";
+import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, requestCopilotReview, fetchBranchCompare, fetchChangesSince, fetchCodeRefs, fetchDetail, fetchPrFiles, fetchGitHubView, fetchIssues, fetchRepoData, fetchMergeInfo, mergePr, cancelMerge, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
 import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
 import { candidates, LAYERS, normalizeSettings, plan, sampleMachine, today } from "./auto.mjs";
-import { autoPrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, shipPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { autoPrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -72,6 +72,13 @@ class Board {
         this.ticking = false;
         // Replies older than this never count as unread, so a new install doesn't flag every old reply.
         if (!readState(repo).meta.readBaseline) updateMeta(repo, (m) => { m.readBaseline ??= new Date().toISOString(); });
+    }
+
+    // Read GitHub again right now, even if it was read a moment ago (after you merge or queue something).
+    async refreshNow() {
+        if (this.inflight) await this.inflight.catch(() => {});
+        this.fetchedAt = 0;
+        return this.refresh({ force: true });
     }
 
     async refresh({ force = false } = {}) {
@@ -366,12 +373,44 @@ async function runBallAction({ repo, kind, number, action, extra, card }) {
 }
 const BALL_ACTIONS = new Set(["ball-done", "ball-snooze", "ball-unsnooze", "choose", "open-pr", "fix"]);
 // Actions that are the user acting on the item (they hand the ball to the agent or GitHub).
-const ACTING = new Set(["get-ready", "request-reviewer", "fix-finding", "fix-description", "review", "post", "post-findings", "ship", "answer", "monitor", "status-update", "summarize-replies", "explain-changes", "start-issue"]);
+const ACTING = new Set(["get-ready", "request-reviewer", "fix-finding", "fix-description", "review", "post", "post-findings", "answer", "monitor", "status-update", "summarize-replies", "explain-changes", "start-issue"]);
 
 // Record an event in both the timeline and the thread, so the thread reads as one story.
 function note(s, text) {
     addHistory(s, text);
     addMessage(s, "system", text);
+}
+
+// Merge, queue or turn on auto-merge for a PR, or undo that. Only the board's Merge dialog calls this, after the
+// user confirmed; there's no agent tool for it, so proactive runs can't merge. GitHub is read again first, and the
+// merge is pinned to the commit the user saw, so nothing merges if the PR changed in between.
+async function mergeAction(repo, pr, what, body) {
+    const b = board(repo);
+    let info;
+    try { info = await fetchMergeInfo(repo, pr); } catch (e) { throw httpError(502, e.message); }
+    if (what === "cancel") {
+        if (!info.cancel) throw httpError(409, "It isn't in the merge queue and auto-merge is off.");
+        try { await cancelMerge(repo, pr, { id: info.id, inQueue: !!info.inQueue, autoMerge: !!info.autoMerge }); } catch (e) { throw httpError(502, `Couldn't undo it: ${e.message}`); }
+        updatePr(repo, pr, (s) => { s.merge = { state: "off", at: nowIso() }; note(s, info.inQueue ? "You took it out of the merge queue" : "You turned off auto-merge"); });
+    } else {
+        if (String(body.head || "") !== info.head) throw httpError(409, "New commits landed after you opened this. Look again before merging.");
+        if (!info.action) throw httpError(409, info.why || "It can't merge yet.");
+        if (body.op !== info.action.op || !!body.auto !== !!info.action.auto) throw httpError(409, "What merging would do has changed since you opened this. Look again.");
+        let r;
+        try { r = await mergePr(repo, pr, { head: info.head, op: info.action.op, auto: info.action.auto, method: info.method }); } catch (e) { throw httpError(502, e.message); }
+        const state = r.already || (info.action.op === "queue" ? (info.action.auto && info.blockers.length ? "auto" : "queued") : info.action.auto ? "auto" : "merged");
+        const text = {
+            queued: `You added it to the merge queue for ${info.base}. GitHub merges it once the queue's checks pass.`,
+            auto: info.queue ? `You turned on auto-merge. GitHub adds it to the merge queue for ${info.base} once it's approved and checks pass.` : `You turned on auto-merge. GitHub merges it into ${info.base} once it's approved and checks pass.`,
+            merged: `You merged it into ${info.base}.`,
+        }[state];
+        updatePr(repo, pr, (s) => { s.merge = { state, at: nowIso(), head: info.head }; userActed(s); note(s, text); });
+    }
+    b.broadcast();
+    await Promise.race([b.refreshNow(), new Promise((r) => setTimeout(r, 10000))]).catch(() => {});
+    let after = null;
+    try { after = await fetchMergeInfo(repo, pr); } catch { after = null; }
+    return { ok: true, info: after };
 }
 
 async function runIssueAction({ repo, number, action, extra = {} }) {
@@ -501,14 +540,6 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
             note(s, `You asked to post the draft as "${word}"`);
         });
         await send(postPrompt(card, repo, event), repo, pr);
-    } else if (action === "ship") {
-        if (card.lane === "merged" || card.queue) throw httpError(409, "This PR is already merged or queued.");
-        if (busy && !force) throw httpError(409, "An agent is already working on this PR.");
-        updatePr(repo, pr, (s) => {
-            s.agent = { status: "running", kind: "ship", outcome: "Asking the agent to send it to the merge queue", updatedAt: nowIso() };
-            note(s, "You asked to ship it");
-        });
-        await send(shipPrompt(card, repo), repo, pr);
     } else if (action === "summarize") {
         updatePr(repo, pr, (s) => {
             s.summarizing = { at: nowIso() };
@@ -887,6 +918,12 @@ async function handle(req, res) {
         if (!Number.isInteger(n) || n <= 0) throw httpError(400, "Invalid number");
         return json(200, await githubView(repo, kind, n, url.searchParams.get("force") === "1"));
     }
+    if (req.method === "GET" && url.pathname === "/api/merge-info") {
+        const repo = checkRepo(url.searchParams.get("repo"));
+        const n = Number(url.searchParams.get("n"));
+        if (!Number.isInteger(n) || n <= 0) throw httpError(400, "Invalid number");
+        try { return json(200, await fetchMergeInfo(repo, n)); } catch (e) { throw httpError(502, e.message); }
+    }
     if (req.method === "GET" && url.pathname === "/api/draft") {
         const repo = checkRepo(url.searchParams.get("repo"));
         const draft = readState(repo).prs[String(Number(url.searchParams.get("pr")))]?.draft;
@@ -972,6 +1009,11 @@ async function handle(req, res) {
             await b.startRun(full, snap, "send", "user");
             b.broadcast();
             return json(200, { ok: true });
+        }
+        if (url.pathname === "/api/merge" || url.pathname === "/api/merge-cancel") {
+            const pr = Number(body.pr);
+            if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
+            return json(200, await mergeAction(repo, pr, url.pathname === "/api/merge" ? "merge" : "cancel", body));
         }
         if (url.pathname === "/api/review-preview") {
             const pr = Number(body.pr);
@@ -1252,6 +1294,7 @@ const tools = [
                 action: { type: "string", description: "One plain line: the move, e.g. 'Pick A or B for the memory fix' or 'Approve the dependabot config PR'." },
                 choices: { type: "array", items: { type: "string" }, description: "Optional buttons for the user (owner 'you'), e.g. ['A', 'B'] or ['Go', 'Not now']." },
                 blocked: { type: "boolean", description: "true = it's blocked (CI red, conflicts, an error) and someone has to fix it." },
+                optional: { type: "array", items: { type: "string" }, description: "Optional asks for the user that don't block anything, one plain line each, e.g. ['Judge whether the empty-list edge case matters']. Shown under \"Nothing needed from you\" when the owner isn't you." },
                 clear: { type: "boolean", description: "true = remove the explicit next step." },
             },
         },
@@ -1266,7 +1309,8 @@ const tools = [
                 if (!action) throw new Error("action is empty");
                 const choices = (Array.isArray(args.choices) ? args.choices : []).map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 4);
                 updateItem(repo, kind, n, (s) => {
-                    s.next = { owner: args.owner, action, choices, blocked: !!args.blocked, at: nowIso() };
+                    const optional = (Array.isArray(args.optional) ? args.optional : []).map((x) => String(x).replace(/\s+/g, " ").trim().slice(0, 200)).filter(Boolean).slice(0, 3);
+                    s.next = { owner: args.owner, action, choices, optional, blocked: !!args.blocked, at: nowIso() };
                     s.ballDone = null;
                     if (args.owner !== "you") s.snoozeUntil = null;
                     if (args.owner !== "agent") s.pending = null;
@@ -1360,7 +1404,7 @@ const tools = [
             const b = board(repo);
             const item = b.data ? b.item(kind, n) : null;
             const upTo = (item?.activity || []).map((e) => e.at).filter(Boolean).sort().at(-1) || nowIso();
-            updateItem(repo, kind, n, (s) => { s.whatChanged = { text, at: nowIso(), upTo }; });
+            updateItem(repo, kind, n, (s) => { s.whatChanged = { text, at: nowIso(), upTo, head: item?.headSha || null }; });
             b.broadcast();
             return { ok: true, repo, [kind]: n };
         },
@@ -1551,7 +1595,7 @@ session = await joinSession({
         createCanvas({
             id: "pr-board",
             displayName: "PR board",
-            description: "Inbox of a GitHub repo's pull requests grouped by who they wait on, with a per-PR workspace: status, timeline, draft review, review/post/ship buttons and an inline thread with the agent.",
+            description: "Inbox of a GitHub repo's pull requests grouped by who they wait on, with a per-PR workspace: status, timeline, draft review, review/post/merge buttons and an inline thread with the agent.",
             inputSchema: {
                 type: "object",
                 additionalProperties: false,

@@ -92,20 +92,6 @@ export function postPrompt(card, repo, event) {
     ].join("\n");
 }
 
-export function shipPrompt(card, repo) {
-    return [
-        header("Ship", card, repo),
-        linkedLine(card),
-        ``,
-        `The user explicitly asked to send this PR through the merge queue.`,
-        `Follow the repository's \`.github/skills/pr-lifecycle\` skill for the final readiness check: a human approval exists for the current head, required checks have passed, and there are no conflicts.`,
-        `If it's ready, run \`gh pr merge ${card.number} -R ${repo} --squash\` to add it to the merge queue. Never use \`--admin\`, never bypass branch protection, never approve the PR yourself.`,
-        `If it isn't ready, don't merge; explain in one or two plain sentences what's blocking it and who needs to act.`,
-        `If the PR is linked to a session you can message with \`send_session_message\`, you may ask that session to do this instead; otherwise do it here.`,
-        `Finally call \`pr_board_set_status\` with \`{ repo: "${repo}", pr: ${card.number}, status: "done" or "failed", outcome: <one line, e.g. "Queued for merge" or "Blocked: build-and-package failing"> }\`.`,
-    ].join("\n");
-}
-
 // The board shows the agent's short narration and tool steps live in the thread while it works.
 // Anchors let a reply point at a spot on the board; the board turns them into chips that scroll there.
 export const ANCHOR_LINE = `To point at something, put an anchor in the reply text: [[finding:f1]], [[file:path#L12-L20]], [[node:diagramId/nodeId]], [[gate:ci]] or [[thread:<review thread id>]]. Pass the most important one as \`focus\` too, so the board scrolls there when the reply arrives.`;
@@ -115,7 +101,7 @@ const PROGRESS_LINE = `While you work, start each step with one short plain line
 const EXPLAINER_LINE = (card, repo) => `If this changes your understanding of ${repo}#${card.number} or a decision was made, update its explainer with \`pr_board_set_explainer\` \`{ repo: "${repo}", ${card.kind === "issue" ? "issue" : "pr"}: ${card.number}, eli5, progress }\`. eli5 = the problem or change in plain words, with background, one example, why it matters, and where it stands on GitHub; progress = what we've done, decisions with dates, and the next step with who takes it.`;
 
 // Ask the agent to say whose move it is after it answers.
-const NEXT_STEP_LINE = (card, repo) => `If your reply leaves a decision or an action with the user, say so on the board with \`pr_board_set_next_step\` \`{ repo: "${repo}", ${card.kind === "issue" ? "issue" : "pr"}: ${card.number}, owner: "you", action: <one plain line>, choices?: [<button labels>] }\`. If the next move is someone else's, use their role as owner (author, reviewer, reporter, ci) or "agent" while you work. On a PR with readiness gates, the board holds a reviewer or readiness step for the user until every gate is green, so set those only as a follow-up, not as a decision.`;
+const NEXT_STEP_LINE = (card, repo) => `If your reply leaves a decision or an action with the user, say so on the board with \`pr_board_set_next_step\` \`{ repo: "${repo}", ${card.kind === "issue" ? "issue" : "pr"}: ${card.number}, owner: "you", action: <one plain line>, choices?: [<button labels>] }\`. If the next move is someone else's, use their role as owner (author, reviewer, reporter, ci) or "agent" while you work, and put anything the user may optionally weigh in on in \`optional: [<one plain line each>]\` rather than in prose. To let the user merge, use the choice "Merge": it opens the board's Merge dialog (never merge yourself). On a PR with readiness gates, the board holds a reviewer or readiness step for the user until every gate is green, so set those only as a follow-up, not as a decision.`;
 
 const KIND = (card) => (card.kind === "issue" ? "issue" : "PR");
 const ref = (card) => (card.kind === "issue" ? `issue: ${card.number}` : `pr: ${card.number}`);
@@ -367,7 +353,7 @@ export function choosePrompt(card, repo, next, choice) {
             ? `It's linked to session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""}; if the work happens there, pass the decision on with \`send_session_message\` and ask it to report back.`
             : `No session is linked; act on it yourself.`,
         `Treat it as the user's decision. Confirm in one line with \`pr_board_reply\` \`{ repo: "${repo}", ${ref2(card)}, text }\`, then set the next step with \`pr_board_set_next_step\` (owner "agent" while work runs).`,
-        `Don't post to GitHub, approve or merge unless the choice says so.`,
+        `Don't post to GitHub or approve unless the choice says so. Never merge, queue or turn on auto-merge yourself: the user does that with the board's Merge button, which confirms first. If the choice is "do X, then merge", do X, then set the next step for the user (owner "you") with the choice "Merge", which opens that dialog.`,
     ].join("\n");
 }
 
