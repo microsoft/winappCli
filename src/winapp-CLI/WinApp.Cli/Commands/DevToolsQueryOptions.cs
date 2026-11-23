@@ -27,7 +27,7 @@ internal static class DevToolsQueryOptions
     };
     public static Option<string?> Value { get; } = new("--value")
     {
-        Description = "New literal value for a query-targeted set; omit the positional selector.",
+        Description = "New value for a query-targeted set, e.g. 200, false, #FF0067C0, or {ThemeResource key}; omit the positional selector.",
     };
 
     public static void Add(Command command, bool fields = false, bool write = false)

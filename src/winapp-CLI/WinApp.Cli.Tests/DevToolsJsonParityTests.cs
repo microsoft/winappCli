@@ -265,12 +265,15 @@ public class DevToolsJsonParityTests
     [DataRow("static", null, "{ThemeResource K}", "doesn't match")]
     [DataRow("theme", null, "two words", "needs a resource key")]
     [DataRow("theme", null, "", "needs a resource key")]
-    public async Task SetProperty_InvalidResourceArguments_FailBeforeWriting(string resource, string? type, string value, string expected)
+    [DataRow(null, null, "{ThemeResource Accent Brush}", "needs one resource key")]
+    [DataRow(null, null, "{StaticResource Key, Foo}", "needs one resource key")]
+    public async Task SetProperty_InvalidResourceArguments_FailBeforeWriting(string? resource, string? type, string value, string expected)
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("Property.get", """{"props":[{"name":"Background","value":"#FF808080","valueType":"SolidColorBrush","writeType":"SolidColorBrush"}]}""")
             .Answer("HotReload.setProperty", "null");
-        var args = new List<string> { "42", "Background", value, "--resource", resource, "--json" };
+        var args = new List<string> { "42", "Background", value, "--json" };
+        if (resource is not null) { args.AddRange(["--resource", resource]); }
         if (type is not null) { args.AddRange(["--type", type]); }
 
         var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args.ToArray());

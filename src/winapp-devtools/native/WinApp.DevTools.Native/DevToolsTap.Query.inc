@@ -436,7 +436,8 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
                 const HRESULT written = request.resource.empty()
                     ? SetLiteral(match.raw, request.property, type, request.value, &detail)
                     : AssignResource(match.raw, request.property, request.value, request.resource == L"theme", &detail);
-                status = SUCCEEDED(written) ? L"applied" : written == kResourceNotInScope ? L"not-applied" : L"indeterminate";
+                status = SUCCEEDED(written) ? L"applied"
+                    : written == kResourceNotInScope || written == kResourceWrongType ? L"not-applied" : L"indeterminate";
                 if (FAILED(written)) failure = detail.empty() ? HrStr(written) : detail;
                 TapQueryRow observed{match.raw, match.node, {}, {}};
                 ++propertyReads;

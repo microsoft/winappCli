@@ -217,13 +217,17 @@ static bool RefuseSecretWrite(const std::wstring& prop, std::wstring* error)
 // Resolve a property's diagnostics index from its chain on the UI thread. Do not cache by
 // raw handle: handles can be reused for an element with different property indices.
 // GetPropertyIndex needs a fully qualified name whose declaring type also requires that chain.
-static unsigned int FindPropIndex(InstanceHandle h, const std::wstring& prop)
+static unsigned int FindPropIndex(InstanceHandle h, const std::wstring& prop, std::wstring* propType = nullptr)
 {
     unsigned int idx = 0xFFFFFFFF, sc = 0, pc = 0;
     PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
     if (g_vts3 && SUCCEEDED(ReadPropChain(h, &sc, &s, &pc, &v)) && v)
         for (unsigned int i = 0; i < pc; i++)
-            if (v[i].PropertyName && prop == v[i].PropertyName) { idx = v[i].Index; break; }
+            if (v[i].PropertyName && prop == v[i].PropertyName) {
+                idx = v[i].Index;
+                if (propType && v[i].Type) *propType = v[i].Type;
+                break;
+            }
     FreePropChain(sc, s, pc, v);
     return idx;
 }
@@ -274,13 +278,28 @@ static PriorLocalValue ReadPriorLocalValue(InstanceHandle h, unsigned int idx, c
     return prior;
 }
 
+// Defined in DevToolsTap.PropertyRead.inc; writes read the property they wrote through it.
+static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>* out, std::wstring* outAuthoredState,
+                                std::wstring* outAuthoredXaml, const std::set<std::wstring>* projection,
+                                size_t* retrievedRows,
+                                std::map<std::wstring, std::pair<unsigned int, std::wstring>>* outIndices = nullptr);
+
 static void RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const PriorLocalValue& prior)
 {
     if (!prior.restorable || !WindowElementCurrent_ui(h)) return;
     HRESULT hr = prior.themeResourceKey.empty() ? E_FAIL
                                                 : ResolveResourceApply(h, prior.prop, prior.themeResourceKey, true);
     if (SUCCEEDED(hr)) {
-        // Re-applied the resource, so the property keeps following the theme.
+        // Re-applied the resource, so the property keeps following the theme. Record it again, as a successful write
+        // does, so a later read still labels it with the DevTools key rather than the XAML one.
+        if (TryAcquireSRWLockShared(&g_censusLock)) {
+            const unsigned long long wire = PackWire_nolock(h);
+            ReleaseSRWLockShared(&g_censusLock);
+            DevToolsBindingRow_NoteLiveResourceWrite(wire, prior.prop, true, prior.themeResourceKey);
+            std::vector<DevToolsReadProp> written;
+            const std::set<std::wstring> only{ prior.prop };
+            ReadCuratedProps(h, &written, nullptr, nullptr, &only, nullptr, nullptr);
+        }
     } else if (!prior.had) hr = g_vts3->ClearProperty(h, idx);
     else if (prior.object) {
         InstanceHandle object = prior.object;
@@ -305,12 +324,6 @@ static void ClearOriginatedError()
     IRestrictedErrorInfo* info = nullptr;
     if (SUCCEEDED(GetRestrictedErrorInfo(&info)) && info) info->Release();
 }
-
-// Defined in DevToolsTap.PropertyRead.inc; SetLiteral reads the property it wrote through it.
-static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>* out, std::wstring* outAuthoredState,
-                                std::wstring* outAuthoredXaml, const std::set<std::wstring>* projection,
-                                size_t* retrievedRows,
-                                std::map<std::wstring, std::pair<unsigned int, std::wstring>>* outIndices = nullptr);
 
 // Set a literal property: CreateInstance from a XAML type-converter literal, then SetProperty. UI thread.
 static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std::wstring& type, const std::wstring& value,
@@ -500,6 +513,23 @@ static ResourceLookup FindResourceInScope_ui(InstanceHandle h, const std::wstrin
 
 // Returned when the key was checked and refused before anything was written.
 static const HRESULT kResourceNotInScope = HRESULT_FROM_WIN32(ERROR_RESOURCE_NAME_NOT_FOUND);
+static const HRESULT kResourceWrongType = HRESULT_FROM_WIN32(ERROR_INVALID_DATATYPE);
+
+// True only when both types are well-known and can never be assigned to each other, such as a Style resource for a
+// Brush property. Anything else (Object, a base class, a custom type) is left to the runtime. Refusing up front
+// matters: a refused ResolveResource can leave the element resolving later ThemeResources in the wrong theme.
+static bool ResourceTypeKnownMismatch(const std::wstring& resourceType, const std::wstring& propType)
+{
+    const auto family = [](const std::wstring& type) {
+        const std::wstring s = DevToolsRead_ShortTypeName(type);
+        return s.size() >= 5 && s.compare(s.size() - 5, 5, L"Brush") == 0 ? std::wstring(L"Brush") : s;
+    };
+    static const std::set<std::wstring> known{ L"Brush", L"Style", L"DataTemplate", L"ControlTemplate",
+        L"ItemsPanelTemplate", L"Double", L"Thickness", L"Color", L"CornerRadius", L"Boolean", L"FontWeight",
+        L"GridLength" };
+    const std::wstring a = family(resourceType), b = family(propType);
+    return a != b && known.count(a) && known.count(b);
+}
 
 // Assign {ThemeResource key} or {StaticResource key} to a property. UI thread. A key that is not in the element's
 // scope is refused before anything is written, because a failed lookup can clear the property. If the runtime still
@@ -512,7 +542,8 @@ static HRESULT AssignResource(InstanceHandle h, const std::wstring& prop, const 
 #ifdef WINAPP_DEVTOOLS_NATIVE_RUNTIME_TESTS
     if (g_testResourceAssignment) return g_testResourceAssignment(h, prop, key, asTheme, error);
 #endif
-    const unsigned int idx = FindPropIndex(h, prop);
+    std::wstring propType;
+    const unsigned int idx = FindPropIndex(h, prop, &propType);
     if (idx == 0xFFFFFFFF) { Log(L"setres: '%s' not found on %llu", prop.c_str(), h); return E_INVALIDARG; }
     const std::wstring markup = std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}";
     std::wstring valueType;
@@ -522,6 +553,11 @@ static HRESULT AssignResource(InstanceHandle h, const std::wstring& prop, const 
         if (error) *error = L"resource-not-found|Resource '" + key + L"' was not found in this element's resources, "
                             L"its parents' resources, or the app's resources. " + prop + L" was not changed.";
         return kResourceNotInScope;
+    }
+    if (lookup == ResourceLookup::Found && ResourceTypeKnownMismatch(valueType, propType)) {
+        if (error) *error = L"property-write-failed|Resource '" + key + L"' is a " + DevToolsRead_ShortTypeName(valueType) +
+                            L", which can't be assigned to " + prop + L". " + prop + L" was not changed.";
+        return kResourceWrongType;
     }
     const PriorLocalValue prior = ReadPriorLocalValue(h, idx, prop);
     const HRESULT hr = ResolveResourceApply(h, prop, key, asTheme);

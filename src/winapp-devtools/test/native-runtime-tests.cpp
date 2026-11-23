@@ -1224,6 +1224,25 @@ static void CheckMalformedMutationHandles(const std::function<void(bool, const c
     g_mutatedHandle = 0;
     check(HandleCommand(L"hotreload.clearprop|Target|Text|Tag") == L"ERR bad-args" && g_mutatedHandle == 0,
         "private clear bridge rejects extra fields");
+    // A resource write reaches the engine as hotreload.setres; a key that isn't in scope comes back as InvalidParams.
+    g_testResourceAssignment = [](InstanceHandle, const std::wstring&, const std::wstring& key, bool, std::wstring* error) {
+        if (key == L"KnownBrush") return S_OK;
+        if (error) *error = L"resource-not-found|Resource '" + key + L"' was not found.";
+        return HRESULT_FROM_WIN32(ERROR_RESOURCE_NAME_NOT_FOUND);
+    };
+    for (const auto* key : {L"KnownBrush", L"MissingBrush"}) {
+        DevToolsJson parsed;
+        const bool parsedOk = DevToolsJsonParse(HandleRpc(nullptr, DevToolsRpcParse(
+            L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"HotReload.setProperty\",\"params\":{\"name\":\"Target\","
+            L"\"prop\":\"Foreground\",\"resource\":\"theme\",\"value\":\"" + std::wstring(key) + L"\"}}")), parsed);
+        if (std::wstring(key) == L"KnownBrush")
+            check(parsedOk && parsed.Find(L"result") && !parsed.Find(L"error"), "an in-scope resource key is assigned");
+        else
+            check(parsedOk && parsed.Find(L"error") &&
+                parsed.Find(L"error")->GetInt(L"code", 0) == DevToolsErr::InvalidParams,
+                "a resource key that isn't in scope returns invalid parameters");
+    }
+    g_testResourceAssignment = nullptr;
     g_diag = previousDiagnostics;
 }
 

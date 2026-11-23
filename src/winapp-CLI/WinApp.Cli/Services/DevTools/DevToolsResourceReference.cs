@@ -36,8 +36,15 @@ internal sealed partial record DevToolsResourceReference(string Kind, string Key
         reference = null;
         if (resource is null)
         {
-            reference = string.IsNullOrWhiteSpace(type) ? Parse(value) : null;
-            return null;
+            if (!string.IsNullOrWhiteSpace(type))
+            {
+                return null;
+            }
+            reference = Parse(value);
+            return reference is null && value is not null && ResourceMarkupStart().IsMatch(value)
+                ? "A {ThemeResource key} or {StaticResource key} value needs one resource key with no spaces or commas, " +
+                  "for example `{ThemeResource AccentFillColorDefaultBrush}`."
+                : null;
         }
         if (!string.IsNullOrWhiteSpace(type))
         {
@@ -59,4 +66,7 @@ internal sealed partial record DevToolsResourceReference(string Kind, string Key
 
     [GeneratedRegex(@"^\s*\{\s*(ThemeResource|StaticResource)\s+(?:ResourceKey\s*=\s*)?([^\s,}|]+)\s*\}\s*$")]
     private static partial Regex ResourceMarkup();
+
+    [GeneratedRegex(@"^\s*\{\s*(ThemeResource|StaticResource)\b")]
+    private static partial Regex ResourceMarkupStart();
 }
