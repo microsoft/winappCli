@@ -678,7 +678,8 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                     if (child) {
                         ReadChildProps(child, expandKind,
                                        DevToolsRead_ChildEditingIsSafe(prop.source,
-                                           prop.liveResourceKind.empty() ? prop.authoredKind : prop.liveResourceKind),
+                                           prop.source == kDevToolsReadLiveEditSource ? prop.liveResourceKind
+                                                                                      : prop.authoredKind),
                                        &prop.children);
                     }
                 }
