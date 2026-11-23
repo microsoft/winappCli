@@ -118,6 +118,14 @@ inline Evaluation Compare(const DevToolsReadProp* row, const Predicate& predicat
     // A null from a binding may still be loading, and null vs "" is indistinguishable, so those stay unknown.
     if (row->valueState == L"null" && row->source != L"Binding" && !predicate.literal.empty() &&
         (predicate.op == L"==" || predicate.op == L"*=")) return {Verdict::NoMatch, L""};
+    // These known non-solid brushes cannot equal a solid color, even though their values aren't scalar.
+    if (row->valueState == L"unresolved" &&
+        (row->type == L"Microsoft.UI.Xaml.Media.LinearGradientBrush" || row->type == L"Microsoft.UI.Xaml.Media.AcrylicBrush") &&
+        (predicate.op == L"==" || predicate.op == L"!=")) {
+        const auto literal = DevToolsRead_NormalizeColor(predicate.literal);
+        if (literal.size() == 9 && DevToolsRead_IsHexColor(literal))
+            return {predicate.op == L"==" ? Verdict::NoMatch : Verdict::Match, L""};
+    }
     if (!row->valueState.empty() && row->valueState != L"binding") return {Verdict::Unevaluated, row->valueState};
     const auto type = ShortType(row->type);
     const bool equality = predicate.op == L"==" || predicate.op == L"!=";
