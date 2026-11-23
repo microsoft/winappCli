@@ -82,6 +82,79 @@ public class FrameworkUdkSecurityTests
     }
 
     [TestMethod]
+    [DataRow(@"\Device\HarddiskVolume3", @"\Device\HarddiskVolume3\runtime\Microsoft.Internal.FrameworkUdk.dll")]
+    [DataRow(@"\??\C:\elsewhere", null)]
+    [DataRow(@"\Device\LanmanRedirector\;Z:0000000000012345\server\share", null)]
+    [DataRow(@"\Device\", null)]
+    [DataRow(null, null)]
+    public void SourceOpensThroughItsVolumeDevice_NotARedirectedDrive(string? mapping, string? expected)
+    {
+        const string path = @"Z:\runtime\Microsoft.Internal.FrameworkUdk.dll";
+        if (expected is null)
+        {
+            Assert.ThrowsExactly<IOException>(() => FrameworkUdkSnapshot.GetVolumeDevicePath(path, _ => mapping));
+        }
+        else
+        {
+            Assert.AreEqual(expected, FrameworkUdkSnapshot.GetVolumeDevicePath(path, drive =>
+            {
+                Assert.AreEqual("Z:", drive);
+                return mapping;
+            }));
+        }
+    }
+
+    [TestMethod]
+    public void OpenSource_RefusesJunctionOnPath()
+    {
+        using (FrameworkUdkSnapshot.OpenSource(source))
+        {
+        }
+        var link = Path.Combine(Path.GetDirectoryName(root)!, Path.GetFileName(root) + "-link");
+        if (!TryCreateJunction(link, root))
+        {
+            Assert.Inconclusive("Could not create a junction on this host.");
+        }
+        try
+        {
+            Assert.ThrowsExactly<System.ComponentModel.Win32Exception>(() =>
+                FrameworkUdkSnapshot.OpenSource(Path.Combine(link, FrameworkUdkSnapshot.FileName)));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    // Creates a junction when the host permits it; callers mark false as inconclusive.
+    private static bool TryCreateJunction(string link, string target)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c mklink /J \"{link}\" \"{target}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p is null)
+            {
+                return false;
+            }
+            p.WaitForExit(5000);
+            return p.ExitCode == 0 && Directory.Exists(link);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    [TestMethod]
     public void Verification_UsesPrivateCopy_AndPinsBytesAndNamespaceUntilDisposed()
     {
         string? copy = null;
