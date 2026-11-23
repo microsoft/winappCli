@@ -1347,7 +1347,8 @@ static void CheckResourceAssign(const std::function<void(bool,const char*)>& che
     check(result && result->GetString(L"after")==L"from Greeting" && result->GetString(L"before")==L"Hello" &&
         result->GetString(L"kind")==L"staticResource" && result->GetString(L"previousKind")==L"literal",
         "a key the app has is assigned by name, reporting the value before and after");
-    const DevToolsJson* undo=result ? result->Find(L"undo") : nullptr;
+    const DevToolsJson* undoList=result ? result->Find(L"undo") : nullptr;
+    const DevToolsJson* undo=undoList && undoList->type==DevToolsJsonType::Array && undoList->arr.size()==1 ? &undoList->arr[0] : nullptr;
     check(undo && undo->GetString(L"method")==L"HotReload.setProperty" && undo->Find(L"params") &&
         undo->Find(L"params")->GetString(L"value")==L"Hello" && undo->Find(L"params")->GetString(L"handle")==handle,
         "and answers with the literal write that undoes it, addressed by handle");
@@ -1358,7 +1359,8 @@ static void CheckResourceAssign(const std::function<void(bool,const char*)>& che
         tree.resolved==std::vector<std::wstring>{L"Missing",L"Greeting"},
         "a failed key after an earlier assignment re-assigns that earlier key, not its resolved value");
     auto chained=assign(L"\"handle\":\""+handle+L"\"",L"Other");
-    const DevToolsJson* chainedUndo=chained.Find(L"result") ? chained.Find(L"result")->Find(L"undo") : nullptr;
+    const DevToolsJson* chainedList=chained.Find(L"result") ? chained.Find(L"result")->Find(L"undo") : nullptr;
+    const DevToolsJson* chainedUndo=chainedList && chainedList->type==DevToolsJsonType::Array && chainedList->arr.size()==1 ? &chainedList->arr[0] : nullptr;
     check(chainedUndo && chainedUndo->GetString(L"method")==L"Resource.assign" &&
         chainedUndo->Find(L"params")->GetString(L"key")==L"Greeting",
         "and the undo of a second assignment re-assigns the first key");

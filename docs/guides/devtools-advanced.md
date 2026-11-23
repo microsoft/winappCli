@@ -347,13 +347,22 @@ winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 1
 - `Binding.writeSource` writes through a TwoWay `{Binding}` to its source and keeps the
   binding. It needs a .NET app launched with `winapp run --devtools on`.
 
-Each result has `before`, `after` and `undo`: the call that puts back what the edit
-replaced, for example
-`"undo": {"method": "HotReload.setProperty", "params": {"handle": "123", "prop": "Text", "type": "String", "value": "Hello"}}`.
+Each result has `before`, `after` and `undo`: the calls to run, in order, to put back what
+the edit replaced. For example, undoing `Binding.install` over the text `Hello` first
+clears the new binding, so the old text isn't written into the app's data:
+
+```json
+"undo": [
+  {"method": "HotReload.clearProperty", "params": {"handle": "123", "prop": "Text"}},
+  {"method": "HotReload.setProperty", "params": {"handle": "123", "prop": "Text", "type": "String", "value": "Hello"}}
+]
+```
+
 Replacing an app binding or `{x:Bind}` saves it first, so `undo` is `Binding.restore`; for
 `{x:Bind}` it passes `confirmOwnerRebind`, which refreshes every compiled binding on the owner.
-When nothing can be put back, `undo` is `null` and `undoReason` says why. Changes apply to
-the running app only; your .xaml is unchanged.
+When nothing can be put back exactly (for example a brush with partial opacity, or a
+password source), `undo` is empty and `undoReason` says why. Changes apply to the running
+app only; your .xaml is unchanged.
 
 ## Troubleshooting
 

@@ -40,11 +40,40 @@ static std::wstring EditTargetFromParams(const std::wstring& id, const DevToolsJ
     return refused.empty() ? std::wstring() : BridgeErrToRpc(id, refused);
 }
 
+// The runtime handle of the property's binding expression (empty when it has none) and the element's ActualTheme.
+// A restore or another install creates a new expression, so the handle tells the expression DevTools installed apart.
+static DevToolsEditObserved ObserveEditTarget_ui(InstanceHandle ih, const std::wstring& prop)
+{
+    DevToolsEditObserved observed;
+    const unsigned int idx = FindPropIndex(ih, prop);
+    unsigned int sc = 0, pc = 0;
+    PropertyChainSource* s = nullptr; PropertyChainValue* v = nullptr;
+    if (idx != 0xFFFFFFFF && g_vts3 && SUCCEEDED(ReadPropChain(ih, &sc, &s, &pc, &v)) && v) {
+        for (unsigned int i = 0; i < pc; i++) {
+            if (v[i].Index != idx || !((long long)v[i].MetadataBits & 0x10) || !v[i].Value) continue;
+            observed.bindingId = v[i].Value;
+            break;
+        }
+    }
+    FreePropChain(sc, s, pc, v);
+    IInspectable* insp = nullptr;
+    if (g_diag && SUCCEEDED(g_diag->GetIInspectableFromHandle(ih, &insp)) && insp) {
+        void* fe = nullptr;
+        int theme = -1;
+        if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+            if (SUCCEEDED(DevToolsGetActualTheme(fe, &theme))) observed.elementTheme = theme;
+            reinterpret_cast<IUnknown*>(fe)->Release();
+        }
+        insp->Release();
+    }
+    return observed;
+}
+
 // Reads the property's current row and classifies what an edit would replace. Empty on success.
 static std::wstring ReadEditPrior(const std::wstring& id, unsigned long long wire, const std::wstring& prop,
                                   DevToolsReadProp* row, DevToolsEditPrior* prior)
 {
-    struct State { DevToolsReadProp row; bool secret = false, settable = false, found = false; const wchar_t* error = nullptr; };
+    struct State { DevToolsReadProp row; DevToolsEditObserved observed; bool secret = false, settable = false, found = false; const wchar_t* error = nullptr; };
     auto st = std::make_shared<State>();
     bool completed = false;
     const HRESULT hr = RunOnUiThread([wire, prop, st]() -> HRESULT {
@@ -57,6 +86,7 @@ static std::wstring ReadEditPrior(const std::wstring& id, unsigned long long wir
         const HRESULT read = ReadCuratedProps(ih, &props, nullptr);
         if (FAILED(read)) return read;
         for (auto& r : props) if (r.name == prop) { st->row = std::move(r); st->found = true; break; }
+        st->observed = ObserveEditTarget_ui(ih, prop);
         return S_OK;
     }, &completed);
     if (completed && st->error) return BridgeErrToRpc(id, std::wstring(L"ERR ") + st->error);
@@ -69,7 +99,7 @@ static std::wstring ReadEditPrior(const std::wstring& id, unsigned long long wir
     *row = std::move(st->row);
     DevToolsSessionEdit session;
     const bool known = SessionEditFind(wire, prop, &session);
-    *prior = DevToolsClassifyPrior(*row, known ? &session : nullptr);
+    *prior = DevToolsClassifyPrior(*row, known ? &session : nullptr, st->observed);
     return L"";
 }
 
@@ -129,7 +159,7 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
     if (std::wstring refused = ReadEditPrior(id, wire, prop, &before, &prior); !refused.empty()) return refused;
     CapturePriorBinding(wire, prop, &prior);
 
-    struct Outcome { bool applied = false, restored = false, bindingLost = false; DevToolsReadProp after; const wchar_t* error = nullptr; };
+    struct Outcome { bool applied = false, restored = false, bindingLost = false; DevToolsReadProp after; int theme = -1; const wchar_t* error = nullptr; };
     auto out = std::make_shared<Outcome>();
     bool completed = false;
     const HRESULT hr = RunOnUiThread([wire, prop, key, theme, prior, out]() -> HRESULT {
@@ -161,6 +191,7 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
         const std::set<std::wstring> only{ prop };
         ReadCuratedProps(ih, &props, nullptr, nullptr, &only, nullptr, nullptr);
         for (auto& r : props) if (r.name == prop) { out->after = std::move(r); break; }
+        out->theme = ObserveEditTarget_ui(ih, prop).elementTheme;
         return S_OK;
     }, &completed);
     if (completed && out->error) return BridgeErrToRpc(id, std::wstring(L"ERR ") + out->error);
@@ -168,7 +199,16 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
                                             L"\"hresult\":\"" + HrStr(hr) + L"\"");
     if (!out->applied) {
         bool restored = out->restored;
-        if (out->bindingLost && prior.captured) {
+        if (out->bindingLost && prior.kind == DevToolsPriorKind::InstalledBinding) {
+            // A binding DevTools installed has no capture; install the same path and mode again.
+            DevToolsJson answer;
+            const std::wstring json = CmdBindingInstall(wire, prop, prior.path, prior.mode);
+            restored = DevToolsJsonParse(json, answer) && answer.IsObject() && answer.GetString(L"bound") == L"True";
+            if (restored) {
+                DevToolsSessionEdit edit;
+                if (SessionEditFind(wire, prop, &edit)) { edit.bindingId = answer.GetString(L"after"); SessionEditNote(wire, prop, edit); }
+            }
+        } else if (out->bindingLost && prior.captured) {
             DevToolsJson answer;
             const std::wstring json = CmdBindingOp(wire, L"restore", prop);
             restored = DevToolsJsonParse(json, answer) && answer.IsObject() && answer.GetString(L"state") == L"restored";
@@ -182,7 +222,10 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
             L"\",\"restored\":" + (restored ? L"true" : L"false"));
     }
 
-    SessionEditNote(wire, prop, DevToolsSessionEdit{ true, key, theme, L"", L"", out->after.value });
+    DevToolsSessionEdit record;
+    record.resource = true; record.key = key; record.theme = theme; record.after = out->after.value;
+    record.elementTheme = out->theme;
+    SessionEditNote(wire, prop, record);
     BroadcastEditedProperty(conn, wire, prop, out->after.value);
     return DevToolsRpcResult(id, L"{\"prop\":\"" + DevToolsJsonEscape(prop) + L"\",\"key\":\"" + DevToolsJsonEscape(key) +
         L"\",\"kind\":\"" + (theme ? L"themeResource" : L"staticResource") +
@@ -218,27 +261,35 @@ static std::wstring RpcBindingInstall(DevToolsConn* conn, const std::wstring& id
         return DevToolsRpcResult(id, L"{\"state\":\"unavailable\",\"reason\":\"the binding did not install\"}");
 
     // The install's own read-back reports a binding as its expression handle, so read the value it produces instead.
-    auto after = std::make_shared<std::wstring>();
-    RunOnUiThread([wire, prop, after]() -> HRESULT {
+    // A timed-out UI turn can still be writing, so read nothing from it unless it finished.
+    struct Read { std::wstring value; };
+    auto read = std::make_shared<Read>();
+    const HRESULT readHr = RunOnUiThread([wire, prop, read]() -> HRESULT {
         DevToolsBindingRow_ForgetLiveWrite(wire, prop);
         InstanceHandle ih = 0; const wchar_t* e = nullptr;
         { CensusSharedLock lock; if (!ResolveWire_nolock(wire, &ih, &e)) return E_INVALIDARG; }
         std::vector<DevToolsReadProp> props;
         const std::set<std::wstring> only{ prop };
         ReadCuratedProps(ih, &props, nullptr, nullptr, &only, nullptr, nullptr);
-        for (const auto& r : props) if (r.name == prop) { *after = r.value; break; }
+        for (const auto& r : props) if (r.name == prop) { read->value = r.value; break; }
         return S_OK;
     });
+    if (FAILED(readHr)) return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher,
+        L"The binding was installed, but the app's UI thread did not answer the read-back.", L"ui-thread",
+        L"\"hresult\":\"" + HrStr(readHr) + L"\"");
+    const std::wstring after = read->value;
     std::wstring warning = DevToolsBindingInstall_ReplacementWarning();
     if (const size_t cut = warning.find(L" A prior managed capture"); cut != std::wstring::npos) warning.resize(cut);
-    SessionEditNote(wire, prop, DevToolsSessionEdit{ false, L"", false, path, mode, *after });
-    BroadcastEditedProperty(conn, wire, prop, *after);
+    DevToolsSessionEdit record;
+    record.path = path; record.mode = mode; record.bindingId = answer.GetString(L"after");
+    SessionEditNote(wire, prop, record);
+    BroadcastEditedProperty(conn, wire, prop, after);
     return DevToolsRpcResult(id, L"{\"state\":\"bound\",\"path\":\"" + DevToolsJsonEscape(path) +
         L"\",\"mode\":\"" + DevToolsJsonEscape(mode) + L"\",\"before\":\"" + DevToolsJsonEscape(before.value) +
-        L"\",\"after\":\"" + DevToolsJsonEscape(*after) + L"\",\"bound\":\"True\",\"previousKind\":\"" +
+        L"\",\"after\":\"" + DevToolsJsonEscape(after) + L"\",\"bound\":\"True\",\"previousKind\":\"" +
         DevToolsPriorKindToken(prior) + L"\",\"captured\":" + (prior.captured ? L"true" : L"false") +
         L",\"warning\":\"" + DevToolsJsonEscape(warning) + L"\"," +
-        DevToolsEditUndoMembers(std::to_wstring(wire), prop, prior) + L"}");
+        DevToolsEditUndoMembers(std::to_wstring(wire), prop, prior, /*editLeftBinding*/ true) + L"}");
 }
 
 // The window's "Write a test value": changes the TwoWay binding's source and keeps the binding installed.
@@ -258,8 +309,10 @@ static std::wstring RpcBindingWriteSource(DevToolsConn* conn, const std::wstring
     BroadcastEditedProperty(conn, wire, prop, answer.GetString(L"after"));
     const DevToolsJson* sourceBefore = answer.Find(L"sourceBefore");
     const std::wstring undo = sourceBefore && sourceBefore->type == DevToolsJsonType::String
-        ? L"\"undo\":{\"method\":\"Binding.writeSource\",\"params\":{" + DevToolsUndoTarget(std::to_wstring(wire), prop) +
-          L",\"value\":\"" + DevToolsJsonEscape(sourceBefore->str) + L"\"}}"
-        : L"\"undo\":null,\"undoReason\":\"the source's previous value cannot be written back as text\"";
+        ? L"\"undo\":[" + DevToolsUndoStep(L"Binding.writeSource", DevToolsUndoTarget(std::to_wstring(wire), prop) +
+          L",\"value\":\"" + DevToolsJsonEscape(sourceBefore->str) + L"\"") + L"]"
+        : L"\"undo\":[],\"undoReason\":\"" + std::wstring(answer.GetString(L"redacted") == L"True"
+            ? L"the source holds a secret, so DevTools does not read it back"
+            : L"the source's previous value cannot be written back as text") + L"\"";
     return DevToolsRpcResult(id, AppendMembers(json, undo));
 }

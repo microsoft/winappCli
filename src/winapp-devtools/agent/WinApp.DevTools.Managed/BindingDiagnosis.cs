@@ -710,17 +710,24 @@ internal static class BindingDiagnosis
         try { converted = ConvertTo(valueText, leaf.PropertyType); }
         catch (Exception ex) { return Unavailable("'" + valueText + "' is not a " + ShortName(leaf.PropertyType) + " (" + Describe(ex) + ")"); }
 
+        // The same rule Binding.diagnose redacts by: a secret on either side of the binding, or a type that holds one.
+        bool secret = DevToolsSecrets.IsSecretName(prop) || parts.Any(DevToolsSecrets.IsSecretName) ||
+            DevToolsSecrets.HoldsSecret(leaf.PropertyType);
         var sb = new StringBuilder("{\"state\":\"wroteSource\"");
-        Field(sb, "before", Str(element.GetValue(dp)));
+        Field(sb, "before", secret ? DevToolsSecrets.Redacted : Str(element.GetValue(dp)));
         Field(sb, "sourceTarget", ShortName(owner!.GetType()) + "." + leaf.Name);
-        object? previous;
-        try { previous = leaf.CanRead ? leaf.GetValue(owner) : null; }
-        catch { previous = null; }
-        if (SourceUndoText(previous, leaf.PropertyType) is { } undo) Field(sb, "sourceBefore", undo);
+        if (!secret)
+        {
+            object? previous;
+            try { previous = leaf.CanRead ? leaf.GetValue(owner) : null; }
+            catch (TargetInvocationException) { previous = null; }
+            if (SourceUndoText(previous, leaf.PropertyType) is { } undo) Field(sb, "sourceBefore", undo);
+        }
         try { leaf.SetValue(owner, converted); }
         catch (Exception ex) { return Unavailable("writing the source threw " + Describe(ex)); }
 
-        Field(sb, "after", Str(element.GetValue(dp)));
+        Field(sb, "after", secret ? DevToolsSecrets.Redacted : Str(element.GetValue(dp)));
+        if (secret) Field(sb, "redacted", "True");
         Field(sb, "bound", (ParentBindingOf(element.ReadLocalValue(dp)) is not null).ToString());
         sb.Append('}');
         return sb.ToString();
@@ -740,7 +747,7 @@ internal static class BindingDiagnosis
         };
         if (text is null) return null;
         try { return Equals(ConvertTo(text, target), value) ? text : null; }
-        catch { return null; }
+        catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException or ArgumentException or NotSupportedException) { return null; }
     }
 
     private static object? ConvertTo(string text, Type target)
