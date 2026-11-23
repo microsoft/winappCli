@@ -108,7 +108,8 @@ static std::wstring ReadEditPrior(const std::wstring& id, unsigned long long wir
 static void CapturePriorBinding(unsigned long long wire, const std::wstring& prop, DevToolsEditPrior* prior)
 {
     if (prior->kind != DevToolsPriorKind::Binding && prior->kind != DevToolsPriorKind::XBind) return;
-    const std::wstring json = CmdBindingOp(wire, L"capture", prop);
+    // Held by the agent until Binding.restore, so a later Binding.capture of the edited state cannot replace it.
+    const std::wstring json = CmdBindingOp(wire, L"captureoriginal", prop);
     DevToolsJson answer;
     const bool parsed = json.rfind(L"ERR ", 0) != 0 && DevToolsJsonParse(json, answer) && answer.IsObject();
     const std::wstring kind = parsed ? answer.GetString(L"restoreKind") : std::wstring();

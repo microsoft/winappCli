@@ -191,6 +191,7 @@ static void Test_OnlyBindingOpsAreSendable()
     Check(DevToolsBindingRelay_IsAllowedOp(L"restoreconfirmed"), "explicit owner-wide restore is allowed");
     Check(DevToolsBindingRelay_IsAllowedOp(L"clear"),    "clear is allowed");
     Check(DevToolsBindingRelay_IsAllowedOp(L"writesource"), "writesource is allowed");
+    Check(DevToolsBindingRelay_IsAllowedOp(L"captureoriginal"), "captureoriginal (an edit holding the binding it replaces) is allowed");
     Check(DevToolsBindingRelay_IsAllowedOp(L"reactor"), "the Reactor element description is allowed");
     Check(DevToolsBindingRelay_IsAllowedOp(L"reactorelement"), "one Reactor element's record and props are allowed");
     Check(DevToolsBindingRelay_MaxReplyBytes(L"reactorelement") == 64u * 1024, "one element's answer keeps the 64 KiB bound");

@@ -358,7 +358,7 @@ clears the new binding, so the old text isn't written into the app's data:
 ]
 ```
 
-Replacing an app binding or `{x:Bind}` saves it first, so `undo` is `Binding.restore`; for
+Replacing an app binding or `{x:Bind}` saves it first, so `undo` is `Binding.restore`. A later `Binding.capture` doesn't replace what the edit saved. For
 `{x:Bind}` it passes `confirmOwnerRebind`, which refreshes every compiled binding on the owner.
 When nothing can be put back exactly (for example a brush with partial opacity, or a
 password source), `undo` is empty and `undoReason` says why. Changes apply to the running

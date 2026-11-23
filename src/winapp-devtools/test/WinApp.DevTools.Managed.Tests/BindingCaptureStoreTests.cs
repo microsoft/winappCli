@@ -21,7 +21,7 @@ public sealed class BindingCaptureStoreTests
 
     private static BindingCaptureStore CreateStore()
     {
-        var values = new Dictionary<FrameworkElement, Dictionary<string, BindingBase>>(ReferenceEqualityComparer.Instance);
+        var values = new Dictionary<FrameworkElement, Dictionary<string, BindingBase?>>(ReferenceEqualityComparer.Instance);
         return new(element => values.GetValueOrDefault(element),
             (element, value) =>
             {
@@ -83,5 +83,33 @@ public sealed class BindingCaptureStoreTests
         Assert.IsTrue(store.TryGet(element, "Text", out var second));
         Assert.AreSame(binding, first);
         Assert.AreSame(binding, second);
+    }
+
+    [TestMethod]
+    public void AHeldOriginalSurvivesARecaptureUntilReleased()
+    {
+        var store = CreateStore();
+        var element = Uninitialized<CollidingElement>();
+        var original = Uninitialized<Binding>();
+        var installed = Uninitialized<Binding>();
+        store.Hold(element, "Text", original);
+        store.Set(element, "Text", installed);
+        Assert.IsTrue(store.TryGetHeld(element, "Text", out var held));
+        Assert.AreSame(original, held, "a capture after an edit must not replace the original the edit saved");
+        store.Release(element, "Text");
+        Assert.IsFalse(store.TryGetHeld(element, "Text", out _));
+        Assert.IsTrue(store.TryGet(element, "Text", out var captured));
+        Assert.AreSame(installed, captured, "releasing the hold leaves the ordinary capture alone");
+    }
+
+    [TestMethod]
+    public void ACompiledOriginalIsHeldWithoutABinding()
+    {
+        var store = CreateStore();
+        var element = Uninitialized<CollidingElement>();
+        store.Hold(element, "Text", null);
+        Assert.IsTrue(store.TryGetHeld(element, "Text", out var held));
+        Assert.IsNull(held, "an {x:Bind} original is restored by rebinding its owner, so no binding is held");
+        Assert.IsFalse(store.TryGet(element, "Text", out _), "and it is not an ordinary capture");
     }
 }

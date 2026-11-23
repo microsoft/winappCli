@@ -100,7 +100,9 @@ internal static class BindingDiagnosis
         "diagnose" => Diagnose(element, prop, authored),
         // Every other op reports the property's before/after values.
         _ when DevToolsSecrets.IsSecretName(prop) => Unavailable("'" + prop + "' holds a secret; DevTools does not read or write it.", nativeFallback: false),
-        "capture" => Capture(element, prop, authored),
+        "capture" => Capture(element, prop, authored, hold: false),
+        // A protocol edit saves what it replaces this way, so a later capture of the edited state cannot overwrite it.
+        "captureoriginal" => Capture(element, prop, authored, hold: true),
         "restore" => Restore(element, prop, authored, false),
         "restoreconfirmed" => Restore(element, prop, authored, true),
         "clear" => Clear(element, prop),
@@ -323,16 +325,33 @@ internal static class BindingDiagnosis
     }
 
 
-    private static string Capture(FrameworkElement element, string prop, string authored)
+    private static string Capture(FrameworkElement element, string prop, string authored, bool hold)
     {
         DependencyProperty? dp = FindDp(element, prop);
         if (dp is null) return Unavailable("'" + prop + "' is not a dependency property");
 
-        Binding? parent = ParentBindingOf(element.ReadLocalValue(dp));
         var sb = new StringBuilder("{\"state\":\"captured\"");
+        if (!hold && Captured.TryGetHeld(element, prop, out BindingBase? held))
+        {
+            // Restoring must still undo the DevTools edit, so keep the original it saved and report that instead.
+            Field(sb, "restoreKind", held is null ? "rebind" : "binding");
+            Field(sb, "restoreScope", held is null ? "owner" : "element-property");
+            if (held is Binding original)
+            {
+                Field(sb, "path", original.Path?.Path ?? "");
+                Field(sb, "mode", original.Mode.ToString());
+            }
+            Field(sb, "heldOriginal", "True");
+            Field(sb, "reason", "A DevTools edit replaced this property's binding and saved the original. Binding.restore puts that original back; it was not replaced by this capture.");
+            sb.Append('}');
+            return sb.ToString();
+        }
+
+        Binding? parent = ParentBindingOf(element.ReadLocalValue(dp));
         if (parent is not null)
         {
             Captured.Set(element, prop, CloneBinding(parent));
+            if (hold) Captured.Hold(element, prop, CloneBinding(parent));
             Field(sb, "restoreKind", "binding");
             Field(sb, "restoreScope", "element-property");
             Field(sb, "path", parent.Path?.Path ?? "");
@@ -356,6 +375,7 @@ internal static class BindingDiagnosis
             try { owner = ParseXBindPath(authored) is not null ? XBindOwner(element) : null; }
             catch (Exception ex) { return Unavailable("compiled binding owner inspection failed; no restore route was captured: " + Describe(ex), false); }
             CompiledCaptureMetadata(sb, owner);
+            if (hold && owner is not null && FindBindingsUpdate(owner).update is not null) Captured.Hold(element, prop, null);
             CompiledEditMetadata(sb, authored, element.GetType(), prop);
         }
         sb.Append('}');
@@ -364,17 +384,31 @@ internal static class BindingDiagnosis
 
     private static string Restore(FrameworkElement element, string prop, string authored, bool confirmOwnerRebind)
     {
+        BindingBase? saved = null;
         DependencyProperty? dp = FindDp(element, prop);
         if (dp is null) return Unavailable("'" + prop + "' is not a dependency property");
 
         var sb = new StringBuilder("{\"state\":\"restored\"");
         Field(sb, "before", Str(element.GetValue(dp)));
 
-        if (Captured.TryGet(element, prop, out BindingBase? saved))
+        // The original a DevTools edit held wins over any later capture; it is released once it is back.
+        bool held = Captured.TryGetHeld(element, prop, out BindingBase? original);
+        if (held && original is null)
+        {
+            CompiledOwner? compiledOwner;
+            try { compiledOwner = XBindOwner(element); }
+            catch (Exception ex) { return Unavailable("compiled binding owner inspection failed; no owner was updated: " + Describe(ex), false); }
+            string result = RestoreCompiled(compiledOwner, confirmOwnerRebind, () => element.GetValue(dp));
+            if (result.Contains("\"ownerUpdated\":\"True\"", StringComparison.Ordinal)) Captured.Release(element, prop);
+            return result;
+        }
+        if (held) saved = original;
+        if (saved is not null || Captured.TryGet(element, prop, out saved))
         {
             try
             {
                 BindingOperations.SetBinding(element, dp, saved is Binding binding ? CloneBinding(binding) : saved);
+                if (held) Captured.Release(element, prop);
                 Field(sb, "restoreKind", "binding");
                 if (saved is Binding restored)
                 {
