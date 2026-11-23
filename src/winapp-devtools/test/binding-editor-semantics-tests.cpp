@@ -551,7 +551,7 @@ int main()
         // A self-reference must not recurse forever.
         merged->merged.Append(dictionary.as<DevToolsX::ResourceDictionary>());
         ResourceKeys candidates;
-        CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
+        DevToolsResourceKeys_CollectDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
         check(candidates.keys.size() == 2 &&
               std::find(candidates.keys.begin(), candidates.keys.end(), L"AppSize") != candidates.keys.end() &&
               std::find(candidates.keys.begin(), candidates.keys.end(), L"MergedSize") != candidates.keys.end(),
@@ -570,34 +570,34 @@ int main()
         dictionary->values.Insert(L"Light", light.as<Object>());
         dictionary->values.Insert(L"Dark", dark.as<Object>());
         dictionary->values.Insert(L"HighContrast", contrast.as<Object>());
-        check(std::wstring(ResourceTheme(DevToolsX::ElementTheme::Light, false)) == L"Light" &&
-              std::wstring(ResourceTheme(DevToolsX::ElementTheme::Dark, false)) == L"Dark" &&
-              std::wstring(ResourceTheme(DevToolsX::ElementTheme::Default, false)) == L"Light",
+        check(std::wstring(DevToolsResourceKeys_Theme(DevToolsX::ElementTheme::Light, false)) == L"Light" &&
+              std::wstring(DevToolsResourceKeys_Theme(DevToolsX::ElementTheme::Dark, false)) == L"Dark" &&
+              std::wstring(DevToolsResourceKeys_Theme(DevToolsX::ElementTheme::Default, false)) == L"Light",
               "resource discovery preserves Light, Dark and default theme selection");
         for (const auto theme : {DevToolsX::ElementTheme::Light, DevToolsX::ElementTheme::Dark}) {
             candidates = {};
-            CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double",
-                                      ResourceTheme(theme, true), candidates);
+            DevToolsResourceKeys_CollectDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double",
+                                      DevToolsResourceKeys_Theme(theme, true), candidates);
             check(std::find(candidates.keys.begin(), candidates.keys.end(), L"ContrastSize") != candidates.keys.end() &&
                   std::find(candidates.keys.begin(), candidates.keys.end(), L"ThemeSize") == candidates.keys.end() &&
                   std::find(candidates.keys.begin(), candidates.keys.end(), L"DarkSize") == candidates.keys.end(),
                   "high contrast overrides the element's Light or Dark theme for suggestions");
         }
         candidates = {};
-        CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
+        DevToolsResourceKeys_CollectDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
         check(std::find(candidates.keys.begin(), candidates.keys.end(), L"ThemeSize") != candidates.keys.end() &&
               std::find(candidates.keys.begin(), candidates.keys.end(), L"DarkSize") == candidates.keys.end(),
               "only the active theme dictionary supplies suggestions");
         dictionary->values.Remove(L"Light");
         dictionary->values.Insert(L"Default", light.as<Object>());
         candidates = {};
-        CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
+        DevToolsResourceKeys_CollectDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
         check(std::find(candidates.keys.begin(), candidates.keys.end(), L"ThemeSize") != candidates.keys.end(),
               "missing named theme uses Default dictionary");
         dictionary->values.Remove(L"HighContrast");
         candidates = {};
-        CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double",
-                                  ResourceTheme(DevToolsX::ElementTheme::Dark, true), candidates);
+        DevToolsResourceKeys_CollectDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double",
+                                  DevToolsResourceKeys_Theme(DevToolsX::ElementTheme::Dark, true), candidates);
         check(std::find(candidates.keys.begin(), candidates.keys.end(), L"ThemeSize") != candidates.keys.end() &&
               std::find(candidates.keys.begin(), candidates.keys.end(), L"DarkSize") == candidates.keys.end(),
               "missing high-contrast dictionary uses Default rather than Dark");
@@ -605,7 +605,7 @@ int main()
         dictionary->merged.Clear();
         candidates = {};
         candidates.entries = 4096;
-        CollectResourceDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
+        DevToolsResourceKeys_CollectDictionary(dictionary.as<DevToolsX::ResourceDictionary>(), L"Double", L"Light", candidates);
         check(candidates.partial && candidates.keys.empty(), "resource enumeration is bounded and marks an incomplete list");
         check(ResourceTypeFamily(L"Microsoft.UI.Xaml.Media.SolidColorBrush") == L"Brush",
               "brush subclasses are compatible resource suggestions");

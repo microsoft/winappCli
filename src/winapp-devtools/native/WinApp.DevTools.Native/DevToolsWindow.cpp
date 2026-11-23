@@ -33,6 +33,7 @@
 #include "DevToolsPickRoute.h"
 #include "DevToolsPerf.h"
 #include "DevToolsResourceInline.h"
+#include "DevToolsResourceKeys.h"
 #include <algorithm>
 #include "DevToolsSink.h"
 #include "DevToolsProtocol.h"

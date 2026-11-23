@@ -56,6 +56,8 @@
 #include "DevToolsBindingInstall.h"
 #include "DevToolsBindingMode.h"
 #include "DevToolsEditUndo.h"
+#include "DevToolsResourceKeys.h"
+#include "DevToolsPathWalk.h"
 #include "DevToolsPathSyntax.h"
 #include "DevToolsPathProbe.h"
 #include "DevToolsAuthored.h"

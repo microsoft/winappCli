@@ -323,7 +323,9 @@ static void TestClearPropertyIsItsOwnMutationVerb()
            "  the two verbs take DIFFERENT parameter types: a clear has no value or type to send");
 
     // The inspector window's resource and binding editors, for protocol clients: public and mutation-tier.
-    for (const wchar_t* name : { L"Resource.assign", L"Binding.install", L"Binding.writeSource" }) {
+    const DevToolsProtocolMethod* list = DevToolsProtocolFindMethod(L"Resource.list");
+    Check(list && list->visibility == DevToolsVisibility::Public && list->access == DevToolsAccess::Read,
+           "  Resource.list (the inspector's key suggestions) is public and only reads");    for (const wchar_t* name : { L"Resource.assign", L"Binding.install", L"Binding.writeSource" }) {
         const DevToolsProtocolMethod* edit = DevToolsProtocolFindMethod(name);
         Check(edit && edit->visibility == DevToolsVisibility::Public && edit->access == DevToolsAccess::Mutation,
                "  each inspector edit is a public, mutation-tier method");
@@ -413,6 +415,8 @@ static void TestUndeclaredParametersAreNotSilentlyAccepted()
         { L"Resource.assign",          L"theme",   L"value"    },  // mutation tier, a key not a value
         { L"Binding.install",          L"mode",    L"value"    },  // mutation tier, path and mode only
         { L"Binding.writeSource",      L"value",   L"path"     },  // mutation tier, the source value only
+        { L"Resource.list",            L"prop",    L"key"      },  // read tier, lists keys for a property
+        { L"Binding.walk",             L"path",    L"mode"     },  // read tier, optional proposed path
         { L"Internal.setComments",     L"comments",L"id"       },  // internal, array-of-objects member
     };
     for (const auto& c : cases) {

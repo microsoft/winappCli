@@ -1365,6 +1365,18 @@ static void CheckResourceAssign(const std::function<void(bool,const char*)>& che
         chainedUndo->Find(L"params")->GetString(L"key")==L"Greeting",
         "and the undo of a second assignment re-assigns the first key");
 
+    DevToolsJson listed;
+    DevToolsJsonParse(HandleRpc(nullptr,DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Resource.list\","
+        L"\"params\":{\"handle\":\""+handle+L"\",\"prop\":\"Text\"}}")),listed);
+    const DevToolsJson* keys=listed.Find(L"result") ? listed.Find(L"result")->Find(L"keys") : nullptr;
+    check(keys && keys->type==DevToolsJsonType::Array && listed.Find(L"result")->GetBool(L"partial",false),
+        "Resource.list answers with a key list, partial when the element has no resource scope to search");
+    DevToolsJson unknown;
+    DevToolsJsonParse(HandleRpc(nullptr,DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Resource.list\","
+        L"\"params\":{\"handle\":\""+handle+L"\",\"prop\":\"NoSuchProperty\"}}")),unknown);
+    check(unknown.Find(L"error") && unknown.Find(L"error")->Find(L"data") &&
+        unknown.Find(L"error")->Find(L"data")->GetString(L"token")==L"unknown-property",
+        "and refuses a property the element does not have");
     { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
     g_testEnqueueUiOperation=nullptr; g_dispatcher=nullptr;
     g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_nameOf.clear(); g_type.clear();

@@ -363,61 +363,14 @@ static std::wstring BindingExprFrom(const std::wstring& bindPath, const std::wst
 }
 
 // Resource keys remain free text; suggestions exclude known incompatible types.
-static std::wstring ResourceTypeFamily(const std::wstring& type)
-{
-    std::wstring s = ShortType(type);
-    if (s.size() >= 5 && s.compare(s.size() - 5, 5, L"Brush") == 0) return L"Brush";
-    return s;
-}
+static std::wstring ResourceTypeFamily(const std::wstring& type) { return DevToolsResourceKeys_TypeFamily(type); }
 
 static std::wstring RowResourceType(const DevToolsCardRow& r)
 {
     return r.valueType.empty() ? r.type : r.valueType;
 }
 
-struct ResourceKeys
-{
-    std::vector<std::wstring> keys;
-    std::set<std::wstring> seen;
-    std::set<void*> dictionaries;
-    size_t entries = 0;
-    bool partial = false;
-};
-
-static const wchar_t* ResourceTheme(DevToolsX::ElementTheme theme, bool highContrast)
-{
-    if (highContrast) return L"HighContrast";
-    return theme == DevToolsX::ElementTheme::Dark ? L"Dark" : L"Light";
-}
-
-static void CollectResourceDictionary(const DevToolsX::ResourceDictionary& dictionary,
-                                     const std::wstring& want, const wchar_t* theme, ResourceKeys& out)
-{
-    if (!dictionary || !out.dictionaries.insert(winrt::get_abi(dictionary)).second) return;
-    if (out.dictionaries.size() > 128) { out.partial = true; return; }
-    for (const auto& entry : dictionary) {
-        if (++out.entries > 4096) { out.partial = true; return; }
-        const auto key = entry.Key().try_as<winrt::Windows::Foundation::IPropertyValue>();
-        if (!key || key.Type() != winrt::Windows::Foundation::PropertyType::String) continue;
-        const std::wstring name(key.GetString());
-        if (!out.seen.insert(name).second) continue;
-        const auto value = entry.Value();
-        if (!value) continue;
-        std::wstring type(winrt::get_class_name(value));
-        const std::wstring boxed = L"Windows.Foundation.IReference`1<";
-        if (type.starts_with(boxed) && type.back() == L'>')
-            type = type.substr(boxed.size(), type.size() - boxed.size() - 1);
-        if (ResourceTypeFamily(type) == want) out.keys.push_back(name);
-    }
-    const auto themes = dictionary.ThemeDictionaries();
-    auto key = winrt::box_value(theme);
-    if (!themes.HasKey(key)) key = winrt::box_value(L"Default");
-    if (themes.HasKey(key))
-        CollectResourceDictionary(themes.Lookup(key).try_as<DevToolsX::ResourceDictionary>(), want, theme, out);
-    const auto merged = dictionary.MergedDictionaries();
-    for (uint32_t i = merged.Size(); i > 0 && !out.partial; --i)
-        CollectResourceDictionary(merged.GetAt(i - 1), want, theme, out);
-}
+using ResourceKeys = DevToolsResourceKeyList;
 
 static ResourceKeys ResourceKeyCandidates(const DevToolsCardRow& target)
 {
@@ -427,25 +380,9 @@ static ResourceKeys ResourceKeyCandidates(const DevToolsCardRow& target)
     try {
         winrt::com_ptr<IInspectable> raw;
         if (g_elementFn) raw.attach(g_elementFn(g_selWire));
-        if (raw) {
-            winrt::Windows::Foundation::IInspectable selected;
-            winrt::copy_from_abi(selected, raw.get());
-            auto node = selected.try_as<DevToolsX::DependencyObject>();
-            const auto selectedFe = selected.try_as<DevToolsX::FrameworkElement>();
-            const wchar_t* theme = ResourceTheme(
-                selectedFe ? selectedFe.ActualTheme() : DevToolsX::ElementTheme::Default, SystemHighContrast());
-            size_t ancestors = 0;
-            while (node && !out.partial) {
-                if (++ancestors > 128) { out.partial = true; break; }
-                const auto fe = node.try_as<DevToolsX::FrameworkElement>();
-                if (fe) CollectResourceDictionary(fe.Resources(), want, theme, out);
-                node = fe && fe.Parent() ? fe.Parent() : DevToolsXM::VisualTreeHelper::GetParent(node);
-            }
-            if (!out.partial)
-                CollectResourceDictionary(DevToolsX::Application::Current().Resources(), want, theme, out);
-        } else {
-            out.partial = true;
-        }
+        winrt::Windows::Foundation::IInspectable selected;
+        if (raw) winrt::copy_from_abi(selected, raw.get());
+        DevToolsResourceKeys_Collect(selected, want, out);
     } catch (const winrt::hresult_error& error) {
         out.partial = true;
         DevToolsOverlayLog(L"route1.resources enumeration FAILED hr=0x%08X: %s",
@@ -457,14 +394,10 @@ static ResourceKeys ResourceKeyCandidates(const DevToolsCardRow& target)
     // Keep source-derived and built-in suggestions when runtime enumeration is unavailable.
     for (const auto& row : g_propRows) {
         if (row.authoredKind != L"themeResource" && row.authoredKind != L"staticResource") continue;
-        if (row.authoredKey.empty()) continue;
         if (ResourceTypeFamily(RowResourceType(row)) != want) continue;
-        if (out.seen.insert(row.authoredKey).second) out.keys.push_back(row.authoredKey);
+        DevToolsResourceKeys_Add(row.authoredKey, out);
     }
-    if (want == L"Brush") {
-        for (const auto& k : BrushResourceNames())
-            if (out.seen.insert(k).second) out.keys.push_back(k);
-    }
+    DevToolsResourceKeys_AddDefaults(want, out);
     return out;
 }
 
@@ -1009,15 +942,9 @@ static void CALLBACK ValidateTimerProc(HWND, UINT, UINT_PTR id, DWORD)
 
 static void ApplyValidateAnswer(const std::wstring& json)
 {
-    const DevToolsPathWalkView v = DevToolsPathWalk_FromJson(json, DevToolsBindingRelay_AgentPresent());
-    if (!v.show) {
-        g_validateBad = false;
-        g_validateVerdict = L"Resolves. Not applied yet.";
-    } else {
-        g_validateBad = true;
-        g_validateVerdict = v.answer.empty() ? std::wstring(L"This path does not resolve.") : v.answer;
-    }
-    if (!v.againstNote.empty()) g_validateVerdict = v.againstNote + L" " + g_validateVerdict;
+    bool resolves = false;
+    g_validateVerdict = DevToolsPathWalk_Verdict(json, DevToolsBindingRelay_AgentPresent(), &resolves);
+    g_validateBad = !resolves;
     if (g_validateBad && g_validateFromXBind)
         g_validateVerdict += L" This path was copied from x:Bind, which starts at the page. {Binding} starts at "
                              L"the DataContext, so you may need to remove the first part (for example, ViewModel.).";

@@ -317,3 +317,51 @@ static std::wstring RpcBindingWriteSource(DevToolsConn* conn, const std::wstring
             : L"the source's previous value cannot be written back as text") + L"\"";
     return DevToolsRpcResult(id, AppendMembers(json, undo));
 }
+
+// The in-app inspector's key suggestions: keys whose values fit the property, from the element's dictionaries up to
+// the application's, then keys the element's XAML already uses, then the WinUI theme brushes.
+static std::wstring RpcResourceList(const std::wstring& id, const DevToolsJson& p)
+{
+    const std::wstring prop = p.GetString(L"prop");
+    unsigned long long wire = 0;
+    if (std::wstring refused = EditTargetFromParams(id, p, &wire); !refused.empty()) return refused;
+    struct State { DevToolsResourceKeyList list; std::wstring type, family; bool found = false; const wchar_t* error = nullptr; };
+    auto st = std::make_shared<State>();
+    bool completed = false;
+    const HRESULT hr = RunOnUiThread([wire, prop, st]() -> HRESULT {
+        InstanceHandle ih = 0;
+        { CensusSharedLock lock; if (!ResolveWire_nolock(wire, &ih, &st->error)) return E_INVALIDARG; }
+        std::vector<DevToolsReadProp> props;
+        const HRESULT read = ReadCuratedProps(ih, &props, nullptr);
+        if (FAILED(read)) return read;
+        for (const auto& r : props) if (r.name == prop) { st->type = r.type; st->found = true; break; }
+        if (!st->found) return S_OK;
+        st->family = DevToolsResourceKeys_TypeFamily(st->type);
+        if (st->family.empty()) return S_OK;
+        try {
+            winrt::com_ptr<IInspectable> raw;
+            if (g_diag) g_diag->GetIInspectableFromHandle(ih, raw.put());
+            winrt::Windows::Foundation::IInspectable selected;
+            if (raw) winrt::copy_from_abi(selected, raw.get());
+            DevToolsResourceKeys_Collect(selected, st->family, st->list);
+        } catch (const winrt::hresult_error& error) {
+            st->list.partial = true;
+            Log(L"resource.list enumeration failed hr=0x%08X", static_cast<unsigned>(error.code()));
+        }
+        for (const auto& r : props) {
+            if (r.authoredKind != L"themeResource" && r.authoredKind != L"staticResource") continue;
+            if (DevToolsResourceKeys_TypeFamily(r.type) == st->family) DevToolsResourceKeys_Add(r.authoredKey, st->list);
+        }
+        DevToolsResourceKeys_AddDefaults(st->family, st->list);
+        return S_OK;
+    }, &completed);
+    if (completed && st->error) return BridgeErrToRpc(id, std::wstring(L"ERR ") + st->error);
+    if (FAILED(hr)) return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher, L"The app's UI thread did not answer.", L"ui-thread",
+                                            L"\"hresult\":\"" + HrStr(hr) + L"\"");
+    if (!st->found) return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+        L"'" + prop + L"' is not a property of this element", L"unknown-property");
+    std::wstring keys;
+    for (const auto& k : st->list.keys) keys += (keys.empty() ? L"\"" : L",\"") + DevToolsJsonEscape(k) + L"\"";
+    return DevToolsRpcResult(id, L"{\"prop\":\"" + DevToolsJsonEscape(prop) + L"\",\"valueType\":\"" +
+        DevToolsJsonEscape(st->type) + L"\",\"keys\":[" + keys + L"],\"partial\":" + (st->list.partial ? L"true" : L"false") + L"}");
+}

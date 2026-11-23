@@ -338,9 +338,14 @@ winapp devtools call Binding.install handle=123 prop=Text path=Vm.Title mode=Two
 winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 12345
 ```
 
+- `Resource.list handle=123 prop=Foreground` lists the keys whose values fit the property:
+  the ones in scope from the element up to the application, then keys its XAML uses, then
+  the WinUI theme brushes. `partial: true` means some dictionaries couldn't be read.
 - `Resource.assign` sets a `{StaticResource}` key, or a `{ThemeResource}` key with
   `theme:=true`. An unknown key fails with `resource-not-found` and puts back the previous
   value (`data.restored` says whether that worked).
+- `Binding.walk handle=123 prop=Text path=Vm.Title` checks a path before you install it.
+  `resolves` says whether it resolves against the DataContext, and `verdict` says why not.
 - `Binding.install` replaces the property's binding with a new `{Binding}` on the
   DataContext. Use it to switch an `{x:Bind}` property to `{Binding}`. Converter, source
   and other options are not kept; `warning` lists them.

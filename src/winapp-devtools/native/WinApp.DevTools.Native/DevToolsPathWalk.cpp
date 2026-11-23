@@ -243,3 +243,13 @@ DevToolsPathWalkView DevToolsPathWalk_FromJson(const std::wstring& json, bool ag
 
     return v;
 }
+
+std::wstring DevToolsPathWalk_Verdict(const std::wstring& json, bool agentPresent, bool* resolves)
+{
+    const DevToolsPathWalkView v = DevToolsPathWalk_FromJson(json, agentPresent);
+    if (resolves) *resolves = !v.show;
+    std::wstring verdict = !v.show ? std::wstring(L"Resolves. Not applied yet.")
+                         : v.answer.empty() ? std::wstring(L"This path does not resolve.") : v.answer;
+    if (!v.againstNote.empty()) verdict = v.againstNote + L" " + verdict;
+    return verdict;
+}
