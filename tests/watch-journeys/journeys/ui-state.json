@@ -60,7 +60,7 @@
       "expect": {
         "v1": "live+note",
         "today": "applied",
-        "stock": "unchanged"
+        "stock": "not-applied"
       },
       "checks": [
         {
@@ -101,7 +101,7 @@
       "expect": {
         "v1": "live+note",
         "today": "applied",
-        "stock": "unchanged"
+        "stock": "not-applied"
       },
       "checks": [
         {
@@ -132,7 +132,7 @@
       "expect": {
         "v1": "error",
         "today": "error",
-        "stock": "unchanged",
+        "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -164,7 +164,7 @@
       "expect": {
         "v1": "live+note",
         "today": "applied",
-        "stock": "unchanged"
+        "stock": "not-applied"
       },
       "checks": [
         {
@@ -203,7 +203,7 @@
       "expect": {
         "v1": "live+note",
         "today": "applied",
-        "stock": "unchanged",
+        "stock": "not-applied",
         "reason": "_taps"
       },
       "checks": [
@@ -249,7 +249,7 @@
       "expect": {
         "v1": "error",
         "today": "?",
-        "stock": "unchanged",
+        "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -280,7 +280,7 @@
       "expect": {
         "v1": "live+note",
         "today": "?",
-        "stock": "unchanged"
+        "stock": "not-applied"
       },
       "checks": [
         {

@@ -40,7 +40,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -66,7 +66,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -91,7 +91,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -117,7 +117,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -142,7 +142,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -168,7 +168,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -193,7 +193,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -219,7 +219,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -244,7 +244,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -270,7 +270,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -295,7 +295,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -321,7 +321,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -346,7 +346,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -372,7 +372,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -397,7 +397,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -423,7 +423,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -448,7 +448,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -474,7 +474,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -499,7 +499,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -525,7 +525,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -550,7 +550,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -576,7 +576,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -601,7 +601,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -627,7 +627,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -652,7 +652,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -678,7 +678,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -703,7 +703,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -729,7 +729,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -754,7 +754,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -780,7 +780,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -805,7 +805,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -831,7 +831,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -856,7 +856,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -882,7 +882,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -907,7 +907,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -933,7 +933,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -958,7 +958,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -984,7 +984,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {
@@ -1009,7 +1009,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error", "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -1035,7 +1035,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied", "stock": "not-applied"
       },
       "checks": [
         {

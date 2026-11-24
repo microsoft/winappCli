@@ -16,27 +16,27 @@
     {
       "id": "r20-usercontrol-edit", "row": 20, "title": "Edit a UserControl shown on the page",
       "file": "App/ContactCard.xaml", "op": "replace", "find": "Text=\"card-v1\"", "text": "Text=\"card-v2\"",
-      "expect": { "v1": "live+note", "today": "applied", "stock": "unchanged" },
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "text-equals", "target": "CardText", "value": "card-v2" } ],
       "parity": true
     },
     {
       "id": "r21-usercontrol-constructor-once", "row": 21, "title": "The UserControl's constructor runs once per save",
       "pending": "checked in ui-state.json and e8-broken-saves.json, whose ContactCard counts its builds (CardBuilds)",
-      "expect": { "v1": "live", "today": "untested" }
+      "expect": { "v1": "live", "today": "untested", "stock": "untested" }
     },
     {
       "id": "r22-usercontrol-twice", "row": 22, "title": "UserControl on two places of a page",
       "edits": [
         { "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <local:ContactCard x:Name=\"Card\" />", "text": "            <local:ContactCard x:Name=\"Card2\" />" }
       ],
-      "expect": { "v1": "live", "today": "applied", "stock": "unchanged" },
+      "expect": { "v1": "live", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "property-equals", "target": "Card2", "value": "Visibility=Visible" } ]
     },
     {
       "id": "r23-window-xaml", "row": 23, "title": "Window XAML",
       "file": "App/MainWindow.xaml", "op": "replace", "find": "Margin=\"12,0,12,8\"", "text": "Margin=\"12,0,12,12\"",
-      "expect": { "v1": "restart", "today": "restart", "stock": "unchanged" },
+      "expect": { "v1": "restart", "today": "restart", "stock": "not-applied" },
       "note": "follows E4; its likely result is restart with a tip"
     },
     {
@@ -45,40 +45,40 @@
         { "file": "App/App.xaml", "op": "insert-after", "find": "            </ResourceDictionary.MergedDictionaries>", "text": "            <SolidColorBrush x:Key=\"AccentText\" Color=\"DarkGreen\" />" },
         { "file": "App/ContactsPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />", "text": "<TextBlock x:Name=\"CountText\" Text=\"clicks 0\" Foreground=\"{StaticResource AccentText}\" />" }
       ],
-      "expect": { "v1": "live", "today": "applied", "stock": "unchanged" },
+      "expect": { "v1": "live", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "property-equals", "target": "CountText", "value": "Foreground=#FF006400" } ]
     },
     {
       "id": "r24-merged-dictionary", "row": 24, "title": "A merged dictionary: a brush the page uses",
       "file": "App/Styles.xaml", "op": "replace", "find": "Color=\"DarkRed\"", "text": "Color=\"DarkBlue\"",
-      "expect": { "v1": "live", "today": "applied", "stock": "unchanged" },
+      "expect": { "v1": "live", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "property-equals", "target": "StatusText", "value": "Foreground=#FF00008B" } ]
     },
     {
       "id": "r24-generic-xaml", "row": 24, "title": "Themes/Generic.xaml: a templated control's default style",
       "file": "App/Themes/Generic.xaml", "op": "replace", "find": "Text=\"badge-v1\"", "text": "Text=\"badge-v2\"",
-      "expect": { "v1": "live", "today": "applied", "stock": "unchanged" },
+      "expect": { "v1": "live", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "exists", "target": "badge-v2" } ]
     },
     {
       "id": "r25-app-xaml-autosuggestbox", "row": 25, "title": "App.xaml saved with text in an AutoSuggestBox",
       "pending": "waits on WinUI PR 3 (the AutoSuggestBox fix); the test app has no AutoSuggestBox yet",
-      "expect": { "v1": "live", "today": "untested" }
+      "expect": { "v1": "live", "today": "untested", "stock": "untested" }
     },
     {
       "id": "r26-requested-theme", "row": 26, "title": "<Application RequestedTheme>",
       "file": "App/App.xaml", "op": "replace", "find": "    xmlns:local=\"using:TodoBench\">", "text": "    xmlns:local=\"using:TodoBench\"\n    RequestedTheme=\"Dark\">",
-      "expect": { "v1": "live+note", "today": "applied", "stock": "unchanged", "reason": "RequestedTheme" }
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied", "reason": "RequestedTheme" }
     },
     {
       "id": "r26-resw", "row": 26, "title": "x:Uid and a .resw string",
       "pending": "the test app has no .resw yet (design: restart with a reason)",
-      "expect": { "v1": "restart", "today": "untested" }
+      "expect": { "v1": "restart", "today": "untested", "stock": "untested" }
     },
     {
       "id": "r27-theme-switch", "row": 27, "title": "Light/dark switch after an edit",
       "pending": "needs a theme switch the journey can drive",
-      "expect": { "v1": "untested", "today": "untested" }
+      "expect": { "v1": "untested", "today": "untested", "stock": "untested" }
     }
   ]
 }

@@ -10,7 +10,7 @@ using WinApp.HotReload.Protocol;
 
 namespace WinApp.HotReload;
 
-internal enum Outcome { Applied, Unchanged, Waiting, Error, Restart }
+internal enum Outcome { Applied, Unchanged, NotApplied, Waiting, Error, Restart }
 
 internal sealed record SaveResult(Outcome Outcome, string Detail, IReadOnlyList<string>? Notes = null);
 
@@ -56,16 +56,16 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         if (xaml is null && files.Where(f => Is(f, ".xaml") && graph.LibraryOf(f) is null).ToList() is { Count: > 0 } stock)
         {
             // A WinUI that can't load XAML while the app runs: the save isn't applied, and says so. The rest of it is.
-            var line = $"{string.Join(", ", stock.Select(Relative))}: XAML changes need a restart on this WinUI version";
+            var line = $"{string.Join(", ", stock.Select(Relative))}: XAML changes need a restart on this WinUI version (press Ctrl+R)";
             if (files.Except(stock).ToList() is not { Count: > 0 } rest)
             {
-                return new SaveResult(Outcome.Unchanged, line);
+                return new SaveResult(Outcome.NotApplied, line);
             }
             var applied = await RunAsync(rest, cancellationToken).ConfigureAwait(false);
             return applied.Outcome switch
             {
                 Outcome.Applied => applied with { Notes = [.. applied.Notes ?? [], line] },
-                Outcome.Unchanged => applied with { Detail = line },
+                Outcome.Unchanged => new SaveResult(Outcome.NotApplied, line),
                 _ => applied,
             };
         }
@@ -115,7 +115,9 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         }
         if (result.Outcome == CSharpOutcome.Error)
         {
-            return InGeneratedCode(result.Detail!);
+            return xaml is null && UncompiledXaml(result.Detail!) is { } uncompiled
+                ? new SaveResult(Outcome.NotApplied, $"{uncompiled}: new XAML isn't compiled on this WinUI version (press Ctrl+R to restart)")
+                : InGeneratedCode(result.Detail!);
         }
         var names = string.Join(", ", files.Select(Relative));
         var notes = result.Detail?.Split(Environment.NewLine).ToList() ?? [];
@@ -340,6 +342,25 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
 
     private static HashSet<string> Keys(XDocument document) =>
         document.Descendants().Select(e => e.Attribute(XName.Get("Key", "http://schemas.microsoft.com/winfx/2006/xaml"))?.Value).OfType<string>().ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>
+    /// On a WinUI that can't load XAML while the app runs: the code-behind file whose error is only XAML that wasn't
+    /// compiled, a new page's <c>InitializeComponent</c> or an <c>x:Name</c> its XAML declares. Only a rebuild compiles it.
+    /// </summary>
+    private string? UncompiledXaml(string errors)
+    {
+        foreach (Match match in Regex.Matches(errors, @"^\s*(?<file>.+\.xaml\.cs)\(\d+,\d+\): CS0103: The name '(?<name>\w+)'", RegexOptions.Multiline))
+        {
+            var file = match.Groups["file"].Value;
+            var name = match.Groups["name"].Value;
+            var page = Path.Combine(graph.ProjectDirectory, file[..^".cs".Length]);
+            if (name == "InitializeComponent" || (File.Exists(page) && File.ReadAllText(page).Contains($"Name=\"{name}\"", StringComparison.Ordinal)))
+            {
+                return file;
+            }
+        }
+        return null;
+    }
 
     private string Relative(string path) => Path.GetRelativePath(graph.ProjectDirectory, path);
 
