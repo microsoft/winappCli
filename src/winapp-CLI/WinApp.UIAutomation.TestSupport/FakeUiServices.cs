@@ -374,7 +374,7 @@ public class FakeMouseInput : IMouseInput
 {
     public record HoverCall(int ScreenX, int ScreenY);
     public record MoveCursorCall(int ScreenX, int ScreenY);
-    public record ClickCall(int ScreenX, int ScreenY, bool DoubleClick, bool RightClick, int SettleMs = 0);
+    public record ClickCall(int ScreenX, int ScreenY, bool DoubleClick, bool RightClick, int SettleMs = 0, ClickModifiers Modifiers = ClickModifiers.None);
     public record DragCall(int FromX, int FromY, int ToX, int ToY, bool RightButton, int HoldMs = 0, int DwellMs = 0, int SettleMs = 50);
     public record ScrollWheelCall(int ScreenX, int ScreenY, int Delta, int SettleMs = 30, bool Horizontal = false);
 
@@ -388,6 +388,8 @@ public class FakeMouseInput : IMouseInput
     public void MoveCursor(int screenX, int screenY) => MoveCursorCalls.Add(new(screenX, screenY));
     public void Click(int screenX, int screenY, bool doubleClick = false, bool rightClick = false, int settleMs = 50)
         => ClickCalls.Add(new(screenX, screenY, doubleClick, rightClick, settleMs));
+    public void Click(int screenX, int screenY, ClickModifiers modifiers, bool doubleClick = false, bool rightClick = false, int settleMs = 50)
+        => ClickCalls.Add(new(screenX, screenY, doubleClick, rightClick, settleMs, modifiers));
     public void Drag(int fromScreenX, int fromScreenY, int toScreenX, int toScreenY, bool rightButton = false, int holdMs = 0, int dwellMs = 0, int settleMs = 50)
         => DragCalls.Add(new(fromScreenX, fromScreenY, toScreenX, toScreenY, rightButton, holdMs, dwellMs, settleMs));
     public void ScrollWheel(int screenX, int screenY, int delta, int settleMs = 30)

@@ -136,6 +136,52 @@ public class MouseInputTests
     }
 
     [TestMethod]
+    public void Click_WithModifiers_SendsOneBatchWrappingTheClick()
+    {
+        var sent = new List<INPUT[]>();
+        MouseInput.s_sendInput = inputs => { sent.Add(inputs.ToArray()); return (uint)inputs.Length; };
+
+        MouseInput.Click(3, 4, ClickModifiers.Control | ClickModifiers.Alt, doubleClick: true, settleMs: 0);
+
+        Assert.AreEqual(1, sent.Count, "modifiers and both clicks must go in a single SendInput call");
+        Assert.AreEqual(
+            "kd:11 kd:12 m:LEFTDOWN m:LEFTUP m:LEFTDOWN m:LEFTUP kd:E8 ku:E8 ku:12 ku:11",
+            Describe(sent[0]),
+            "modifiers wrap the click, and the mask key is tapped before Alt is released");
+    }
+
+    [TestMethod]
+    public void Click_WithModifiers_ShortWriteReleasesHeldKeysAndButton()
+    {
+        var sent = new List<INPUT[]>();
+        // Deliver only Ctrl-down, Shift-down and the button-down, then accept the release batch.
+        MouseInput.s_sendInput = inputs => { sent.Add(inputs.ToArray()); return sent.Count == 1 ? 3u : (uint)inputs.Length; };
+
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(
+            () => MouseInput.Click(1, 1, ClickModifiers.Control | ClickModifiers.Shift, rightClick: true, settleMs: 0));
+
+        Assert.Contains("partially applied", ex.Message);
+        Assert.AreEqual(2, sent.Count);
+        Assert.AreEqual("m:RIGHTUP ku:10 ku:11", Describe(sent[1]));
+    }
+
+    [TestMethod]
+    public void Click_WithModifiers_ZeroWriteSendsNoRelease()
+    {
+        var calls = 0;
+        MouseInput.s_sendInput = _ => { calls++; return 0; };
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => MouseInput.Click(1, 1, ClickModifiers.Shift, settleMs: 0));
+
+        Assert.AreEqual(1, calls, "nothing was delivered, so nothing needs releasing");
+    }
+
+    private static string Describe(INPUT[] batch) => string.Join(" ", batch.Select(input =>
+        input.type == INPUT_TYPE.INPUT_KEYBOARD
+            ? ((input.Anonymous.ki.dwFlags & KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP) != 0 ? "ku:" : "kd:") + ((ushort)input.Anonymous.ki.wVk).ToString("X2")
+            : "m:" + input.Anonymous.mi.dwFlags.ToString().Replace("MOUSEEVENTF_", "")));
+
+    [TestMethod]
     public void Drag_SendsDownPathAndUpWithOptionalTiming()
     {
         var sleeps = new List<int>();
@@ -286,6 +332,7 @@ public class MouseInputTests
         real.MoveCursor(1, 2);
         real.Hover(3, 4);
         real.Click(5, 6, doubleClick: false, rightClick: true, settleMs: 0);
+        real.Click(5, 6, ClickModifiers.Shift, settleMs: 0);
         real.Drag(7, 8, 9, 10, rightButton: true, settleMs: 0);
         real.ScrollWheel(11, 12, 120, settleMs: 0);
         real.ScrollWheelHorizontal(13, 14, -120, settleMs: 0);
@@ -293,6 +340,7 @@ public class MouseInputTests
         Assert.Contains((1, 2), cursorPositions);
         Assert.Contains((5, 6), cursorPositions);
         Assert.IsTrue(sent.Any(batch => batch[0].Anonymous.mi.dwFlags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_RIGHTDOWN));
+        Assert.IsTrue(sent.Any(batch => batch[0].type == INPUT_TYPE.INPUT_KEYBOARD && (ushort)batch[0].Anonymous.ki.wVk == 0x10));
         Assert.IsTrue(sent.Any(batch => batch[0].Anonymous.mi.dwFlags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_WHEEL));
         Assert.IsTrue(sent.Any(batch => batch[0].Anonymous.mi.dwFlags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_HWHEEL
             && batch[0].Anonymous.mi.mouseData == unchecked((uint)-120)));

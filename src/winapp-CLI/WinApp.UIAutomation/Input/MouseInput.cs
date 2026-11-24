@@ -89,7 +89,7 @@ internal static class MouseInput
     /// <summary>
     /// Moves the cursor to the target position (no button action). Lets a caller position the pointer
     /// and run its own settle + final confirm read before issuing the button-down via
-    /// <see cref="Click"/> with <c>settleMs: 0</c>, closing the settle-window race.
+    /// <see cref="Click(int, int, bool, bool, int)"/> with <c>settleMs: 0</c>, closing the settle-window race.
     /// </summary>
     public static void MoveCursor(int screenX, int screenY)
     {
@@ -116,6 +116,137 @@ internal static class MouseInput
             s_sleep(50); // inter-click delay
             SendClick(downFlag, upFlag);
         }
+    }
+
+    public static void Click(int screenX, int screenY, ClickModifiers modifiers, bool doubleClick = false, bool rightClick = false, int settleMs = 50)
+    {
+        if (modifiers == ClickModifiers.None)
+        {
+            Click(screenX, screenY, doubleClick, rightClick, settleMs);
+            return;
+        }
+
+        s_setCursorPos(screenX, screenY);
+        if (settleMs > 0)
+        {
+            s_sleep(settleMs);
+        }
+
+        var (downFlag, upFlag) = ButtonFlags(rightClick);
+        var batch = CreateModifiedClickInputs(downFlag, upFlag, modifiers, doubleClick);
+        var sent = s_sendInput(batch);
+        if (sent != (uint)batch.Length)
+        {
+            // Release whatever part of the batch was delivered, so a short write can't leave Ctrl, Shift,
+            // Alt or the mouse button held down for the rest of the user's session.
+            var release = CreateReleaseInputs(batch.AsSpan(0, (int)Math.Min(sent, (uint)batch.Length)));
+            if (release.Length > 0)
+            {
+                try { s_sendInput(release); }
+                catch (InvalidOperationException) { }
+            }
+
+            throw SendInputFailure(sent, batch.Length);
+        }
+    }
+
+    /// <summary>Virtual-key codes for each modifier, in press order.</summary>
+    internal static List<ushort> ModifierKeys(ClickModifiers modifiers)
+    {
+        var keys = new List<ushort>(3);
+        if (modifiers.HasFlag(ClickModifiers.Control)) { keys.Add(VkControl); }
+        if (modifiers.HasFlag(ClickModifiers.Shift)) { keys.Add(VkShift); }
+        if (modifiers.HasFlag(ClickModifiers.Alt)) { keys.Add(VkAlt); }
+        return keys;
+    }
+
+    private const ushort VkShift = 0x10;
+    private const ushort VkControl = 0x11;
+    private const ushort VkAlt = 0x12;
+
+    /// <summary>
+    /// An unassigned virtual key (0xE8) tapped before Alt is released. Releasing Alt with no key pressed
+    /// since it went down opens the app's menu bar or access-key hints; the tap prevents that, the same
+    /// way AutoHotkey's "menu mask key" does.
+    /// </summary>
+    internal const ushort VkMenuMask = 0xE8;
+
+    /// <summary>
+    /// Builds one batch: modifiers down, the click (twice for a double click), then modifiers up in reverse
+    /// order — with the menu mask key tapped before an Alt release.
+    /// </summary>
+    internal static INPUT[] CreateModifiedClickInputs(MOUSE_EVENT_FLAGS downFlag, MOUSE_EVENT_FLAGS upFlag, ClickModifiers modifiers, bool doubleClick)
+    {
+        var keys = ModifierKeys(modifiers);
+        var inputs = new List<INPUT>();
+        foreach (var key in keys)
+        {
+            inputs.Add(KeyboardInput.KeyEvent(key, extended: false, keyUp: false));
+        }
+
+        inputs.AddRange(CreateClickInputs(downFlag, upFlag));
+        if (doubleClick)
+        {
+            inputs.AddRange(CreateClickInputs(downFlag, upFlag));
+        }
+
+        if (modifiers.HasFlag(ClickModifiers.Alt))
+        {
+            inputs.Add(KeyboardInput.KeyEvent(VkMenuMask, extended: false, keyUp: false));
+            inputs.Add(KeyboardInput.KeyEvent(VkMenuMask, extended: false, keyUp: true));
+        }
+
+        for (int i = keys.Count - 1; i >= 0; i--)
+        {
+            inputs.Add(KeyboardInput.KeyEvent(keys[i], extended: false, keyUp: true));
+        }
+
+        return [.. inputs];
+    }
+
+    /// <summary>
+    /// Given the delivered prefix of a batch, returns the events that release every key and mouse button
+    /// it left held down: the button first, then keys in reverse press order.
+    /// </summary>
+    internal static INPUT[] CreateReleaseInputs(ReadOnlySpan<INPUT> delivered)
+    {
+        var heldKeys = new List<ushort>();
+        MOUSE_EVENT_FLAGS? heldButtonUp = null;
+        foreach (var input in delivered)
+        {
+            if (input.type == INPUT_TYPE.INPUT_KEYBOARD)
+            {
+                var vk = (ushort)input.Anonymous.ki.wVk;
+                if ((input.Anonymous.ki.dwFlags & KEYBD_EVENT_FLAGS.KEYEVENTF_KEYUP) != 0)
+                {
+                    heldKeys.Remove(vk);
+                }
+                else if (!heldKeys.Contains(vk))
+                {
+                    heldKeys.Add(vk);
+                }
+            }
+            else if (input.type == INPUT_TYPE.INPUT_MOUSE)
+            {
+                var flags = input.Anonymous.mi.dwFlags;
+                if (flags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_LEFTDOWN) { heldButtonUp = MOUSE_EVENT_FLAGS.MOUSEEVENTF_LEFTUP; }
+                else if (flags == MOUSE_EVENT_FLAGS.MOUSEEVENTF_RIGHTDOWN) { heldButtonUp = MOUSE_EVENT_FLAGS.MOUSEEVENTF_RIGHTUP; }
+                else if (flags is MOUSE_EVENT_FLAGS.MOUSEEVENTF_LEFTUP or MOUSE_EVENT_FLAGS.MOUSEEVENTF_RIGHTUP) { heldButtonUp = null; }
+            }
+        }
+
+        var release = new List<INPUT>();
+        if (heldButtonUp is { } up)
+        {
+            release.Add(CreateButtonInput(up));
+        }
+
+        for (int i = heldKeys.Count - 1; i >= 0; i--)
+        {
+            release.Add(KeyboardInput.KeyEvent(heldKeys[i], extended: false, keyUp: true));
+        }
+
+        return [.. release];
     }
 
     public static void Drag(int fromScreenX, int fromScreenY, int toScreenX, int toScreenY, bool rightButton = false, int holdMs = 0, int dwellMs = 0, int settleMs = 50)
@@ -283,17 +414,20 @@ internal static class MouseInput
         var sent = s_sendInput(array);
         if (sent != (uint)array.Length)
         {
-            throw new InvalidOperationException(sent == 0
-                ? (s_foregroundWindowIsNull()
-                    // No foreground window at all → the workstation is locked or on a secure
-                    // desktop (LogonUI/UAC), where a user-session process simply can't inject.
-                    // Don't blame elevation in that case.
-                    ? "SendInput failed — no interactive desktop is available (the session is locked " +
-                      "or on a secure desktop). Unlock the session and retry."
-                    : "SendInput failed — the target window may be elevated (running as admin). " +
-                      "Try running this CLI as administrator.")
-                : $"SendInput delivered only {sent} of {array.Length} mouse events — the gesture was " +
-                  "partially applied.");
+            throw SendInputFailure(sent, array.Length);
         }
     }
+
+    private static InvalidOperationException SendInputFailure(uint sent, int expected)
+        => new(sent == 0
+            ? (s_foregroundWindowIsNull()
+                // No foreground window at all → the workstation is locked or on a secure
+                // desktop (LogonUI/UAC), where a user-session process simply can't inject.
+                // Don't blame elevation in that case.
+                ? "SendInput failed — no interactive desktop is available (the session is locked " +
+                  "or on a secure desktop). Unlock the session and retry."
+                : "SendInput failed — the target window may be elevated (running as admin). " +
+                  "Try running this CLI as administrator.")
+            : $"SendInput delivered only {sent} of {expected} mouse events — the gesture was " +
+              "partially applied.");
 }
