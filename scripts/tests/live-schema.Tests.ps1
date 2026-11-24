@@ -23,9 +23,14 @@ BeforeAll {
         Set-Content "$root\.agents\plugins\marketplace.json" '{"name":"fixture","plugins":[{"name":"winappcli","source":{"source":"local","path":"./plugins/winapp"}},{"name":"winui","source":{"source":"local","path":"./plugins/winui"}}]}'
         New-Item -ItemType Directory -Path "$root\plugins\winapp\.codex-plugin" -Force | Out-Null
         Set-Content "$root\plugins\winapp\.codex-plugin\plugin.json" '{"name":"winappcli","version":"1.2.3"}'
-        foreach ($winui in @('agent-plugin', '.claude-plugin', '.codex-plugin')) {
+        foreach ($winui in @('agent-plugin', '.claude-plugin', '.codex-plugin', 'agent-plugin\.antigravity-plugin')) {
+            New-Item -ItemType Directory -Path "$root\plugins\winui\$winui" -Force | Out-Null
             Set-Content "$root\plugins\winui\$winui\plugin.json" '{"name":"winui","version":"1.2.3"}'
         }
+        New-Item -ItemType Directory -Path "$root\plugins\winapp\.antigravity-plugin", "$root\plugins\winapp\assets" -Force | Out-Null
+        Set-Content "$root\plugins\winapp\.antigravity-plugin\plugin.json" '{"$schema":"https://antigravity.google/schemas/v1/plugin.json","name":"winapp","displayName":"WinApp","description":"Fixture.","version":"1.2.3","logo":"assets/logo.png","suggestedPrompts":["Do it."],"author":"Fixture"}'
+        Set-Content "$root\plugins\winapp\assets\logo.png" 'fixture'
+        Set-Content "$root\plugins\winapp\README.md" 'Fixture'
         # Carries no version; the sync must leave it alone.
         Set-Content "$root\plugins\winui\openclaw.plugin.json" '{"id":"winui","name":"WinUI"}'
         Set-Content "$root\version.json" '{"version":"1.2.3"}'
@@ -116,6 +121,7 @@ Describe 'Live CLI schema consumers' {
         $result = Invoke-SchemaFixture $root 'generate'
         $result.ExitCode | Should -Be 0 -Because $result.Output
         foreach ($manifest in @('plugin.json', 'plugins\winapp\plugin.json', 'plugins\winapp\.claude-plugin\plugin.json',
+                'plugins\winapp\.antigravity-plugin\plugin.json', 'plugins\winui\agent-plugin\.antigravity-plugin\plugin.json',
                 'plugins\winui\agent-plugin\plugin.json', 'plugins\winui\.claude-plugin\plugin.json', 'plugins\winui\.codex-plugin\plugin.json',
                 '.github\plugin\marketplace.json', '.claude-plugin\marketplace.json')) {
             (Get-Content "$root\$manifest" -Raw | ConvertFrom-Json).version | Should -Be '2.0.0' -Because $manifest
@@ -130,6 +136,22 @@ Describe 'Live CLI schema consumers' {
         $result = Invoke-SchemaFixture $root 'validate'
         $result.ExitCode | Should -Not -Be 0
         $result.Output | Should -Match "plugins\\winui\\$([regex]::Escape($_))\\plugin\.json must all equal 1\.2\.3"
+    }
+
+    It 'rejects an Antigravity manifest that Antigravity or its Marketplace would not accept' -ForEach @(
+        @{ Change = { param($m) $m.name = 'winappcli' }; Expected = "'name' is .*winappcli.* but plugins/winapp/plugin.json has .*winapp" }
+        @{ Change = { param($m) $m | Add-Member agents './agents/' }; Expected = 'field\(s\) Antigravity ignores: agents' }
+        @{ Change = { param($m) $m.PSObject.Properties.Remove('displayName') }; Expected = "missing 'displayName'" }
+        @{ Change = { param($m) $m.suggestedPrompts = @('a', 'b', 'c', 'd') }; Expected = 'at most 3' }
+        @{ Change = { param($m) $m.logo = 'assets/missing.png' }; Expected = "logo 'assets/missing.png'" }
+    ) {
+        $path = "$root\plugins\winapp\.antigravity-plugin\plugin.json"
+        $manifest = Get-Content $path -Raw | ConvertFrom-Json
+        & $Change $manifest
+        $manifest | ConvertTo-Json -Depth 5 | Set-Content $path
+        $result = Invoke-SchemaFixture $root 'plugin'
+        $result.ExitCode | Should -Not -Be 0
+        $result.Output | Should -Match $Expected
     }
 
     It 'rejects an explicitly missing schema rather than skipping command validation' {

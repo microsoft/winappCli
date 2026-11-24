@@ -1,0 +1,36 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "winui",
+  "displayName": "WinUI",
+  "description": "Build WinUI 3 desktop apps: create projects, design Fluent XAML pages, fix build errors, write UI tests, migrate from WPF, and package signed MSIX installers.",
+  "version": "0.8.1",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Create a new WinUI 3 app with MVVM.",
+    "Migrate this WPF app to WinUI 3.",
+    "Package this WinUI 3 app as a signed MSIX."
+  ],
+  "author": {
+    "name": "Microsoft",
+    "url": "https://github.com/microsoft/WinAppCli"
+  },
+  "homepage": "https://aka.ms/winui-skills",
+  "repository": "https://github.com/microsoft/WinAppCli",
+  "license": "MIT",
+  "keywords": [
+    "windows",
+    "winui",
+    "winui3",
+    "xaml",
+    "windows app sdk",
+    "msix",
+    "packaging",
+    "code signing",
+    "microsoft store",
+    "wpf",
+    "dotnet",
+    "desktop app",
+    "fluent design",
+    "accessibility"
+  ]
+}

@@ -467,7 +467,7 @@ token; the privileged comment workflow reads metrics as data, never executes it.
 | Config example | `winapp.example.yaml` |
 | CLI schema | `winapp --cli-schema`; command definitions in `src/winapp-CLI/WinApp.Cli/Commands/` |
 | Shipped agent skills | `plugins/winapp/skills/` |
-| Plugin (Copilot + Claude) | `plugins/winapp/` |
+| Plugin (Copilot, Claude, Codex, Antigravity) | `plugins/winapp/` |
 | Copilot-specific plugin components | `plugins/winapp/com.github.copilot/` |
 | Plugin marketplaces | `.github/plugin/marketplace.json`, `.claude-plugin/marketplace.json` |
 | Samples | `samples/` (electron, cpp-app, dotnet-app, etc.) |
@@ -529,7 +529,9 @@ plugins/winapp/
 ├── skills/<skill>/SKILL.md     # portable Agent Skills (fixed location)
 ├── com.github.copilot/
 │   └── agents/winapp.agent.md  # Copilot-specific component
-└── .claude-plugin/plugin.json  # Claude Code manifest (Claude is not an Agent Plugins client)
+├── .claude-plugin/plugin.json  # Claude Code manifest (Claude is not an Agent Plugins client)
+├── .antigravity-plugin/plugin.json  # Antigravity manifest (Antigravity reads it instead of plugin.json)
+└── assets/logo.png             # Antigravity logo
 ```
 
 `plugin.json` uses the closed Agent Plugins schema, so it must contain **only**
@@ -539,6 +541,12 @@ must not be declared there — adding fields like `agents` or `skills` back to i
 breaks schema conformance. Claude Code has no `com.github.copilot/` awareness, so
 `.claude-plugin/plugin.json` points its `agents` field at the same file rather than
 duplicating it.
+
+Antigravity installs each plugin root (`plugins/winapp`, `plugins/winui/agent-plugin`)
+from its `.antigravity-plugin/plugin.json`, with the same `skills/` folder. It loads
+agents only from `agents/`, which Copilot doesn't read for Agent Plugins manifests, so
+Antigravity gets the skills only. Keep `name`, `version`, `author`, `license`,
+`homepage`, and `repository` in that manifest equal to the root `plugin.json`.
 
 Both hosts are listed through their marketplaces (`.github/plugin/marketplace.json`,
 `.claude-plugin/marketplace.json`). The repo-root `plugin.json` is deliberately kept in
@@ -552,7 +560,11 @@ sync with `version.json`; the list is in `scripts/plugin-version-manifests.ps1`,
 
 `scripts/validate-plugin-package.ps1` enforces all of the above: the closed manifest
 schema, the plugin name constraints, the Copilot agent's location, the Claude `agents`
-pointer resolving to a real file, and the repo-root shim staying legacy. For every plugin
+pointer resolving to a real file, the repo-root shim staying legacy, and each plugin
+root's `.antigravity-plugin/plugin.json` (Antigravity's closed schema, the fields its
+Marketplace requires, a logo inside the plugin, a `README.md` next to it, and identity
+fields matching `plugin.json`). It warns when a `SKILL.md` body is over 24,000 bytes,
+because Antigravity drops the rest. For every plugin
 root under `plugins/` (any folder holding `plugin.json` and a `skills/` folder, such as
 `plugins/winapp` or `plugins/winui/agent-plugin`) it also checks:
 

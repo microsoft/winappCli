@@ -1,12 +1,12 @@
 # WinApp CLI plugin
 
-Give GitHub Copilot, Claude Code, or OpenAI Codex the [WinApp CLI](https://github.com/microsoft/WinAppCli) (`winapp`) workflows for Windows apps built with any framework, including Electron, .NET, C++, Rust, Flutter, and Tauri. Ask your agent to set up the Windows SDK and Windows App SDK, add package identity, create and sign an MSIX installer, edit the app manifest, look up Windows APIs, find WinUI controls and samples, run your app in Windows Sandbox, inspect and test a running app's UI, measure WinUI performance, or fix packaging and signing errors.
+Give GitHub Copilot, Claude Code, OpenAI Codex, or Google Antigravity the [WinApp CLI](https://github.com/microsoft/WinAppCli) (`winapp`) workflows for Windows apps built with any framework, including Electron, .NET, C++, Rust, Flutter, and Tauri. Ask your agent to set up the Windows SDK and Windows App SDK, add package identity, create and sign an MSIX installer, edit the app manifest, look up Windows APIs, find WinUI controls and samples, run your app in Windows Sandbox, inspect and test a running app's UI, measure WinUI performance, or fix packaging and signing errors.
 
 For example, ask: "Package this app as a signed MSIX" or "Add package identity to this app with winapp."
 
 ## What's included
 
-- The `winapp` agent, which picks the right skill for each request. Codex loads the skills only, not the agent.
+- The `winapp` agent, which picks the right skill for each request. Codex and Antigravity load the skills only, not the agent.
 - [Skills](https://github.com/microsoft/WinAppCli/tree/main/plugins/winapp/skills) for each WinApp CLI workflow.
 
 ## What it does on your computer
@@ -39,7 +39,7 @@ The plugin has no MCP server and sends no data itself. WinApp CLI sends data in 
 
 ## Install
 
-See [Using with AI coding agents](https://github.com/microsoft/WinAppCli#-using-with-ai-coding-agents) for the Copilot CLI, Claude Code, and Codex commands.
+See [Using with AI coding agents](https://github.com/microsoft/WinAppCli#-using-with-ai-coding-agents) for the Copilot CLI, Claude Code, Codex, and Antigravity commands.
 
 ## Feedback
 
