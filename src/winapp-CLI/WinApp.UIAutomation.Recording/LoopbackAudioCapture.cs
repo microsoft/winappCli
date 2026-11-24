@@ -266,17 +266,22 @@ internal sealed unsafe partial class LoopbackAudioCapture : ILoopbackAudioSource
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(onPacket);
 
+        try
+        {
+            DrainPackets(onPacket);
+        }
+        catch (COMException ex)
+        {
+            // The device went away while reading.
+            throw Unavailable("audio", ex);
+        }
+    }
+
+    private void DrainPackets(LoopbackPacketHandler onPacket)
+    {
         while (true)
         {
-            uint next;
-            try
-            {
-                _capture.GetNextPacketSize(out next);
-            }
-            catch (COMException ex)
-            {
-                throw Unavailable("audio", ex);
-            }
+            _capture.GetNextPacketSize(out var next);
             if (next == 0)
             {
                 return;
