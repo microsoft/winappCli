@@ -10,12 +10,12 @@ import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, requestCopilotReview, fetchBranchCompare, fetchChangesSince, fetchCodeRefs, fetchDetail, fetchPrFiles, fetchGitHubView, fetchIssues, fetchRepoData, fetchReviewDiff, fetchMergeInfo, mergePr, cancelMerge, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
-import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
+import { adaptFinding, adaptReview, composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
 import { candidates, LAYERS, normalizeSettings, plan, sampleMachine, today } from "./auto.mjs";
-import { autoPrompt, keepReadyAutoPrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { autoPrompt, keepReadyAutoPrompt, loadReviewPrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -608,6 +608,9 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
         // Its prompt already asks for pr-review on this head, so keep-ready won't ask again for the same commit.
         updatePr(repo, pr, (s) => { s.pending = { id: "get-ready", at: nowIso() }; s.readyAsked = { head: card.headSha || null, sha: card.readiness?.reviewHead || null, at: nowIso() }; s.keepReadyOff = null; s.monitorPending = { enable: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"], at: nowIso() }; note(s, "You asked the agent to get it ready for review and keep it ready"); });
         await send(readyForReviewPrompt(card, repo, card.readiness), repo, pr, { quiet: true });
+    } else if (action === "load-review") {
+        updatePr(repo, pr, (s) => { s.pending = { id: "load-review", at: nowIso() }; note(s, "You asked the session for its pr-review details"); });
+        await send(loadReviewPrompt(card, repo), repo, pr, { quiet: true });
     } else if (action === "request-reviewer") {
         const who = String(extra.who || "*").replace(/[^\w.*-]/g, "").slice(0, 60) || "*";
         updatePr(repo, pr, (s) => { s.pending = { id: "request-reviewer", at: nowIso() }; note(s, who === "*" ? "You asked the agent to request a reviewer" : `You asked the agent to request ${who} as reviewer`); });
@@ -1124,6 +1127,8 @@ function storeReview(repo, pr, review, { replace }) {
     let warnings = [];
     const head = board(repo).card(pr)?.headSha || null;
     updatePr(repo, pr, (s) => {
+        // Findings may use top-level file/line/endLine (or "path:12-20") instead of files[]; convert them.
+        if (Array.isArray(review.findings)) review.findings = review.findings.map((f) => adaptFinding(f)).filter(Boolean);
         const next = replace ? review : mergeReview(s.review || {}, review);
         warnings = normalizeReview(next);
         next.headSha = next.headSha || head;
@@ -1153,7 +1158,9 @@ const tools = [
         parameters: { type: "object", properties: { repo: repoProp, pr: prProp, review: REVIEW_SCHEMA, path: { type: "string", description: "Absolute path to a JSON file holding the review, instead of review." } }, required: ["pr"] },
         handler: async (args) => {
             const repo = await resolveRepo(args.repo);
-            const warnings = storeReview(repo, Number(args.pr), loadReviewArg(args), { replace: true });
+            // Also takes the shapes pr-review sessions write (rounds, finalHeadSha, file:line); the notes say what was converted or is missing.
+            const { review, notes } = adaptReview(loadReviewArg(args));
+            const warnings = [...notes, ...storeReview(repo, Number(args.pr), review, { replace: true })];
             return { ok: true, repo, pr: args.pr, warnings };
         },
     },
@@ -1225,7 +1232,7 @@ const tools = [
                             },
                             prReview: {
                                 type: ["object", "null"],
-                                properties: { ranAt: { type: "string" }, headSha: { type: "string" }, result: { type: "string", enum: ["drafted", "posted"] }, event: { type: "string", enum: ["approve", "request_changes", "comment"] } },
+                                properties: { ranAt: { type: "string" }, headSha: { type: "string" }, result: { type: "string", enum: ["drafted", "posted"] }, outcome: { type: "string", description: "One short line, e.g. \"clean\" or \"2 findings fixed, 1 declined\"." }, event: { type: "string", enum: ["approve", "request_changes", "comment"] } },
                                 required: ["ranAt"],
                             },
                         },
@@ -1262,7 +1269,7 @@ const tools = [
                     if (e.agentMerge !== undefined) s.monitorPending = null;
                     if (!input || s.answered?.requestId !== input.requestId) s.answered = null;
                     if (input && s.dismissed && s.dismissed !== input.requestId) s.dismissed = null;
-                    if (e.prReview?.ranAt) s.prReview = { ...(s.prReview || {}), result: e.prReview.result || s.prReview?.result || "drafted", at: e.prReview.ranAt, headSha: e.prReview.headSha || s.prReview?.headSha || null, event: e.prReview.event || s.prReview?.event || null, ...(e.prReview.result === "posted" ? { postedAt: e.prReview.ranAt } : { draftedAt: s.prReview?.draftedAt || e.prReview.ranAt }) };
+                    if (e.prReview?.ranAt) s.prReview = { ...(s.prReview || {}), result: e.prReview.result || s.prReview?.result || "drafted", at: e.prReview.ranAt, headSha: e.prReview.headSha || s.prReview?.headSha || null, event: e.prReview.event || s.prReview?.event || null, outcome: e.prReview.outcome ? String(e.prReview.outcome).slice(0, 160) : s.prReview?.outcome || null, ...(e.prReview.result === "posted" ? { postedAt: e.prReview.ranAt } : { draftedAt: s.prReview?.draftedAt || e.prReview.ranAt }) };
                 });
                 updated.push(kind === "issue" ? `issue #${n}` : n);
             }

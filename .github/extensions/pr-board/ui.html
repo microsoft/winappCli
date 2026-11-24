@@ -1019,7 +1019,7 @@ async function post(path, body) {
   return data;
 }
 
-const DONE_TOAST = { review: "Asked the agent for a review", post: "Asked the agent to post the draft", ship: "Asked the agent to ship it", summarize: "Asked the agent for a summary", explain: "Asked the agent to explain it", "post-findings": "Asked the agent to post the review", "open-chat": "Asked the agent to open the chat", reset: "Agent status reset" };
+const DONE_TOAST = { "load-review": "Asked the session for its pr-review details", review: "Asked the agent for a review", post: "Asked the agent to post the draft", ship: "Asked the agent to ship it", summarize: "Asked the agent for a summary", explain: "Asked the agent to explain it", "post-findings": "Asked the agent to post the review", "open-chat": "Asked the agent to open the chat", reset: "Agent status reset" };
 async function act(pr, action, extra = {}) {
   try { await post("/api/action", { pr, action, ...extra }); toast(DONE_TOAST[action] || "Done"); }
   catch (e) { toast("Couldn't do that: " + e.message); }
@@ -1220,7 +1220,7 @@ function overviewHtml(c) {
   const changed = r
     ? `${(r.functionality || []).slice(0, 4).map((x) => `<div class="fn-item"><b>${mdInline(x.title)}</b>${x.detail ? `<div class="hint">${mdInline(String(x.detail).slice(0, 240))}</div>` : ""}</div>`).join("")}<div class="btns"><button data-act="tab" data-tab="architecture">${icon("arch", "sm")}See the diagrams</button><button data-act="tab" data-tab="changes">Changes by file</button></div>`
     : `<div class="hint">${esc(c.size?.text || "")}</div><div class="btns"><button data-act="tab" data-tab="changes">See the files</button></div>`;
-  const found = r ? reviewHeadHtml(c) : `<div class="hint">pr-review hasn't run on this PR yet.</div><div class="btns"><button data-act="review" ${isBusy(c) ? "disabled" : ""}>Run pr-review</button></div>`;
+  const found = r ? reviewHeadHtml(c) : ranElsewhereHtml(c) ? ranElsewhereHtml(c).replace("empty-rv ", "") : `<div class="hint">pr-review hasn't run on this PR yet.</div><div class="btns"><button data-act="review" ${isBusy(c) ? "disabled" : ""}>Run pr-review</button></div>`;
   const where = `${c.local?.summary ? `<div>${icon("sparkle", "sm tone-agent")} ${mdInline(c.local.summary.text)}</div>` : c.fallbackSummary ? `<div class="tone-mute">${esc(c.fallbackSummary)}</div>` : ""}
     <div class="ov-where">${whereHtml(c)}</div>${c.section === "reviewing" ? `<div class="ov-story">${storyHtml(c)}</div>` : ""}`;
   const stands = (c.lifecycle ? readinessHtml(c) : "") + `<section class="sec story-where"><h3>Where it is</h3>${where}</section>`;
@@ -1551,7 +1551,19 @@ const decisionOf = (c, id) => triOf(c)[id]?.decision || "undecided";
 const fileLink = (f) => `<a href="${esc(f.href || "#")}" target="_blank" rel="noopener" class="path" title="${esc(f.path)}">${esc(f.path).replace(/\//g, "/<wbr>")}${f.line ? `:${f.line}${f.endLine && f.endLine !== f.line ? "-" + f.endLine : ""}` : ""}</a>`;
 const askBtn = (q) => `<button class="quiet" data-act="ask-about" data-q="${esc(q)}">${icon("comment", "sm")}Ask about this</button>`;
 
+// pr-review ran in a session, but only its result (not the findings) reached the board.
+function ranElsewhereHtml(c) {
+  const rv = c.review;
+  if (!rv?.detailsMissing && !(rv?.state === "stale" && c.local?.prReview && !rvOf(c))) return "";
+  const s = c.local?.session, pv = c.local?.prReview || {};
+  const sha = (pv.headSha || "").slice(0, 7);
+  const asked = c.local?.pending?.id === "load-review";
+  return `<div class="empty-rv ran-elsewhere"><div><b>pr-review ran${sha ? ` on <code>${esc(sha)}</code>` : ""}${c.section === "yours" ? " (self-check" + (pv.outcome ? `, ${esc(pv.outcome)}` : "") + ")" : pv.outcome ? ` (${esc(pv.outcome)})` : ""}${pv.at ? `, ${esc(ago(pv.at))} ago` : ""}.</b> Its findings aren't loaded on the board${s?.name ? `; they're in the session "${esc(s.name)}"` : ""}.${rv.state === "stale" ? " New commits landed since." : ""}</div>
+    <div class="btns">${asked ? `<span class="hint">${icon("running", "sm")} Asking the session…</span>` : `<button class="primary" data-act="load-review" data-pr="${c.number}">Load the details</button>`}${s?.id ? `<a class="btn" href="ghapp://sessions/${esc(s.id)}">Open the session</a>` : ""}${rv.state === "stale" ? `<button data-act="review" data-pr="${c.number}">Re-run pr-review</button>` : ""}</div></div>`;
+}
 function noReviewHtml(c, what) {
+  const ran = ranElsewhereHtml(c);
+  if (ran) return ran;
   const running = c.local?.agent?.status === "running" && c.local.agent.kind === "review";
   return `<div class="empty-rv"><div><b>No ${what} yet.</b> ${running ? "An agent is reviewing this PR now; it fills in as it goes." : "Run Review: an agent follows the repo's pr-review skill and fills in a summary, diagrams, changes by system and file, and findings you can pick to post."}</div>
     ${running ? "" : `<button class="primary" data-act="review">Review this PR</button>`}</div>`;

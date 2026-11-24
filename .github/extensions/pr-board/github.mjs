@@ -864,6 +864,8 @@ function tracking(pr, data, local, ext) {
     let review;
     const pv = local.prReview;
     if (pv?.headSha && pr.headRefOid && !reviewShas.includes(pv.headSha)) review = { state: "stale", label: "Re-run needed", text: `pr-review ran on an older commit (${pv.headSha.slice(0, 7)}); new commits landed since.`, at: pv.at };
+    // pr-review ran in a session, but its findings never reached the board: say what we know, not "Drafted".
+    else if (pv && pv.result !== "posted" && !local.review && !local.draft) review = { state: "done", label: section === "yours" ? "Ran (self-check)" : "Ran", detailsMissing: true, sha: pv.headSha || null, outcome: pv.outcome || null, text: `pr-review ran${pv.headSha ? ` on ${pv.headSha.slice(0, 7)}` : ""}${section === "yours" ? " as a self-check" : ""}${pv.outcome ? `: ${pv.outcome}` : ""}. Its details aren't on the board.`, at: pv.at };
     else if (pv) review = { state: "done", label: pv.result === "posted" ? "Posted" : "Drafted", text: pv.result === "posted" ? `Review posted${pv.event ? ` (${pv.event.replace("_", " ")})` : ""}.` : "A pr-review draft is ready.", at: pv.at };
     else if (local.draft) review = { state: "done", label: local.draft.postedAt ? "Posted" : "Drafted", text: local.draft.postedAt ? "Review posted." : "A pr-review draft is ready.", at: local.draft.postedAt || local.draft.attachedAt };
     else if (local.agent?.kind === "post" && local.agent.status === "done") review = { state: "done", label: "Posted", text: local.agent.outcome || "Review posted.", at: local.agent.updatedAt };

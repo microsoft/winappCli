@@ -152,6 +152,94 @@ function ensureIds(items, prefix) {
 
 const normFiles = (files) => arr(files).map((f) => (typeof f === "string" ? { path: f } : f)).filter((f) => f && typeof f.path === "string" && f.path);
 
+// ---- Other review shapes sessions write ---------------------------------------------------------------
+const VERDICTS = ["approve", "approve-with-comments", "needs-discussion", "request-changes"];
+const text = (...v) => v.find((x) => typeof x === "string" && x.trim())?.trim() || "";
+const num = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
+function verdictOf(v) {
+    const s = String(v || "").toLowerCase().replace(/_/g, "-");
+    if (!s) return undefined;
+    if (VERDICTS.includes(s)) return s;
+    if (/request|changes|block|reject/.test(s)) return "request-changes";
+    if (/discuss|question|unsure/.test(s)) return "needs-discussion";
+    if (/comment|nit/.test(s) && /approve|lgtm|clean|pass/.test(s)) return "approve-with-comments";
+    if (/approve|lgtm|clean|pass|no (blocking )?(issues|findings)|ready|merge/.test(s)) return "approve";
+    if (/comment/.test(s)) return "approve-with-comments";
+    return undefined;
+}
+function severityOf(v) {
+    const s = String(v || "").toLowerCase();
+    if (SEVERITIES.includes(s)) return s;
+    if (/crit/.test(s)) return "critical";
+    if (/block|high|must|major|severe/.test(s)) return "high";
+    if (/med|should|moderate/.test(s)) return "medium";
+    if (/low|minor|nit|optional|could|suggest/.test(s)) return "low";
+    if (/info|note|fyi/.test(s)) return "info";
+    return undefined;
+}
+// "src/a.cs:12", "src/a.cs:12-20", "src/a.cs#L12-L20"
+function locOf(s) {
+    const m = String(s || "").match(/^(.+?)(?::(\d+)(?:-(\d+))?|#L(\d+)(?:-L?(\d+))?)?$/);
+    if (!m || !m[1]) return null;
+    const line = num(m[2] || m[4]), end = num(m[3] || m[5]);
+    return { path: m[1], ...(line ? { line } : {}), ...(end && end !== line ? { endLine: end } : {}) };
+}
+export function adaptFinding(f, extra = "") {
+    if (typeof f === "string") f = { title: f };
+    if (!f || typeof f !== "object") return null;
+    const sev = severityOf(f.severity || f.priority || f.level);
+    const files = Array.isArray(f.files) && f.files.length ? f.files
+        : [f.file || f.path || f.location].filter(Boolean).map((p) => { const l = locOf(p); if (!l) return null; const line = num(f.line ?? f.startLine ?? f.start_line) ?? l.line, end = num(f.endLine ?? f.end_line) ?? l.endLine; return { path: l.path, ...(line ? { line } : {}), ...(end && end !== line ? { endLine: end } : {}) }; }).filter(Boolean);
+    const desc = text(f.description, f.what, f.body, f.details, f.detail, f.message, f.why, f.rationale);
+    const title = text(f.title, f.summary, f.name, desc.split("\n")[0]).slice(0, 140) || "Finding";
+    let category = CATEGORIES.includes(f.category) ? f.category : /block/i.test(String(f.severity || "")) ? "blocker" : /nit/i.test(String(f.severity || f.category || "")) ? "nit" : "risk";
+    const { file, path, location, startLine, start_line, end_line, priority, level, ...rest } = f;
+    return { ...rest, ...(f.id ? { id: String(f.id) } : {}), title, category, ...(sev ? { severity: sev } : {}), description: [desc && desc !== title ? desc : "", extra].filter(Boolean).join("\n\n"),
+        recommendation: text(f.recommendation, f.fix, f.suggestion, f.smallestFix, f.smallest_fix, f.proposedFix), files, ...(Array.isArray(f.diagramRefs) ? { diagramRefs: f.diagramRefs } : {}) };
+}
+/**
+ * Accept the structured review, or the shapes pr-review sessions often write (rounds of findings and declined
+ * findings, finalHeadSha / reviewedHeadSha, file:line locations, free-form severities and verdicts), and say
+ * what was converted or is missing. Throws when nothing recognizable is there.
+ */
+export function adaptReview(raw) {
+    const notes = [];
+    let r = raw && typeof raw === "object" ? raw : {};
+    if (r.review && typeof r.review === "object" && !Array.isArray(r.findings)) { r = { ...r.review, ...r, review: undefined }; notes.push("unwrapped `review`"); }
+    const rounds = Array.isArray(r.rounds) ? r.rounds.filter((x) => x && typeof x === "object") : [];
+    const last = rounds.at(-1) || {};
+    const out = { ...r };
+    delete out.rounds; delete out.review;
+    const head = text(r.headSha, r.finalHeadSha, r.reviewedHeadSha, r.head, r.headRefOid, r.commit, last.headSha, last.reviewedHeadSha, last.head);
+    if (head) out.headSha = head;
+    for (const k of ["finalHeadSha", "reviewedHeadSha", "head", "headRefOid", "commit"]) delete out[k];
+    let findings = Array.isArray(r.findings) ? r.findings : null;
+    if (!findings && rounds.length) {
+        findings = [...(Array.isArray(last.findings) ? last.findings : [])];
+        const declined = rounds.flatMap((x) => (Array.isArray(x.declined) ? x.declined : []));
+        const seen = new Set(findings.map((f) => text(f?.title, f?.summary)));
+        for (const d of declined) {
+            const t = text(d?.title, d?.summary, typeof d === "string" ? d : "");
+            if (seen.has(t)) continue;
+            seen.add(t);
+            findings.push({ ...(typeof d === "string" ? { title: d } : d), _declined: text(d?.reason, d?.declineReason, d?.why) || "no reason given" });
+        }
+        notes.push(`converted pr-review rounds: ${Array.isArray(last.findings) ? last.findings.length : 0} finding(s) from round ${rounds.length}, ${declined.length} declined`);
+    }
+    if (findings) out.findings = findings.map((f) => (f?._declined ? adaptFinding({ ...f, _declined: undefined }, `_Declined by the session:_ ${f._declined}`) : adaptFinding(f))).filter(Boolean);
+    if (findings?.some((f) => f && typeof f === "object" && (["file", "path", "location", "body", "message", "fix", "suggestion"].some((k) => k in f) || (f.severity && !SEVERITIES.includes(f.severity))))) notes.push("mapped finding fields (file:line, severity, body/fix) to the board's shape");
+    const v = verdictOf(r.verdict ?? r.recommendation ?? r.decision ?? r.outcome ?? last.verdict ?? last.decision);
+    if (v) { if (v !== r.verdict) notes.push(`verdict "${r.verdict ?? r.recommendation ?? r.decision ?? r.outcome ?? last.verdict ?? last.decision}" → ${v}`); out.verdict = v; } else delete out.verdict;
+    out.summary = text(r.summary, r.overall, r.conclusion, last.summary) || undefined;
+    for (const k of ["recommendation", "decision", "outcome", "overall", "conclusion"]) if (typeof out[k] === "string") delete out[k];
+    if (!out.summary && !out.verdict && !out.findings?.length && !arr(out.components).length && !arr(out.diagrams).length && !arr(out.changedFiles).length) {
+        throw new Error(`Nothing the board can show: expected at least one of summary, verdict, findings (or rounds[].findings), components, diagrams. Got keys: ${Object.keys(r).join(", ") || "none"}. Call pr_board_review_guide for the shape.`);
+    }
+    const missing = [!out.summary && "summary", !out.verdict && "verdict", !out.headSha && "headSha (or finalHeadSha / reviewedHeadSha)"].filter(Boolean);
+    if (missing.length) notes.push(`missing ${missing.join(", ")}`);
+    return { review: out, notes };
+}
+
 /** Normalize in place; return warnings for the agent. */
 export function normalizeReview(review) {
     const warnings = [];

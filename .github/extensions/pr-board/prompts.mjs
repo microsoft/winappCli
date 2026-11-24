@@ -473,6 +473,18 @@ export function keepReadyAutoPrompt(card, repo, readiness, job) {
     ].join("\n");
 }
 
+// pr-review ran in a session, but only its gate result reached the board: fetch the details, don't re-run it.
+export function loadReviewPrompt(card, repo) {
+    const s = card.local?.session, pv = card.local?.prReview || {};
+    return [
+        `The PR board canvas: on ${repo}#${card.number} "${card.title}" (${card.url}), pr-review ran${pv.headSha ? ` on ${String(pv.headSha).slice(0, 7)}` : ""}, but its findings never reached the board. The user asked to **load the details**. Don't run pr-review again.`,
+        s?.id
+            ? `Ask its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\` for the result it already has (the summary, verdict and every finding, including ones it fixed or declined, with file and line), as a JSON file. Then call \`pr_board_set_review({ repo: "${repo}", pr: ${card.number}, path: <absolute path> })\`.`
+            : `No session is linked. If you ran it, call \`pr_board_set_review({ repo: "${repo}", pr: ${card.number}, review })\` with what you have.`,
+        `pr_board_set_review accepts the board's shape (\`pr_board_review_guide\`) or the pr-review shape (rounds[].findings and declined, finalHeadSha). Read the returned warnings. If the result is gone, say so in one line with \`pr_board_reply\`.`,
+    ].join("\n");
+}
+
 // Keep it ready: a new non-merge commit landed on a watched PR, so pr-review needs to run on it again.
 export function rerunReviewPrompt(card, repo, sha) {
     const s = card.local?.session;

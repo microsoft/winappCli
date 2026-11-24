@@ -661,7 +661,7 @@ Every request from the board tells the agent which of these to call.
 | `pr_board_link_session` | Link a session to a PR or issue (pass `branch` for an issue) |
 | `pr_board_set_status` | Set the agent status with a one-line outcome: `running`, `waiting` (needs you), `waiting_on_others` (blocked on another approver or the author; the outcome becomes the ⏭ line), `posted`, `done`, `failed`, or `clear` |
 | `pr_board_review_guide` | Read first: the review workflow, plain-words rules, diagram conventions and schema |
-| `pr_board_set_review` | Set the whole structured review: `{ pr, review }`, or `{ pr, path }` to a JSON file with the same shape (for sessions that don't have the board's tools) |
+| `pr_board_set_review` | Set the whole structured review: `{ pr, review }`, or `{ pr, path }` to a JSON file with the same shape (for sessions that don't have the board's tools). It also takes the shape pr-review sessions write (`rounds[].findings` and `declined`, `finalHeadSha` or `reviewedHeadSha`, findings with `file`/`line`/`endLine` or `path:12-20`) and returns warnings saying what it converted or what's missing |
 | `pr_board_update_review` | Change part of a review, such as the verdict or one diagram |
 | `pr_board_add_findings` | Add or update findings by id. Your Post/Ignore choices stay when ids stay the same |
 | `pr_board_set_explanation` | Put the answer to **Explain** under a finding |
@@ -721,7 +721,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ thread column: an anchor chip switches the tab on the left while the thread stays put (893ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-93 passed, 0 failed, 93 total (353s)
+94 passed, 0 failed, 94 total (355s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

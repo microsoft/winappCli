@@ -683,7 +683,7 @@ export function register(test) {
         await openRow(page, 101);
         const head = await text(page, "#wsHead");
         assert.match(head, /Watching/);
-        assert.match(head, /pr-review: Drafted/);
+        assert.match(head, /pr-review: Ran \(self-check\)/);
         await page.click('#wsHead [data-act="more-menu"]');
         assert.match(await text(page, "#wsHead .menu"), /Stop keeping it ready/);
         await closeSheet(page);
@@ -1005,6 +1005,43 @@ export function register(test) {
             assert.deepEqual(asks(), [oid.slice(0, 7)]);
         } finally { Date.now = realNow; }
     }, { changesGitHub: true, allowMutations: true });
+    test("regression (#1391): pr-review ran in a session but no findings reached the board: say so, and load them instead of re-running", async (ctx) => {
+        const { page } = ctx;
+        await ctx.board.tool("pr_board_sync_sessions", { repo: REPO, sessions: [{ pr: 101, sessionId: "s-101", name: "Uploader retries", role: "author", activity: "idle", agentMerge: { enabled: true, actions: ["address_reviews"] }, prReview: { ranAt: new Date().toISOString(), headSha: HEAD[101], result: "drafted", outcome: "passed" } }] });
+        await openRow(page, 101);
+        const chip = await text(page, "#wsHead .ws-meta");
+        assert.match(chip, /pr-review: Ran \(self-check\)/);
+        assert.doesNotMatch(chip, /Drafted/);
+        await tabTo(page, "review");
+        const tab = await text(page, "#wsScroll");
+        assert.match(tab, new RegExp(`pr-review ran on ${HEAD[101].slice(0, 7)} \\(self-check, passed\\)`));
+        assert.match(tab, /Its findings aren't loaded on the board; they're in the session "Uploader retries"/);
+        assert.doesNotMatch(tab, /No review findings yet/);
+        assert.equal(await exists(page, '#wsScroll [data-act="review"]'), false, "it offers to re-run pr-review on the same commit");
+        assert.equal(await page.eval(`document.querySelector('#wsScroll a[href="ghapp://sessions/s-101"]')?.innerText`), "Open the session");
+        await page.click('#wsScroll [data-act="load-review"]');
+        const p = await waitForSend(ctx, /load the details/);
+        assert.match(p, /Don't run pr-review again/);
+        assert.match(p, /session `s-101`/);
+        // The session answers with its own pr-review JSON; the board converts it.
+        const file = `${ctx.board.home}\\pr-review-101.json`;
+        fs.writeFileSync(file, JSON.stringify({ finalHeadSha: HEAD[101], verdict: "APPROVE", summary: "Self-check passed after one fix.", rounds: [
+            { reviewedHeadSha: "1010aaa", findings: [{ title: "Retry forever", severity: "Blocking", file: "src/upload.js:12" }], declined: [{ title: "Use exponential backoff", severity: "nit", file: "src/upload.js:20-22", reason: "three retries are enough here" }] },
+            { reviewedHeadSha: HEAD[101], findings: [], declined: [] }] }));
+        const r = await ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 101, path: file });
+        assert.ok(r.warnings.some((w) => /converted pr-review rounds: 0 finding\(s\) from round 2, 1 declined/.test(w)), JSON.stringify(r.warnings));
+        assert.ok(r.warnings.some((w) => /verdict "APPROVE" → approve/.test(w)));
+        await page.waitFor(`/Use exponential backoff/.test(document.getElementById('wsScroll').innerText)`, 4000, "the converted finding");
+        const tab2 = await text(page, "#wsScroll");
+        assert.match(tab2, /Declined by the session: three retries are enough here/);
+        assert.match(tab2, /src\/upload\.js:20-22/);
+        assert.equal(state(ctx).prs["101"].review.headSha, HEAD[101]);
+        // Findings with top-level file/line/endLine (not files[]) are converted, in every review tool.
+        const add = await ctx.board.tool("pr_board_add_findings", { repo: REPO, pr: 101, findings: [{ id: "f9", title: "Log the retry count", category: "nit", severity: "low", file: "src/upload.js", line: 30, endLine: 31 }] });
+        assert.ok(!add.warnings.some((w) => /f9: no file line/.test(w)), JSON.stringify(add.warnings));
+        assert.deepEqual(state(ctx).prs["101"].review.findings.find((f) => f.id === "f9").files, [{ path: "src/upload.js", line: 30, endLine: 31 }]);
+        await assert.rejects(ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 101, review: { status: "ok" } }), /Nothing the board can show: expected at least one of summary, verdict, findings \(or rounds\[\]\.findings\).*Got keys: status/);
+    });
     // ---- Branch review (issue with no PR yet) ------------------------------------------------------
     test("changes tab: comment on a line, then send it to the agent", async (ctx) => {
         const { page } = ctx;
