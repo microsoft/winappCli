@@ -97,7 +97,9 @@ class Board {
                 this.error = null;
                 await refreshLiveSessions();
                 if (!this.refreshReadiness()) this.keepReadyTick().catch(() => {});
-                if (!this.noAuto) this.autoTick().catch(() => {});
+                // Only the session showing this board starts work on its own. Other sessions load this extension
+                // too (for its tools); they must not pick up runs, or the prompts land in the wrong session.
+                if (!this.noAuto && hostsBoard(this.repo)) this.autoTick().catch(() => {});
             } catch (e) {
                 this.error = { code: e instanceof GhError ? e.code : "error", message: e.message };
             } finally {
@@ -139,7 +141,7 @@ class Board {
     // "Keep it ready" (Agent merge on): for each new non-merge commit, request a Copilot review once, and once the
     // commit has been stable for 5 minutes, ask the agent once to rerun pr-review on it. Never when not watching.
     async keepReadyTick() {
-        if (this.ticking || !this.data) return;
+        if (this.ticking || !this.data || !hostsBoard(this.repo)) return;
         this.ticking = true;
         try {
             const st = readState(this.repo);
@@ -843,6 +845,7 @@ function httpError(status, message) {
 
 let serverEntry = null;
 const instances = new Map(); // instanceId → repo
+const hostsBoard = (repo) => [...instances.values()].includes(repo);
 
 function readBody(req) {
     return new Promise((resolve, reject) => {
