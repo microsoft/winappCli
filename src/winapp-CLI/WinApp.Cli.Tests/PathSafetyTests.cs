@@ -432,6 +432,40 @@ public class PathSafetyTests
     }
 
     [TestMethod]
+    public void RedirectsToNetwork_TargetWithTrailingSpace_ChecksThatExactEntry()
+    {
+        // NTFS keeps "Cache " and "Cache" apart. A link to "Cache " must be checked as
+        // "Cache ", not as a trimmed "Cache" that Windows never opens.
+        string root = Path.Combine(_tempDir.FullName, "root");
+        string plain = Path.Combine(root, "Cache");
+        string spaced = @"\\?\" + Path.Combine(root, "Cache ");
+        string link = Path.Combine(root, "link");
+        string staging = Path.Combine(root, "staging");
+        string target = Path.Combine(_tempDir.FullName, "Real");
+        Directory.CreateDirectory(plain);
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target) || !TryCreateJunction(staging, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        Directory.Move(@"\\?\" + staging, spaced);
+        try
+        {
+            bool refused = PathSafety.RedirectsToNetwork(Path.Combine(link, "marker.txt"), info =>
+                string.Equals(info.FullName, @"\\?\" + link, StringComparison.OrdinalIgnoreCase)
+                    ? "Cache "
+                    : @"\\server\share");
+            Assert.IsTrue(refused, "\"Cache \" is a link to a share and must be inspected.");
+        }
+        finally
+        {
+            Directory.Delete(link);
+            Directory.Delete(spaced);
+        }
+    }
+
+    [TestMethod]
     public void RedirectsToNetwork_VolumeTargetWithSameNamedSibling_IsRefused()
     {
         // A relative symlink to a sibling named Volume{GUID} reads back exactly like a

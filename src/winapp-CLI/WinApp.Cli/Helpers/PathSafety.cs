@@ -234,19 +234,23 @@ internal static class PathSafety
 
                     // The target's parents can themselves be links. Restart from its
                     // root before probing them, keeping the original unvisited suffix.
-                    string? resolved = NormalizeLocalPathWithoutProbing(
-                        Path.IsPathRooted(target) ? target : Path.Join(Path.GetDirectoryName(current), target));
+                    // Normalize the target together with the suffix, so a trailing space
+                    // or dot on the target's last segment isn't trimmed as if it were final.
+                    string[] suffix = segments[(index + 1)..];
+                    string? resolved = NormalizeLocalPathWithoutProbing(Path.Join(
+                        Path.IsPathRooted(target) ? target : Path.Join(Path.GetDirectoryName(current), target),
+                        string.Join(Path.DirectorySeparatorChar, suffix)));
                     string? resolvedRoot = resolved is null ? null : Path.GetPathRoot(resolved);
                     if (string.IsNullOrEmpty(resolvedRoot))
                     {
                         return true;
                     }
-                    int targetSegments = resolved![resolvedRoot.Length..].Split(
+                    int resolvedSegments = resolved![resolvedRoot.Length..].Split(
                         [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
                         StringSplitOptions.RemoveEmptyEntries).Length;
                     // Segments after this link that came from an earlier target stay required.
-                    requiredSegments = targetSegments + Math.Max(0, requiredSegments - (index + 1));
-                    path = Path.Join(resolved, string.Join(Path.DirectorySeparatorChar, segments[(index + 1)..]));
+                    requiredSegments = Math.Max(0, resolvedSegments - suffix.Length) + Math.Max(0, requiredSegments - (index + 1));
+                    path = resolved;
                     redirected = true;
                     break;
                 }
