@@ -40,11 +40,16 @@ internal sealed class XamlCompiler : IDisposable
         _exe = exe;
         _inputs = inputs;
         _projectDirectory = projectDirectory;
-        Files = links;
+        _files = links;
     }
 
-    /// <summary>The XAML files the build compiled, by full path, with the path the app loads them by (relative, '/').</summary>
-    public IReadOnlyDictionary<string, string> Files { get; }
+    private readonly Dictionary<string, string> _files;
+
+    /// <summary>The app's XAML files, by full path, with the path the app loads them by (relative, '/').</summary>
+    public IReadOnlyDictionary<string, string> Files => _files;
+
+    /// <summary>A XAML file the build didn't compile (new since): the service compiles it like the others.</summary>
+    public void Add(string file) => _files.TryAdd(file, Path.GetRelativePath(_projectDirectory, file).Replace('\\', '/'));
 
     /// <summary>The obj folder the compiler writes to (where XamlTypeInfo.g.cs is).</summary>
     public string Intermediate => Path.GetDirectoryName(_inputs)!;

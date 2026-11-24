@@ -91,6 +91,10 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         var compiled = new XamlResult(null, new Dictionary<string, string>(), []);
         if (xaml is not null && documents.Count > 0)
         {
+            if (await NewPageWithoutCodeAsync(documents, cancellationToken).ConfigureAwait(false) is { } waiting)
+            {
+                return new SaveResult(Outcome.Waiting, waiting);
+            }
             var image = _codeChanged ? await engine.AppImageAsync(code.Where(f => Is(f, ".cs")).ToList(), cancellationToken).ConfigureAwait(false) : null;
             compiled = await xaml.CompileAsync([.. documents.Keys], image, cancellationToken).ConfigureAwait(false);
             if (compiled.Error is { } xamlError)
@@ -173,9 +177,9 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
             }
             if (Is(file, ".xaml") && xaml is not null)
             {
-                if (!xaml.Files.ContainsKey(file))
+                if (!xaml.Files.ContainsKey(file) && !File.Exists(file))
                 {
-                    return $"{name}: {(File.Exists(file) ? "a new XAML file" : "a deleted XAML file")} takes effect when the app is rebuilt";
+                    return $"{name}: a deleted XAML file takes effect when the app is rebuilt";
                 }
                 if (documents.TryGetValue(file, out var document) && document.Root?.Name.LocalName == "Window")
                 {
@@ -207,6 +211,32 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         return await graph.CheckBuildAsync(cancellationToken).ConfigureAwait(false) is { } error
             ? new SaveResult(Outcome.Error, error)
             : new SaveResult(Outcome.Restart, reason);
+    }
+
+    /// <summary>
+    /// A XAML file the build didn't compile is compiled like the others. A new page or UserControl waits for its
+    /// code-behind to declare its class: applied alone, the class would be the compiler's internal one, and the
+    /// code-behind's "public" would then be a change the running app can't take.
+    /// </summary>
+    private async Task<string?> NewPageWithoutCodeAsync(Dictionary<string, XDocument> documents, CancellationToken cancellationToken)
+    {
+        foreach (var (file, document) in documents.Where(d => !xaml!.Files.ContainsKey(d.Key)))
+        {
+            if (document.Root?.Attribute(XName.Get("Class", "http://schemas.microsoft.com/winfx/2006/xaml"))?.Value is { } className)
+            {
+                var name = className[(className.LastIndexOf('.') + 1)..];
+                var code = file + ".cs";
+                var declared = File.Exists(code) && CSharpSyntaxTree.ParseText(await RoslynEngine.ReadSharedAsync(code, cancellationToken).ConfigureAwait(false),
+                    cancellationToken: cancellationToken).GetRoot(cancellationToken).DescendantNodes().OfType<ClassDeclarationSyntax>().Any(c => c.Identifier.ValueText == name);
+                if (!declared)
+                {
+                    return $"{Relative(file)}: waiting for {Path.GetFileName(code)} to declare {name}; they apply together";
+                }
+            }
+            xaml!.Add(file);
+            _codeChanged = true;
+        }
+        return null;
     }
 
     /// <summary>
