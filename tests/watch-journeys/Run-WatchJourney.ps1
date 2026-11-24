@@ -39,6 +39,8 @@ $Winapp = (Resolve-Path $Winapp).Path
 if ($DotnetRoot) {
     $env:PATH = "$DotnetRoot;$env:PATH"; $env:DOTNET_ROOT = $DotnetRoot; $env:DOTNET_MULTILEVEL_LOOKUP = '0'
 }
+# A reused MSBuild node keeps the XAML compiler it loaded first, so a build could run an older WinUI package's compiler.
+$env:MSBUILDDISABLENODEREUSE = '1'
 # dotnet watch's messages are read in English.
 $env:DOTNET_CLI_UI_LANGUAGE = 'en'
 # The SDK winapp's 'dotnet' resolves to from a folder: the version and the dotnet.exe it comes from.
@@ -194,6 +196,12 @@ function Invoke-Journey([string]$Name) {
         $appPid = Get-AppPid
         if (-not $appPid) { throw "The app never started (see $log)." }
         Write-Host "[$Name] app ready (PID $appPid)"
+        if ($WinUI) {
+            # Fork packages share one version, so a reused NUGET_PACKAGES could hold an older one.
+            $source = (Get-Content (Join-Path $env:NUGET_PACKAGES "microsoft.windowsappsdk.winui\$winuiVersion\.nupkg.metadata") -Raw | ConvertFrom-Json).source
+            if ($source.TrimEnd('\') -ne $WinUI.TrimEnd('\')) { throw "NUGET_PACKAGES holds WinUI $winuiVersion from $source, not $WinUI; use a fresh folder." }
+            Write-Host "[$Name] WinUI $winuiVersion restored from $source"
+        }
         Invoke-Before $appPid
         $launchPid = $appPid
         foreach ($step in @($journey.steps)) {

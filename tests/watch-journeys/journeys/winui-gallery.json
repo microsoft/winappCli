@@ -54,13 +54,6 @@
       "checks": [ { "assert": "xaml-text", "target": "tpl hr6" } ]
     },
     {
-      "id": "g08-app-resource", "row": 24, "title": "App.xaml: a brush the page uses",
-      "file": "WinUIGallery/App.xaml", "op": "replace", "find": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FF808080\" />", "text": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FFFF8C00\" />",
-      "note": "known open bug: reloading Gallery's App.xaml makes WinUI end the app on its next tick (E_INVALIDARG, fail-fast 0xC000027B); the runtime side is investigating. The journey app's App.xaml saves apply (controls-resources r24, r26)",
-      "expect": { "v1": "live+note", "today": "restart" },
-      "checks": [ { "assert": "property-equals", "target": "HrFilterLabel", "value": "Foreground=#FFFF8C00" }, { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ]
-    },
-    {
       "id": "g13-page-not-shown", "row": 13, "title": "A page that isn't shown",
       "file": "WinUIGallery/Samples/Button/ButtonPage.xaml", "op": "replace", "find": "Text=\"Another option is to explicitly wrap the Button's content\"", "text": "Text=\"Another option is to explicitly wrap the Button's content (hr13)\"",
       "expect": { "v1": "live+note", "today": "restart" }
@@ -76,6 +69,13 @@
       "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"HrCountText\" Margin=\"1,2,3,4,5\"", "text": "<TextBlock x:Name=\"HrCountText\" Margin=\"8\"",
       "expect": { "v1": "live+note", "today": "restart" },
       "checks": [ { "assert": "property-equals", "target": "HrCountText", "value": "Margin=8,8,8,8" }, { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ]
+    },
+    {
+      "id": "g08-app-resource", "row": 24, "title": "App.xaml: a brush the page uses",
+      "file": "WinUIGallery/App.xaml", "op": "replace", "find": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FF808080\" />", "text": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FFFF8C00\" />",
+      "note": "known open bug: reloading Gallery's App.xaml makes WinUI end the app on its next tick (E_INVALIDARG, fail-fast 0xC000027B); the runtime side is investigating. Last on purpose, so its crash doesn't hide the steps before it. The journey app's App.xaml saves apply (controls-resources r24, r26)",
+      "expect": { "v1": "live+note", "today": "restart" },
+      "checks": [ { "assert": "property-equals", "target": "HrFilterLabel", "value": "Foreground=#FFFF8C00" }, { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ]
     }
   ]
 }
