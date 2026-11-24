@@ -151,6 +151,19 @@ static void Test_AnEditAnswersWithTheCallsThatUndoIt()
     xbind.captured = true;
     Check(BContains(Undo(xbind), L"\"method\":\"Binding.restore\"") && BContains(Undo(xbind), L"\"confirmOwnerRebind\":true"),
           "and is undone by Binding.restore, confirming the owner-wide rebind it needs");
+    const std::wstring xbindAfterInstall = Undo(xbind, /*editLeftBinding*/ true);
+    Check(BContains(xbindAfterInstall, L"\"undo\":[{\"method\":\"HotReload.clearProperty\"") &&
+          xbindAfterInstall.find(L"Binding.restore") > xbindAfterInstall.find(L"HotReload.clearProperty"),
+          "undoing a {Binding} installed over an {x:Bind} clears it first, so the rebind cannot write through it");
+
+    Check(DevToolsPathNamesSecret(L"Password") && DevToolsPathNamesSecret(L"Vm.Login.UserPassword") &&
+          DevToolsPathNamesSecret(L"Accounts[0].Password") && DevToolsPathNamesSecret(L"Vm.Password.Length"),
+          "a binding path that reads a secret anywhere along it is recognised");
+    Check(!DevToolsPathNamesSecret(L"Vm.Title") && !DevToolsPathNamesSecret(L"Items[Password].Name"),
+          "CONTROL: ordinary paths, and an indexer argument that only mentions the word, are not");
+    Check(BContains(DevToolsWriteSourceUndoMembers(), L"\"undo\":[]") &&
+          BContains(DevToolsWriteSourceUndoMembers(), L"undoReason"),
+          "a source write offers no undo, because the binding can point at another object by the time it runs");
 
     auto halfRed = Row(L"Local", L"#FFFF0000");
     DevToolsReadProp color; color.name = L"Color"; color.value = L"Red";

@@ -1365,6 +1365,14 @@ static void CheckResourceAssign(const std::function<void(bool,const char*)>& che
         chainedUndo->Find(L"params")->GetString(L"key")==L"Greeting",
         "and the undo of a second assignment re-assigns the first key");
 
+    const std::wstring beforeSecret=diagnostics.text.text;
+    DevToolsJson secret;
+    DevToolsJsonParse(HandleRpc(nullptr,DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Binding.install\","
+        L"\"params\":{\"handle\":\""+handle+L"\",\"prop\":\"Text\",\"path\":\"Vm.Password\"}}")),secret);
+    check(secret.Find(L"error") && secret.Find(L"error")->GetInt(L"code",0)==DevToolsErr::RefusedUnsafe &&
+        diagnostics.text.text==beforeSecret,
+        "Binding.install refuses a path that reads a secret before touching the property");
+
     DevToolsJson listed;
     DevToolsJsonParse(HandleRpc(nullptr,DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Resource.list\","
         L"\"params\":{\"handle\":\""+handle+L"\",\"prop\":\"Text\"}}")),listed);

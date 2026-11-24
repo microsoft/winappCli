@@ -93,6 +93,8 @@ static std::wstring CmdBindingInstall(unsigned long long wire, const std::wstrin
     if (!wire || prop.empty()) return L"ERR bad-args";
     if (RefuseSecretWrite(prop, nullptr))
         return DevToolsBindingRelay_UnavailableJson(L"'" + prop + L"' holds a secret; DevTools does not read or write it.");
+    if (DevToolsPathNamesSecret(path))
+        return DevToolsBindingRelay_UnavailableJson(L"'" + path + L"' reads a secret; DevTools does not bind a property to it.");
     { InstanceHandle ih0 = 0; const wchar_t* e = nullptr; bool ok;
       AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih0, &e); ReleaseSRWLockShared(&g_censusLock);
       if (!ok) return std::wstring(L"ERR ") + e; }

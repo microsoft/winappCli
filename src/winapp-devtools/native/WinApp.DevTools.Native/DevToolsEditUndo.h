@@ -151,11 +151,34 @@ inline std::wstring DevToolsEditUndoMembers(const std::wstring& handle, const st
             break;
         case DevToolsPriorKind::XBind:
             // Restoring a compiled binding re-runs its owner's Bindings.Update(), which Binding.restore asks to confirm.
-            if (prior.captured) return steps(DevToolsUndoStep(L"Binding.restore", target + L",\"confirmOwnerRebind\":true"));
+            if (prior.captured) return steps(first + DevToolsUndoStep(L"Binding.restore", target + L",\"confirmOwnerRebind\":true"));
             break;
         default:
             break;
     }
     return steps(L"") + L",\"undoReason\":\"" + DevToolsJsonEscape(prior.reason.empty()
         ? std::wstring(L"the previous value has no restore route") : prior.reason) + L"\"";
+}
+
+// A binding path reads every segment it names, so a secret anywhere on it would show in the bound property.
+inline bool DevToolsPathNamesSecret(const std::wstring& path)
+{
+    size_t start = 0;
+    while (start <= path.size()) {
+        const size_t dot = path.find(L'.', start);
+        std::wstring segment = path.substr(start, dot == std::wstring::npos ? std::wstring::npos : dot - start);
+        if (const size_t bracket = segment.find(L'['); bracket != std::wstring::npos) segment.resize(bracket);
+        if (DevToolsRead_IsSecretProperty(segment)) return true;
+        if (dot == std::wstring::npos) break;
+        start = dot + 1;
+    }
+    return false;
+}
+
+// A source write has no exact undo: the binding can point at another object by the time it runs, and writing the
+// old value then changes that object instead. `sourceBefore` still reports the value the source held.
+inline std::wstring DevToolsWriteSourceUndoMembers()
+{
+    return L"\"undo\":[],\"undoReason\":\"the binding's source can change before an undo runs, so DevTools does not "
+           L"write the previous value back for you; sourceBefore shows what it was\"";
 }

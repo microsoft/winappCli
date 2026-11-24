@@ -177,7 +177,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             m == L"VisualTree.getPreviews" || m == L"VisualTree.getAppAuthored" ||
             m == L"Property.get" || m == L"Property.setQuery" || m == L"Layout.get" || m == L"Property.references" ||
             m == L"Source.get" || m == L"Resource.resolve" || m == L"Binding.walk" ||
-            m == L"Binding.diagnose" || m == L"HotReload.setProperty" || m == L"HotReload.clearProperty" ||
+            m == L"Binding.diagnose" || m == L"Binding.restore" || m == L"HotReload.setProperty" || m == L"HotReload.clearProperty" ||
             m == L"Resource.assign" || m == L"Resource.list" || m == L"Binding.install" || m == L"Binding.writeSource" ||
             m == L"Surface.list" || m == L"Surface.setActive" || m == L"Overlay.highlight" ||
             m == L"Selection.select" || m == L"Internal.pick" || m == L"Selection.arm" || m == L"Reactor.describe" ||

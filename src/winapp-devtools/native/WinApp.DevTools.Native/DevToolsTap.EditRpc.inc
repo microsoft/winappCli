@@ -245,6 +245,9 @@ static std::wstring RpcBindingInstall(DevToolsConn* conn, const std::wstring& id
         return DevToolsRpcError(id, DevToolsErr::InvalidParams, why, L"bad-path");
     if (DevToolsBindingInstall_ModeOrdinal(mode) < 0)
         return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"mode must be OneWay, OneTime or TwoWay", L"bad-args");
+    if (DevToolsPathNamesSecret(path))
+        return DevToolsRpcError(id, DevToolsErr::RefusedUnsafe,
+            L"'" + path + L"' reads a secret; DevTools does not bind a property to it.", L"refused-unsafe");
     unsigned long long wire = 0;
     if (std::wstring refused = EditTargetFromParams(id, p, &wire); !refused.empty()) return refused;
     DevToolsReadProp before;
@@ -308,14 +311,7 @@ static std::wstring RpcBindingWriteSource(DevToolsConn* conn, const std::wstring
     if (!DevToolsJsonParse(json, answer) || !answer.IsObject() || answer.GetString(L"state") != L"wroteSource")
         return DevToolsRpcResult(id, json);
     BroadcastEditedProperty(conn, wire, prop, answer.GetString(L"after"));
-    const DevToolsJson* sourceBefore = answer.Find(L"sourceBefore");
-    const std::wstring undo = sourceBefore && sourceBefore->type == DevToolsJsonType::String
-        ? L"\"undo\":[" + DevToolsUndoStep(L"Binding.writeSource", DevToolsUndoTarget(std::to_wstring(wire), prop) +
-          L",\"value\":\"" + DevToolsJsonEscape(sourceBefore->str) + L"\"") + L"]"
-        : L"\"undo\":[],\"undoReason\":\"" + std::wstring(answer.GetString(L"redacted") == L"True"
-            ? L"the source holds a secret, so DevTools does not read it back"
-            : L"the source's previous value cannot be written back as text") + L"\"";
-    return DevToolsRpcResult(id, AppendMembers(json, undo));
+    return DevToolsRpcResult(id, AppendMembers(json, DevToolsWriteSourceUndoMembers()));
 }
 
 // The in-app inspector's key suggestions: keys whose values fit the property, from the element's dictionaries up to

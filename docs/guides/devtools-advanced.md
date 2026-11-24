@@ -348,9 +348,12 @@ winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 1
   `resolves` says whether it resolves against the DataContext, and `verdict` says why not.
 - `Binding.install` replaces the property's binding with a new `{Binding}` on the
   DataContext. Use it to switch an `{x:Bind}` property to `{Binding}`. Converter, source
-  and other options are not kept; `warning` lists them.
+  and other options are not kept; `warning` lists them. A path that reads a password is
+  refused.
 - `Binding.writeSource` writes through a TwoWay `{Binding}` to its source and keeps the
-  binding. It needs a .NET app launched with `winapp run --devtools on`.
+  binding. It needs a .NET app launched with `winapp run --devtools on`. Its `undo` is
+  always empty: by the time you undo, the binding may point at another record. To put the
+  value back, call it again with `sourceBefore`.
 
 Each result has `before`, `after` and `undo`: the calls to run, in order, to put back what
 the edit replaced. For example, undoing `Binding.install` over the text `Hello` first
@@ -363,11 +366,11 @@ clears the new binding, so the old text isn't written into the app's data:
 ]
 ```
 
-Replacing an app binding or `{x:Bind}` saves it first, so `undo` is `Binding.restore`. A later `Binding.capture` doesn't replace what the edit saved. For
-`{x:Bind}` it passes `confirmOwnerRebind`, which refreshes every compiled binding on the owner.
-When nothing can be put back exactly (for example a brush with partial opacity, or a
-password source), `undo` is empty and `undoReason` says why. Changes apply to the running
-app only; your .xaml is unchanged.
+Replacing an app binding or `{x:Bind}` saves it first, so `undo` ends with `Binding.restore`.
+A later `Binding.capture` doesn't replace what the edit saved. For `{x:Bind}` it passes
+`confirmOwnerRebind`, which refreshes every compiled binding on the owner. When nothing can
+be put back exactly (for example a brush with partial opacity), `undo` is empty and
+`undoReason` says why. Changes apply to the running app only; your .xaml is unchanged.
 
 ## Troubleshooting
 
