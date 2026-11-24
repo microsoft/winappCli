@@ -68,7 +68,7 @@ function Invoke-JourneyEdit {
 .SYNOPSIS
   What a save did, read from the watch log lines printed since the save, or $null while it's still undecided.
 .DESCRIPTION
-  Outcomes: applied, unchanged, waiting, error, restart (with a reason), restart-no-reason, stuck (the restart's rebuild
+  Outcomes: applied, unchanged, not-applied, waiting, error, restart (with a reason), restart-no-reason, stuck (the restart's rebuild
   failed and no app came back) and crash (the session ended). winapp's own "[watch] <outcome> <reason>" lines win; on the
   dotnet watch path (#1197) dotnet watch's lines are read too. "Ready" is $true once a restarted app is attached again.
 #>
@@ -87,8 +87,8 @@ function Get-WatchOutcome {
             }
         }
         if ($outcome -eq 'stuck') { if ($text -match 'The app restarted \(PID \d+\)') { $outcome = 'restart-no-reason'; $ready = $true; break }; continue }
-        if ($text -match '^\[watch\] (applied|unchanged|waiting|error|restart)\b:?\s*(.*)$') {
-            $outcome = $Matches[1]; $reason = $Matches[2]; $pending = $false
+        if ($text -match '^\[watch\] (applied|unchanged|not applied|waiting|error|restart)\b:?\s*(.*)$') {
+            $outcome = $Matches[1] -replace ' ', '-'; $reason = $Matches[2]; $pending = $false
             if ($outcome -eq 'restart' -and -not $reason) { $outcome = 'restart-no-reason' }
             if ($outcome -notin 'restart', 'restart-no-reason') { break }
             continue

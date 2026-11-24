@@ -1,9 +1,11 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
+using System.Text.RegularExpressions;
+
 namespace WinApp.HotReload;
 
-internal enum Outcome { Applied, Unchanged, Waiting, Error, Restart }
+internal enum Outcome { Applied, Unchanged, NotApplied, Waiting, Error, Restart }
 
 internal sealed record SaveResult(Outcome Outcome, string Detail, IReadOnlyList<string>? Notes = null);
 
@@ -18,10 +20,10 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph)
     {
         var xaml = saved.Where(f => Is(f, ".xaml") && graph.LibraryOf(f) is null).ToList();
         var files = saved.Except(xaml).ToList();
-        var xamlLine = xaml.Count == 0 ? null : $"{string.Join(", ", xaml.Select(Relative))}: XAML changes need a restart on this WinUI version";
+        var xamlLine = xaml.Count == 0 ? null : $"{string.Join(", ", xaml.Select(Relative))}: XAML changes need a restart on this WinUI version (press Ctrl+R)";
         if (files.Count == 0)
         {
-            return new SaveResult(Outcome.Unchanged, xamlLine!);
+            return new SaveResult(Outcome.NotApplied, xamlLine!);
         }
         if (RestartReason(files) is { } reason)
         {
@@ -42,8 +44,10 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph)
         return result.Outcome switch
         {
             CSharpOutcome.Applied => new SaveResult(Outcome.Applied, names, notes.Count > 0 ? notes : null),
-            CSharpOutcome.Unchanged => new SaveResult(Outcome.Unchanged, xamlLine ?? names),
-            CSharpOutcome.Error => new SaveResult(Outcome.Error, result.Detail!),
+            CSharpOutcome.Unchanged => xamlLine is null ? new SaveResult(Outcome.Unchanged, names) : new SaveResult(Outcome.NotApplied, xamlLine),
+            CSharpOutcome.Error => UncompiledXaml(result.Detail!) is { } file
+                ? new SaveResult(Outcome.NotApplied, $"{file}: new XAML isn't compiled on this WinUI version (press Ctrl+R to restart)")
+                : new SaveResult(Outcome.Error, result.Detail!),
             _ => new SaveResult(Outcome.Restart, result.Detail!),
         };
     }
@@ -69,6 +73,25 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph)
             if (!Is(file, ".cs") && !string.Equals(file, graph.ProjectFile, StringComparison.OrdinalIgnoreCase))
             {
                 return $"{name}: build settings take effect when the app is rebuilt";
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The code-behind file whose error is only XAML that wasn't compiled: a new page's <c>InitializeComponent</c>, or an
+    /// <c>x:Name</c> its XAML declares. Live XAML needs WinUI's hot reload runtime, so only a rebuild compiles it.
+    /// </summary>
+    private string? UncompiledXaml(string errors)
+    {
+        foreach (Match match in Regex.Matches(errors, @"^\s*(?<file>.+\.xaml\.cs)\(\d+,\d+\): CS0103: The name '(?<name>\w+)'", RegexOptions.Multiline))
+        {
+            var file = match.Groups["file"].Value;
+            var name = match.Groups["name"].Value;
+            var xaml = Path.Combine(graph.ProjectDirectory, file[..^".cs".Length]);
+            if (name == "InitializeComponent" || (File.Exists(xaml) && File.ReadAllText(xaml).Contains($"Name=\"{name}\"", StringComparison.Ordinal)))
+            {
+                return file;
             }
         }
         return null;

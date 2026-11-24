@@ -9,7 +9,7 @@ using System.Threading.Channels;
 namespace WinApp.HotReload;
 
 /// <summary>
-/// Watches the app's files and turns saves into one outcome line each: <c>[watch] applied|unchanged|waiting|error|restart</c>.
+/// Watches the app's files and turns saves into one outcome line each: <c>[watch] applied|unchanged|not applied|waiting|error|restart</c>.
 /// A save is handled once the files settle (no change for 150 ms, each changed file stable for 500 ms). An error or a
 /// restart is printed only after 2 more seconds of quiet: an editor's rename or an agent writing files one by one passes
 /// through states that don't compile, and only the final one counts.
@@ -109,7 +109,8 @@ internal sealed class WatchLoop : IDisposable
                         break;
                     }
                 }
-                Console.WriteLine($"[watch] {result.Outcome.ToString().ToLowerInvariant()} {result.Detail} ({clock.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)} s)");
+                var word = result.Outcome == Outcome.NotApplied ? "not applied" : result.Outcome.ToString().ToLowerInvariant();
+                Console.WriteLine($"[watch] {word} {result.Detail} ({clock.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)} s)");
                 foreach (var note in result.Notes ?? [])
                 {
                     Console.WriteLine($"  note: {note}");

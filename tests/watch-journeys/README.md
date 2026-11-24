@@ -64,6 +64,7 @@ to make the scoreboard green: change its expectation instead, and say why.
 - Edits: `op` is `replace`, `insert-after`, `insert-before` (each needs exactly one match of `find`), `create-file`,
   `delete-file` or `rename-file` (`to`). Paths are relative to the app folder in `apps\`. Several files in one save go
   in `edits`; `delayMs` spaces them out, the way an agent or a rename writes them.
+- `"op": "key", "key": "ctrl+r"` presses Ctrl+R instead of saving a file.
 - Checks: `invoke`, `set-value`, `exists`, `absent`, `text-equals`, `text-contains`, `text-changes` (the text moves on
   within 2 s, so the UI thread is alive), all through UI Automation by `x:Name` or visible text, and `property-equals`
   (`"Property=Value"`, read through DevTools). Checks also run after a `timeout`, to show whether the app still responds.

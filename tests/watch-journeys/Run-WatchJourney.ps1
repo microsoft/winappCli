@@ -5,7 +5,7 @@
   Runs 'winapp run --watch' journeys and scores every save against its expected outcome.
 .DESCRIPTION
   For each journey: copies its app to a fresh folder, starts 'winapp run <app> --watch', makes each step's edits as one
-  save, reads what the save did from the watch output (applied, unchanged, waiting, error, restart, ...), runs the step's
+  save, reads what the save did from the watch output (applied, unchanged, not-applied, waiting, error, restart, ...), runs the step's
   UI checks against the live app and, at steps marked "parity", compares the app with a clean build of the same source
   (ParityGate.psm1). Every step is scored against its v1 expectation and today's recorded outcome (see README.md), and
   the run writes scoreboard.md.
@@ -123,8 +123,15 @@ function Invoke-Journey([string]$Name) {
     foreach ($edit in @($journey.setup | Where-Object { $_ })) { Invoke-JourneyEdit -Root $src -Step $edit }
     $log = Join-Path $dir 'watch.log'
     $arguments = @('run', "`"$projectDir`"", '--watch') + $(if ($journey.packaged) { @('--unique-identity') } else { @() }) + @($journey.runArguments | Where-Object { $_ })
+    # A journey that presses keys ("op": "key") gives winapp its input through a pipe: Ctrl+R is the 0x12 character.
+    $keys = $null; $stdin = ''
+    if (@($journey.steps | Where-Object op -eq 'key').Count) {
+        $keys = [System.IO.Pipes.NamedPipeServerStream]::new("winapp-journey-$PID", [System.IO.Pipes.PipeDirection]::Out)
+        $stdin = " < \\.\pipe\winapp-journey-$PID"
+    }
     # One file for winapp's and dotnet watch's output, in the order they wrote it.
-    $process = Start-Process cmd.exe -ArgumentList '/d', '/c', "`"`"$Winapp`" $($arguments -join ' ') > `"$log`" 2>&1`"" -WorkingDirectory $projectDir -PassThru -WindowStyle Hidden
+    $process = Start-Process cmd.exe -ArgumentList '/d', '/c', "`"`"$Winapp`" $($arguments -join ' ') > `"$log`" 2>&1$stdin`"" -WorkingDirectory $projectDir -PassThru -WindowStyle Hidden
+    if ($keys -and -not $keys.WaitForConnectionAsync().Wait(30000)) { throw 'winapp never opened its input pipe.' }
     $script:offset = 0
     # Whole lines only: a line still being written is read once it ends.
     function Read-NewLines {
@@ -160,7 +167,11 @@ function Invoke-Journey([string]$Name) {
             }
             $null = Read-NewLines
             $saveStart = Get-Date
-            Invoke-JourneyEdit -Root $src -Step $step
+            if ($step.op -eq 'key') {
+                if ($step.key -ne 'ctrl+r') { throw "Unknown key '$($step.key)'." }
+                $keys.WriteByte(0x12); $keys.Flush()
+            }
+            else { Invoke-JourneyEdit -Root $src -Step $step }
             $lines = [System.Collections.Generic.List[string]]::new()
             $deadline = (Get-Date).AddSeconds($SaveTimeoutSeconds)
             $restartDeadline = $null
@@ -215,6 +226,7 @@ function Invoke-Journey([string]$Name) {
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         Get-Process $journey.process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($src, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force -ErrorAction SilentlyContinue
         if ($journey.packaged) { Start-Sleep -Milliseconds 500; $null = & $Winapp unregister $projectDir --quiet 2>&1 }
+        if ($keys) { $keys.Dispose() }
         $rows | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $dir 'results.json')
     }
     return [pscustomobject]@{ Journey = $journey; Rows = $rows }

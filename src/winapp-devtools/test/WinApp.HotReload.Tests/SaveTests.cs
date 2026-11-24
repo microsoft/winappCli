@@ -54,7 +54,7 @@ public sealed class SaveTests
 
         var result = await _save.RunAsync([xaml], CancellationToken.None);
 
-        Assert.AreEqual(new SaveResult(Outcome.Unchanged, "Page.xaml: XAML changes need a restart on this WinUI version"), result);
+        Assert.AreEqual(new SaveResult(Outcome.NotApplied, "Page.xaml: XAML changes need a restart on this WinUI version (press Ctrl+R)"), result);
         Assert.AreEqual(0, _engine.Files.Count);
     }
 
@@ -68,8 +68,26 @@ public sealed class SaveTests
 
         Assert.AreEqual(Outcome.Applied, result.Outcome);
         Assert.AreEqual("Page.cs", result.Detail);
-        CollectionAssert.AreEqual(new[] { "Page.xaml: XAML changes need a restart on this WinUI version" }, result.Notes!.ToArray());
+        CollectionAssert.AreEqual(new[] { "Page.xaml: XAML changes need a restart on this WinUI version (press Ctrl+R)" }, result.Notes!.ToArray());
         CollectionAssert.AreEqual(new[] { page }, _engine.Files.ToArray());
+    }
+
+    [TestMethod]
+    [DataRow("InitializeComponent", true)]
+    [DataRow("Banner", true)]
+    [DataRow("Baner", false)]
+    public async Task CodeThatNeedsUncompiledXamlSaysToRestart(string name, bool uncompiled)
+    {
+        Write(@"App\Page.xaml", "<Page><TextBlock x:Name=\"Banner\" /></Page>");
+        var code = Write(@"App\Page.xaml.cs", "partial class Page {}");
+        var error = $"Page.xaml.cs(9,13): CS0103: The name '{name}' does not exist in the current context";
+        _engine.Result = new CSharpResult(CSharpOutcome.Error, error);
+
+        var result = await _save.RunAsync([code], CancellationToken.None);
+
+        Assert.AreEqual(uncompiled
+            ? new SaveResult(Outcome.NotApplied, "Page.xaml.cs: new XAML isn't compiled on this WinUI version (press Ctrl+R to restart)")
+            : new SaveResult(Outcome.Error, error), result);
     }
 
     [TestMethod]
@@ -86,10 +104,12 @@ public sealed class SaveTests
     {
         public List<string> Files { get; } = [];
 
+        public CSharpResult Result { get; set; } = new(CSharpOutcome.Applied);
+
         public Task<CSharpResult> ApplyAsync(CSharpChange change, CancellationToken cancellationToken)
         {
             Files.AddRange(change.Files);
-            return Task.FromResult(new CSharpResult(CSharpOutcome.Applied));
+            return Task.FromResult(Result);
         }
 
         public Task<byte[]> AppImageAsync(CancellationToken cancellationToken) => Task.FromResult(Array.Empty<byte>());
