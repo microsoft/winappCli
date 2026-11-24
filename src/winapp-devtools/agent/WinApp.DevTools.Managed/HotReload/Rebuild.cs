@@ -326,9 +326,12 @@ internal static class Rebuild
                     await LoadedAsync(inner.Content as FrameworkElement);
                 }
             }
-            UiState.Restore(fresh, state);
-            // Let what restoring raised run (a selection's handler) before the fields are compared.
-            await YieldAsync(fresh.DispatcherQueue);
+            // Let what restoring raised run (a selection's handler) before the fields are compared. With nothing restored,
+            // nothing was raised; the wait is for the app to go idle, which a big page can take most of a second to do.
+            if (UiState.Restore(fresh, state))
+            {
+                await YieldAsync(fresh.DispatcherQueue);
+            }
             var lost = Fields.Changed(fields, Fields.Take(fresh));
             if (late is not null)
             {

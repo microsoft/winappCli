@@ -63,22 +63,28 @@ internal static class UiState
         return snapshot;
     }
 
-    /// <summary>Puts <paramref name="snapshot"/> back into the new tree under <paramref name="root"/> (loaded).</summary>
-    public static void Restore(FrameworkElement root, Snapshot snapshot)
+    /// <summary>
+    /// Puts <paramref name="snapshot"/> back into the new tree under <paramref name="root"/> (loaded). Returns whether it
+    /// set anything (a value, a scroll or selection to come, focus): only then can it have raised the page's handlers.
+    /// </summary>
+    public static bool Restore(FrameworkElement root, Snapshot snapshot)
     {
         var elements = Keys(root).ToList();
         CaptureBaseline(root);
+        var restored = false;
         foreach (var (element, key) in elements)
         {
             if (snapshot.Elements.TryGetValue(key, out var old) && Baselines.TryGetValue(element, out var fresh))
             {
-                Apply(element, old.Current, old.Baseline, fresh);
+                restored |= Apply(element, old.Current, old.Baseline, fresh);
             }
             if (key == snapshot.FocusedKey && element is Control control)
             {
                 control.Focus(FocusState.Programmatic);
+                restored = true;
             }
         }
+        return restored;
     }
 
     private static State? Read(DependencyObject element) => element switch
@@ -99,7 +105,7 @@ internal static class UiState
     };
 
     /// <summary>Applies a value the user changed (it differs from where it started) unless the markup moved where it starts.</summary>
-    private static void Apply(DependencyObject element, State current, State? oldBaseline, State fresh)
+    private static bool Apply(DependencyObject element, State current, State? oldBaseline, State fresh)
     {
         bool Carry<T>(Func<State, T> value) =>
             !EqualityComparer<T>.Default.Equals(value(current), value(fresh)) &&
@@ -111,19 +117,19 @@ internal static class UiState
                 box.Text = current.Text ?? "";
                 var start = Math.Min(current.SelectionStart, box.Text.Length);
                 box.Select(start, Math.Min(current.SelectionLength, box.Text.Length - start));
-                break;
+                return true;
             case PasswordBox box when Carry(s => s.Text):
                 box.Password = current.Text;
-                break;
+                return true;
             case AutoSuggestBox box when Carry(s => s.Text):
                 box.Text = current.Text;
-                break;
+                return true;
             case ToggleButton toggle when Carry(s => s.Checked):
                 toggle.IsChecked = current.Checked;
-                break;
+                return true;
             case ToggleSwitch toggle when Carry(s => s.Checked):
                 toggle.IsOn = current.Checked == true;
-                break;
+                return true;
             case Selector selector when Carry(s => s.SelectedIndex):
                 // Items the page fills in later (in OnNavigatedTo, or from a load) aren't there yet. The same item, found by
                 // what it says it is; by position only when items don't say and there are as many as before; else none.
@@ -136,24 +142,25 @@ internal static class UiState
                         selector.SelectedIndex = index;
                     }
                 });
-                break;
+                return true;
             case RangeBase range when Carry(s => s.Value):
                 range.Value = current.Value ?? range.Value;
-                break;
+                return true;
             case ScrollViewer viewer when Carry(s => s.HorizontalOffset) || Carry(s => s.VerticalOffset):
                 bool Fits() => viewer.ScrollableHeight + 0.5 >= (current.VerticalOffset ?? 0) && viewer.ScrollableWidth + 0.5 >= (current.HorizontalOffset ?? 0);
                 WhenReady(viewer, Fits, () => viewer.ChangeView(current.HorizontalOffset, current.VerticalOffset, null, disableAnimation: true));
-                break;
+                return true;
             case Expander expander when Carry(s => s.Checked):
                 expander.IsExpanded = current.Checked == true;
-                break;
+                return true;
             case SplitView split when Carry(s => s.Checked):
                 split.IsPaneOpen = current.Checked == true;
-                break;
+                return true;
             case NavigationView navigation when Carry(s => s.Checked):
                 navigation.IsPaneOpen = current.Checked == true;
-                break;
+                return true;
         }
+        return false;
     }
 
     /// <summary>What an item says it is (its text), or null when it only names its type.</summary>
