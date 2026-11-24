@@ -61,7 +61,17 @@ internal static class Program
             {
                 Console.WriteLine($"[watch] note: {restarting.Reason}");
             }
-            return await loop.RunAsync(new Save(engine, graph), stop.Token).ConfigureAwait(false);
+            // WinUI's XAML compiler as a service and its runtime hook: XAML saves apply to the running app.
+            string? xamlUnavailable = null;
+            using var xaml = engine is RoslynEngine ? XamlCompiler.Start(graph.CompilerArguments(), graph.ProjectDirectory, out xamlUnavailable) : null;
+            if (xamlUnavailable is not null)
+            {
+                Console.WriteLine($"[watch] note: XAML saves restart the app: {xamlUnavailable}");
+            }
+            var save = xaml is null ? new Save(engine, graph)
+                : new Save(engine, graph, xaml, (markup, ct) => agent.SendAsync(new HotReloadRequest { Op = "reload", Markup = markup }, ct));
+            save.Start();
+            return await loop.RunAsync(save, stop.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested)
         {

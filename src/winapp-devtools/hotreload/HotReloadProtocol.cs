@@ -10,10 +10,27 @@ namespace WinApp.HotReload.Protocol;
 
 internal sealed class HotReloadRequest
 {
-    /// <summary>"hello" (once per connection) or "apply".</summary>
+    /// <summary>
+    /// "hello" (once per connection), "apply" (C# updates) or "reload" (after an applied save: hand WinUI the compiled
+    /// markup, then rebuild what the save changed).
+    /// </summary>
     public string Op { get; set; } = "";
     public string? Token { get; set; }
     public List<DeltaPayload> Deltas { get; set; } = [];
+    public List<MarkupPayload> Markup { get; set; } = [];
+}
+
+/// <summary>One XAML file as the XAML compiler compiled it.</summary>
+internal sealed class MarkupPayload
+{
+    /// <summary>The URI the app loads it by: ms-appx:///Views/ContactsPage.xaml.</summary>
+    public string Uri { get; set; } = "";
+    /// <summary>"component" (a page, UserControl or window: <see cref="ClassName"/>), "application", "dictionary" or "generic".</summary>
+    public string Kind { get; set; } = "";
+    public string? ClassName { get; set; }
+    public byte[] Xbf { get; set; } = [];
+    /// <summary>application and dictionary: the x:Key values this save removed from the markup.</summary>
+    public List<string> DroppedKeys { get; set; } = [];
 }
 
 /// <summary>One .NET update for one assembly, as <c>MetadataUpdater.ApplyUpdate</c> takes it.</summary>
@@ -38,6 +55,12 @@ internal sealed class HotReloadResponse
     public int ProcessId { get; set; }
     /// <summary>apply: the types the update changed (full names).</summary>
     public List<string> UpdatedTypes { get; set; } = [];
+    /// <summary>reload: what started over, one line each.</summary>
+    public List<string> Notes { get; set; } = [];
+    /// <summary>reload: why the save can't go into the running app; the app is left as it was.</summary>
+    public string? Restart { get; set; }
+    /// <summary>reload: the markup that failed to load (with <see cref="Error"/>); the app shows what it showed before.</summary>
+    public string? ErrorUri { get; set; }
 }
 
 internal static class HotReloadFrames

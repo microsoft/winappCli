@@ -15,8 +15,11 @@ internal interface ICSharpEngine
     /// </summary>
     Task<CSharpResult> ApplyAsync(CSharpChange change, CancellationToken cancellationToken);
 
-    /// <summary>The app's current types as a metadata-only assembly, so the XAML compiler sees members just added.</summary>
-    Task<byte[]> AppImageAsync(CancellationToken cancellationToken);
+    /// <summary>
+    /// The app's types as a metadata-only assembly, with <paramref name="files"/> (saved .cs files not applied yet) as
+    /// saved, so the XAML compiler sees members just added. Null when that code doesn't compile yet.
+    /// </summary>
+    Task<byte[]?> AppImageAsync(IReadOnlyList<string> files, CancellationToken cancellationToken);
 }
 
 /// <param name="Files">Saved files (full paths) the engine owns: the app's .cs files and its project file.</param>
@@ -41,6 +44,6 @@ internal sealed class RestartingEngine(string reason) : ICSharpEngine
     public Task<CSharpResult> ApplyAsync(CSharpChange change, CancellationToken cancellationToken) =>
         Task.FromResult(CSharpResult.Restart(reason));
 
-    public Task<byte[]> AppImageAsync(CancellationToken cancellationToken) =>
-        throw new NotSupportedException(reason);
+    public Task<byte[]?> AppImageAsync(IReadOnlyList<string> files, CancellationToken cancellationToken) =>
+        Task.FromResult<byte[]?>(null);
 }

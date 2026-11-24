@@ -112,6 +112,6 @@ public sealed class SaveTests
             return Task.FromResult(Result);
         }
 
-        public Task<byte[]> AppImageAsync(CancellationToken cancellationToken) => Task.FromResult(Array.Empty<byte>());
+        public Task<byte[]?> AppImageAsync(IReadOnlyList<string> files, CancellationToken cancellationToken) => Task.FromResult<byte[]?>(null);
     }
 }

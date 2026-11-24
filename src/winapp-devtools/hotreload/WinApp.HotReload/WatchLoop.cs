@@ -104,7 +104,7 @@ internal sealed class WatchLoop : IDisposable
                 while (true)
                 {
                     result = await HandleAsync(save, batch, cancellationToken).ConfigureAwait(false);
-                    if (result.Outcome is not (Outcome.Error or Outcome.Restart) || !await MoreChangesAsync(batch, cancellationToken).ConfigureAwait(false))
+                    if (result.Outcome is not (Outcome.Error or Outcome.Waiting or Outcome.Restart) || !await MoreChangesAsync(batch, cancellationToken).ConfigureAwait(false))
                     {
                         break;
                     }
@@ -119,7 +119,7 @@ internal sealed class WatchLoop : IDisposable
                 {
                     return RestartExitCode;
                 }
-                retry = result.Outcome == Outcome.Error ? batch : [];
+                retry = result.Outcome is Outcome.Error or Outcome.Waiting ? batch : [];
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

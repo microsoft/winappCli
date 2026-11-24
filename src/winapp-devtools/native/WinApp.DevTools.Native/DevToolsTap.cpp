@@ -172,6 +172,26 @@ static IVisualTreeService3* g_vts3 = nullptr;
 static std::atomic<int> g_elemCount{0};
 static std::atomic<bool> g_adviseFailed{false};
 
+// IXamlHotReloadService (xamlom.winui.h): QI'd from the diagnostics site in SetSite; null on a WinUI without it.
+static const IID IID_DevToolsXamlHotReloadService = { 0x73A07052, 0x1BFE, 0x40CD, { 0x8D, 0xC4, 0xFB, 0x3D, 0x7A, 0x5B, 0xCE, 0xCF } };
+static std::atomic<IUnknown*> g_hotReloadService{nullptr};
+static std::atomic<bool> g_hotReloadQueried{false};
+
+// For the in-app hot reload agent ('winapp run --watch'): an AddRef'd IXamlHotReloadService.
+// HRESULT_FROM_WIN32(ERROR_NOT_READY) until the runtime has handed the tap its site; E_NOINTERFACE when this WinUI has
+// no hot reload service.
+extern "C" HRESULT __stdcall DevToolsTap_GetXamlHotReloadService(IUnknown** service)
+{
+    if (!service) return E_POINTER;
+    *service = nullptr;
+    if (!g_hotReloadQueried.load()) return HRESULT_FROM_WIN32(ERROR_NOT_READY);
+    IUnknown* current = g_hotReloadService.load();
+    if (!current) return E_NOINTERFACE;
+    current->AddRef();
+    *service = current;
+    return S_OK;
+}
+
 #include "DevToolsTap.Census.inc"
 #include "DevToolsTap.UiDispatch.inc"
 #include "DevToolsTap.CensusQuery.inc"

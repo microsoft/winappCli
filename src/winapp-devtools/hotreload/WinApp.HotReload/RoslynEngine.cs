@@ -274,12 +274,22 @@ internal sealed class RoslynEngine : ICSharpEngine
         return [.. notes.Distinct()];
     }
 
-    public async Task<byte[]> AppImageAsync(CancellationToken cancellationToken)
+    public async Task<byte[]?> AppImageAsync(IReadOnlyList<string> files, CancellationToken cancellationToken)
     {
-        var compilation = (await Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
+        await _warmUp.ConfigureAwait(false);
+        var solution = _solution;
+        foreach (var path in files.Where(File.Exists))
+        {
+            var text = SourceText.From(await ReadSharedAsync(path, cancellationToken).ConfigureAwait(false), Encoding.UTF8);
+            solution = Project.Documents.FirstOrDefault(d => SamePath(d.FilePath, path)) is { } existing
+                ? solution.WithDocumentText(existing.Id, text)
+                : solution.AddDocument(DocumentId.CreateNewId(_projectId), Path.GetFileName(path), text, filePath: path);
+        }
+        var compilation = (await solution.GetProject(_projectId)!.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
         using var stream = new MemoryStream();
-        compilation.Emit(stream, options: new EmitOptions(metadataOnly: true), cancellationToken: cancellationToken);
-        return stream.ToArray();
+        // Private members too: x:Bind reaches the page's private fields and methods.
+        var emit = compilation.Emit(stream, options: new EmitOptions(metadataOnly: true, includePrivateMembers: true), cancellationToken: cancellationToken);
+        return emit.Success ? stream.ToArray() : null;
     }
 
     /// <summary>Brings the workspace's documents in line with the saved files; returns the files deleted.</summary>
