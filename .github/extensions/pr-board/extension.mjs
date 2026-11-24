@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, requestCopilotReview, fetchBranchCompare, fetchChangesSince, fetchCodeRefs, fetchDetail, fetchPrFiles, fetchGitHubView, fetchIssues, fetchRepoData, fetchMergeInfo, mergePr, cancelMerge, GhError, GROUPS } from "./github.mjs";
+import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, requestCopilotReview, fetchBranchCompare, fetchChangesSince, fetchCodeRefs, fetchDetail, fetchPrFiles, fetchGitHubView, fetchIssues, fetchRepoData, fetchReviewDiff, fetchMergeInfo, mergePr, cancelMerge, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
 import { composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
@@ -494,6 +494,15 @@ async function runBranchAction({ repo, number, action, extra, card }) {
     return { ok: true };
 }
 
+// The review to post, with every inline comment checked against the PR's diff at its current head. Comments
+// GitHub couldn't place on their line go in the summary instead, and the preview says which and why. If the diff
+// can't be read, the comments stay inline and the preview says they weren't checked.
+async function composeChecked(repo, pr, local, event, headSha) {
+    let diff = null, diffError = null;
+    try { diff = await fetchReviewDiff(repo, pr); } catch (e) { diffError = e.message; }
+    return { ...composeGithubReview(local.review, local.triage, event, headSha, diff), ...(diffError ? { diffError } : {}) };
+}
+
 // Exactly what will be posted, saved as gh api request bodies the agent posts unchanged.
 function writePostPayload(repo, pr, preview) {
     const dir = join(artifactsDir(), "posts");
@@ -555,7 +564,7 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
         if (!POST_EVENTS.has(event)) throw httpError(400, "Pick Approve, Request changes, or Comment.");
         if (!local.review) throw httpError(409, "There's no structured review yet. Run Review first.");
         if (busy && !force) throw httpError(409, "An agent is already working on this PR.");
-        const preview = composeGithubReview(local.review, local.triage, event, card.headSha);
+        const preview = await composeChecked(repo, pr, local, event, card.headSha);
         // GitHub accepts an approval with an empty body; a comment or change request needs something to say.
         if (event !== "approve" && !preview.counts.posted && !preview.body) throw httpError(409, "To comment or request changes, mark at least one finding to post, or write a note.");
         const files = writePostPayload(repo, pr, preview);
@@ -1020,7 +1029,7 @@ async function handle(req, res) {
             const local = readState(repo).prs[String(pr)] || {};
             if (!local.review) throw httpError(404, "No structured review yet.");
             if (!POST_EVENTS.has(body.event)) throw httpError(400, "Pick Approve, Request changes, or Comment.");
-            return json(200, composeGithubReview(local.review, local.triage, body.event, board(repo).card(pr)?.headSha));
+            return json(200, await composeChecked(repo, pr, local, body.event, board(repo).card(pr)?.headSha));
         }
     }
     json(404, { error: "Not found" });

@@ -229,6 +229,12 @@ export function createWorld({ now = Date.now() } = {}) {
             if (a === `api repos/${REPO}/compare/main...fix-203-settings`) return branchCompare;
             if (a.startsWith(`api repos/${REPO}/compare/ffffffff`)) throw new Error("HTTP 404: No common ancestor (the commit is gone)");
             if (a.startsWith(`api repos/${REPO}/compare/`)) return { status: "ahead", ahead_by: 1, commits: [{ sha: "c".repeat(40), author: { login: "bob" }, commit: { message: "Address review", author: { date: ago(30) } } }], files: [{ filename: "src/auth.js", status: "modified", additions: 5, deletions: 2 }] };
+            // Where review comments can go: #104 changes src/auth.js lines 38-44 (right side), and an image with no diff.
+            if (new RegExp(`^api --paginate repos/${REPO}/pulls/\\d+/files\\?per_page=100 --jq`).test(a)) {
+                const files = [{ filename: "src/main.js", patch: "@@ -1,4 +1,6 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n+// done\n const d = 5;" }, { filename: "assets/logo.png", patch: null }];
+                if (args[2].includes("/pulls/104/")) files.push({ filename: "src/auth.js", patch: "@@ -38,5 +38,7 @@ export function refresh() {\n   const t = read();\n-  if (expired(t)) save(fetchToken());\n+  if (expired(t)) {\n+    save(fetchToken());\n+  }\n   return t;\n-}\n+}\n+export const LOCK = {};" });
+                return files.map((f) => JSON.stringify(f)).join("\n") + "\n";
+            }
             if (new RegExp(`^api repos/${REPO}/pulls/\\d+/files\\?per_page=100$`).test(a)) return [
                 { filename: "src/main.js", status: "modified", additions: 3, deletions: 1, blob_url: `https://github.com/${REPO}/blob/x/src/main.js`, patch: "@@ -1,4 +1,6 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n+const c = 4;\n+// done\n const d = 5;" },
                 { filename: "assets/logo.png", status: "added", additions: 0, deletions: 0, blob_url: `https://github.com/${REPO}/blob/x/assets/logo.png` },

@@ -504,6 +504,21 @@ export async function fetchPrFiles(repo, number) {
     };
 }
 
+// The PR's diff at its current head, for checking where review comments can go. Pages through every file, and
+// re-reads if the head moved while reading, so the patches and the commit always match.
+export async function fetchReviewDiff(repo, number) {
+    const headOf = async () => JSON.parse(await gh(["api", `repos/${repo}/pulls/${number}`])).head.sha;
+    for (let i = 0; i < 2; i++) {
+        const head = await headOf();
+        const out = await gh(["api", "--paginate", `repos/${repo}/pulls/${number}/files?per_page=100`, "--jq", ".[] | {filename, patch}"], { timeoutMs: 90000 });
+        if ((await headOf()) !== head) continue;
+        const files = new Map();
+        for (const line of String(out).split("\n")) if (line.trim()) { const f = JSON.parse(line); files.set(f.filename, { patch: f.patch ?? null }); }
+        return { head, files };
+    }
+    throw new Error("The PR kept changing while the board read its diff. Try again.");
+}
+
 // File paths (with optional lines) mentioned in text: GitHub links to this repo's files, and paths such as
 // src/app/Main.cs, src/app/Main.cs:12, src/app/Main.cs:12-20 or src/app/Main.cs#L12-L20.
 export function codeRefsIn(text, repo) {

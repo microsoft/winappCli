@@ -794,6 +794,8 @@ tr.dl.hit td { background: var(--yellow-muted); }
 .wc-box { border: 1px solid var(--hairline); border-left: 3px solid var(--blue, #0969da); border-radius: 8px; padding: var(--s2) var(--s3); margin-bottom: var(--s3); }
 .wc-box h4 { margin: 0 0 var(--s1, 4px); font-size: var(--t-meta); display: flex; gap: var(--s2); align-items: center; }
 .wc-box h4 .when { color: var(--muted); font-weight: normal; }
+.preview .unplaced { padding: var(--s2) var(--s3); border-radius: 8px; background: color-mix(in srgb, var(--orange) 10%, var(--bg)); font-size: var(--t-small); }
+.preview .unplaced ul { margin: var(--s1, 4px) 0 0; padding-left: 18px; }
 .wc-box.stale { border-left-color: var(--muted); }
 .wc-box .wc-sup { margin: 0 0 var(--s2); }
 .wc-box .wc-old summary { cursor: pointer; color: var(--muted); font-size: var(--t-meta); }
@@ -1715,6 +1717,8 @@ function reviewTabHtml(c) {
   const evIcon = { approve: icon("checkCircle", "tone-ok"), request_changes: icon("xCircle", "tone-bad"), comment: icon("comment") };
   const preview = pv ? (pv.loading ? `<div class="preview"><div class="hint">Building the preview…</div></div>` : pv.error ? `<div class="preview"><div class="hint">${esc(pv.error)}</div></div>` : `<div class="preview" role="region" aria-label="Preview of the review to post">
       <div class="fh"><b>Preview: ${EVENT_WORD[pv.event]}</b> <span class="hint">${pv.data.counts.inline} inline comment${pv.data.counts.inline === 1 ? "" : "s"}, ${pv.data.counts.inBody} in the summary, ${pv.data.counts.ignored} ignored, ${pv.data.counts.undecided} undecided (not posted)</span></div>
+      ${(pv.data.unplaced || []).length ? `<div class="unplaced" role="note"><b>${icon("alert", "sm")} ${pv.data.unplaced.length} comment${pv.data.unplaced.length === 1 ? "" : "s"} will appear in the summary, not on a line.</b> GitHub only accepts line comments on lines this PR changes or shows around a change.<ul>${pv.data.unplaced.map((u) => `<li><b>${esc(u.title)}</b>: ${mdInline(u.why)}.</li>`).join("")}</ul></div>` : ""}
+      ${pv.data.diffError ? `<div class="unplaced" role="note">${icon("alert", "sm")} Couldn't read the PR's diff to check the line comments (${esc(pv.data.diffError)}). If GitHub rejects one, they all go in the summary instead.</div>` : ""}
       <div><div class="hint">Summary comment</div><div class="md">${md(pv.data.body) || `<span class="hint">(empty)</span>`}</div></div>
       ${pv.data.comments.map((x) => `<div class="inl"><div class="hint">Inline on <code>${esc(x.path)}:${x.line}</code></div><div class="md">${md(x.body)}</div></div>`).join("")}
       <div class="rv-bar"><button class="primary" data-act="rv-post" data-event="${pv.event}">Post this as ${EVENT_WORD[pv.event]}</button><button data-act="rv-cancel">Cancel</button><span class="hint">The agent posts exactly this with gh. Nothing else is posted.</span></div></div>`) : "";

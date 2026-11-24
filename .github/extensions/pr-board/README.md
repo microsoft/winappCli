@@ -525,11 +525,21 @@ Inline on src/…/DevToolsTap.EditRpc.inc:182
 ```
 
 Only findings marked **Post** go out. A finding with a file and line becomes an
-inline comment; the rest go in the summary, under your note. Every comment ends
-with "Generated with AI assistance (GitHub Copilot PR board). Reviewed by a
-human." **Post this as …** asks the agent to post it with
-`gh api repos/{owner}/{repo}/pulls/{n}/reviews`. If GitHub rejects an inline
-line, it posts everything in the summary instead.
+inline comment; the rest go in the summary, under your note. GitHub only accepts
+a line comment on a line the PR changes, or an unchanged line shown next to a
+change. So the board reads the PR's diff first, and a finding that points
+anywhere else goes in the summary with its file and line. The preview says which
+ones and why:
+
+```text
+⚠ 1 comment will appear in the summary, not on a line.
+  Click target is resolved twice: line 349 of UiClickCommand.cs isn't part of this PR's diff.
+```
+
+Every comment ends with "Generated with AI assistance (GitHub Copilot PR board).
+Reviewed by a human." **Post this as …** asks the agent to post it with
+`gh api repos/{owner}/{repo}/pulls/{n}/reviews`. If GitHub still rejects a line
+comment, the agent posts everything in the summary instead.
 
 ## Proactive mode
 
@@ -709,7 +719,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ thread column: an anchor chip switches the tab on the left while the thread stays put (893ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-88 passed, 0 failed, 88 total (322s)
+89 passed, 0 failed, 89 total (320s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

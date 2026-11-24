@@ -294,10 +294,10 @@ export function postFindingsPrompt(card, repo, event, preview, files) {
     const word = { approve: "Approve", request_changes: "Request changes", comment: "Comment" }[event];
     return [
         `The PR board canvas: the user reviewed the findings on ${repo}#${card.number} "${card.title}" (${card.url}), previewed exactly what will be posted, and asked to post it as **${word}**.`,
-        `It has ${preview.counts.inline} inline comment(s) and ${preview.counts.inBody} finding(s) in the summary body. The exact request body is in:`,
+        `It has ${preview.counts.inline} inline comment(s) and ${preview.counts.inBody} finding(s) in the summary body${preview.counts.unplaced ? ` (${preview.counts.unplaced} of them point at lines outside the PR's diff, so they're in the body on purpose)` : ""}. ${preview.anchorCheck === "checked" ? `Every inline comment was checked against the diff at commit \`${String(preview.commit_id || "").slice(0, 7)}\`.` : "The inline comments couldn't be checked against the diff."} The exact request body is in:`,
         `\`${files.full}\``,
         `Post it unchanged: \`gh api repos/${repo}/pulls/${card.number}/reviews --method POST --input "${files.full}"\`.`,
-        `If GitHub rejects an inline comment (422, line not part of the diff), post \`${files.bodyOnly}\` instead, which has the same comments folded into the body.`,
+        `If GitHub still rejects an inline comment (422, "Line could not be resolved"), post \`${files.bodyOnly}\` instead, which has the same comments folded into the body, and say so in the outcome (for example "Posted: comment, 3 finding(s); inline placement rejected, all in the body").`,
         `Don't edit the text, change the event, or post anything else. Then call \`pr_board_set_status({ repo: "${repo}", pr: ${card.number}, status: "posted", outcome: "Posted: ${word.toLowerCase()}, ${preview.counts.posted} finding(s)" })\`. If it fails, call it with status "failed" and the error in one line.`,
     ].join("\n");
 }

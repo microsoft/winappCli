@@ -250,20 +250,56 @@ function findingText(f, note) {
 }
 
 /**
- * Build exactly what will be posted: findings marked Post become inline comments when they
- * point at a line, and go in the summary body otherwise. The user's top note leads the body.
+ * The lines GitHub lets a review comment on, per file: the right-side lines inside each hunk of the PR's
+ * diff (added and unchanged context lines). Returns [{ from, to, lines: Set }] per hunk.
  */
-export function composeGithubReview(review, triage, event, headSha) {
+export function commentableHunks(patch) {
+    const hunks = [];
+    let cur = null, n = 0;
+    for (const raw of String(patch || "").split("\n")) {
+        const h = raw.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+        if (h) { n = Number(h[1]); cur = { lines: new Set() }; hunks.push(cur); continue; }
+        if (!cur || raw.startsWith("\\")) continue;
+        if (raw.startsWith("-")) continue;
+        cur.lines.add(n++);
+    }
+    return hunks;
+}
+
+// Why a comment can't go on its line, in plain words, or null if it can. diff = { files: Map(path -> { patch }) }.
+function anchorProblem(diff, c) {
+    const f = diff.files.get(c.path);
+    if (!f) return { why: `\`${c.path}\` isn't one of the files this PR changes` };
+    if (!f.patch) return { why: `GitHub doesn't show a diff for \`${c.path}\` (binary or too large)` };
+    const hunks = commentableHunks(f.patch);
+    const hunk = hunks.find((h) => h.lines.has(c.line));
+    if (!hunk) return { why: `line ${c.line} of \`${c.path}\` isn't part of this PR's diff` };
+    if (c.start_line && !hunk.lines.has(c.start_line)) return { trim: true };
+    return null;
+}
+
+/**
+ * Build exactly what will be posted: findings marked Post become inline comments when they
+ * point at a line in the PR's diff, and go in the summary body otherwise. The user's top note
+ * leads the body. With `diff` (the PR's files and patches at `diff.head`), every inline comment is
+ * checked against it first, so GitHub never rejects the post with "Line could not be resolved".
+ */
+export function composeGithubReview(review, triage, event, headSha, diff = null) {
     const tri = triage || {};
     const posted = arr(review?.findings)
         .filter((f) => tri[f.id]?.decision === "post")
         .sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
     const comments = [];
     const inBody = [];
+    const unplaced = []; // { findingId, title, path, line, why }: inline comments moved into the body
     for (const f of posted) {
         const at = f.files.find((x) => x.line);
-        if (at) comments.push({ findingId: f.id, path: at.path, line: at.endLine || at.line, ...(at.endLine && at.endLine !== at.line ? { start_line: at.line, start_side: "RIGHT" } : {}), side: "RIGHT", body: `${findingText(f, tri[f.id]?.note)}\n\n${AI_FOOTER}` });
-        else inBody.push(f);
+        if (!at) { inBody.push(f); continue; }
+        const c = { findingId: f.id, path: at.path, line: at.endLine || at.line, ...(at.endLine && at.endLine !== at.line ? { start_line: at.line, start_side: "RIGHT" } : {}), side: "RIGHT", body: `${findingText(f, tri[f.id]?.note)}\n\n${AI_FOOTER}` };
+        const p = diff ? anchorProblem(diff, c) : null;
+        if (p?.trim) { delete c.start_line; delete c.start_side; }
+        if (p?.why) { unplaced.push({ findingId: f.id, title: f.title, path: c.path, line: c.line, why: p.why }); inBody.push({ ...f, at: `${c.path}:${c.start_line ? `${c.start_line}-` : ""}${c.line}` }); }
+        else comments.push(c);
     }
     const lines = [];
     // Until the user edits the note, it starts as the review's summary.
@@ -272,7 +308,7 @@ export function composeGithubReview(review, triage, event, headSha) {
     if (inBody.length) {
         if (lines.length) lines.push("");
         for (const f of inBody) {
-            const loc = f.files[0] ? ` (\`${f.files[0].path}\`)` : "";
+            const loc = f.at ? ` (\`${f.at}\`)` : f.files[0] ? ` (\`${f.files[0].path}\`)` : "";
             lines.push(`- ${findingText(f, tri[f.id]?.note).replace(/\n\n/g, "\n  ")}${loc}`);
         }
     }
@@ -283,7 +319,9 @@ export function composeGithubReview(review, triage, event, headSha) {
         event: EVENTS[event],
         body,
         comments,
-        commit_id: headSha || review?.headSha || undefined,
-        counts: { posted: posted.length, inline: comments.length, inBody: inBody.length, ignored: arr(review?.findings).filter((f) => tri[f.id]?.decision === "ignore").length, undecided: arr(review?.findings).filter((f) => !tri[f.id]?.decision || tri[f.id].decision === "undecided").length },
+        commit_id: diff?.head || headSha || review?.headSha || undefined,
+        unplaced,
+        anchorCheck: diff ? "checked" : "unchecked",
+        counts: { posted: posted.length, inline: comments.length, inBody: inBody.length, unplaced: unplaced.length, ignored: arr(review?.findings).filter((f) => tri[f.id]?.decision === "ignore").length, undecided: arr(review?.findings).filter((f) => !tri[f.id]?.decision || tri[f.id].decision === "undecided").length },
     };
 }

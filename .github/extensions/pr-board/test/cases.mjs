@@ -34,8 +34,8 @@ async function closeSheet(page) {
     await page.waitFor(`!document.body.classList.contains('sheet')`, 3000, "the sheet to close");
 }
 async function tabTo(page, id) {
-    await page.click(`#wsHead [data-act="tab"][data-tab="${id}"]`);
-    await page.waitFor(`document.querySelector('#wsHead [data-act="tab"][data-tab="${id}"]')?.getAttribute('aria-selected') === 'true'`, 3000, `the ${id} tab`);
+    await page.click(`#wsHead [role="tab"][data-tab="${id}"]`);
+    await page.waitFor(`document.querySelector('#wsHead [role="tab"][data-tab="${id}"]')?.getAttribute('aria-selected') === 'true'`, 3000, `the ${id} tab`);
 }
 
 export function register(test) {
@@ -880,6 +880,40 @@ export function register(test) {
         assert.equal(ctx.world.mutations.length, 0);
     });
 
+    test("regression (#1382, #1388): a comment on a line outside the diff goes in the summary, and the preview says why", async (ctx) => {
+        const { page } = ctx;
+        await ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 104, review: { headSha: HEAD[104], verdict: "request-changes", risk: "medium", summary: "Two things.", findings: [
+            { id: "f1", title: "Two refreshes can race", category: "risk", severity: "high", what: "x", fix: "y", files: [{ path: "src/auth.js", line: 40, endLine: 42 }] },
+            { id: "f2", title: "Rename `t` to `token`", category: "nit", severity: "low", what: "x", fix: "y", files: [{ path: "src/auth.js", line: 10 }] },
+            { id: "f3", title: "Logo is too big", category: "nit", severity: "low", what: "x", fix: "y", files: [{ path: "assets/logo.png", line: 1 }] },
+            { id: "f4", title: "Old helper still used", category: "risk", severity: "medium", what: "x", fix: "y", files: [{ path: "src/legacy.js", line: 3 }] },
+        ] } });
+        for (const id of ["f1", "f2", "f3", "f4"]) await page.eval(`post("/api/triage", { pr: 104, findingId: "${id}", decision: "post" })`);
+        await openRow(page, 104);
+        await tabTo(page, "review");
+        await page.click('#wsScroll [data-act="rv-preview"]');
+        await page.waitFor(`!!document.querySelector('#wsScroll .preview .unplaced')`, 5000, "the note about comments in the summary");
+        const note = await text(page, "#wsScroll .preview .unplaced");
+        assert.match(note, /3 comments will appear in the summary, not on a line/);
+        assert.match(note, /Rename `?t`? to `?token`?: line 10 of src\/auth\.js isn't part of this PR's diff/);
+        assert.match(note, /Logo is too big: GitHub doesn't show a diff for assets\/logo\.png/);
+        assert.match(note, /Old helper still used: src\/legacy\.js isn't one of the files this PR changes/);
+        const inline = await page.eval(`[...document.querySelectorAll('#wsScroll .preview .inl .hint')].map((e) => e.innerText)`);
+        assert.deepEqual(inline, ["Inline on src/auth.js:42"]);
+        // What's sent to GitHub: one inline comment on lines 40-42 at the PR's head, and the rest in the body.
+        await page.click('#wsScroll [data-act="rv-post"]');
+        await page.waitFor("true", 100);
+        for (let i = 0; i < 40 && !/request body is in/.test(ctx.host.sends.at(-1)?.prompt || ""); i++) await new Promise((r) => setTimeout(r, 100));
+        const prompt = ctx.host.sends.at(-1)?.prompt || "";
+        assert.match(prompt, /1 inline comment\(s\) and 3 finding\(s\) in the summary body \(3 of them point at lines outside the PR's diff/);
+        const file = prompt.match(/`([^`]+posts[^`]+\.json)`/)[1];
+        const req = JSON.parse(fs.readFileSync(file, "utf8"));
+        assert.equal(req.commit_id, HEAD[104]);
+        assert.deepEqual(req.comments.map((c) => [c.path, c.start_line, c.line, c.side]), [["src/auth.js", 40, 42, "RIGHT"]]);
+        assert.match(req.body, /Rename `t` to `token`.*\(`src\/auth\.js:10`\)/s);
+        assert.match(req.body, /Old helper still used.*\(`src\/legacy\.js:3`\)/s);
+        assert.equal(ctx.world.mutations.length, 0, "the board posted it itself");
+    });
     // ---- Branch review (issue with no PR yet) ------------------------------------------------------
     test("changes tab: comment on a line, then send it to the agent", async (ctx) => {
         const { page } = ctx;
