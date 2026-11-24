@@ -285,11 +285,46 @@ internal sealed class RoslynEngine : ICSharpEngine
                 ? solution.WithDocumentText(existing.Id, text)
                 : solution.AddDocument(DocumentId.CreateNewId(_projectId), Path.GetFileName(path), text, filePath: path);
         }
-        var compilation = (await solution.GetProject(_projectId)!.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
+        var project = solution.GetProject(_projectId)!;
+        // The image is for the app's own code (x:Bind paths, handlers, types the markup uses). Each save compiles its
+        // pages' generated code itself, so while the app's code and references are as they were, the last image is
+        // still right: building one costs a large app a third of a second.
+        var key = await ImageKeyAsync(project, IsUserFile, cancellationToken).ConfigureAwait(false);
+        if (_image is { } last && last.Key == key)
+        {
+            return last.Bytes;
+        }
+        var compilation = (await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
         using var stream = new MemoryStream();
         // Private members too: x:Bind reaches the page's private fields and methods.
         var emit = compilation.Emit(stream, options: new EmitOptions(metadataOnly: true, includePrivateMembers: true), cancellationToken: cancellationToken);
-        return emit.Success ? stream.ToArray() : null;
+        if (!emit.Success)
+        {
+            return null;
+        }
+        _image = new AppImage(key, stream.ToArray());
+        return _image.Bytes;
+    }
+
+    private sealed record AppImage(string Key, byte[] Bytes);
+
+    private AppImage? _image;
+
+    /// <summary>What the app's own code (not the XAML compiler's) and its references are, as text to compare.</summary>
+    internal static async Task<string> ImageKeyAsync(Project project, Func<string?, bool> isUserFile, CancellationToken cancellationToken)
+    {
+        var key = new StringBuilder();
+        key.Append(project.ParseOptions?.GetHashCode()).Append('|').Append(project.CompilationOptions?.GetHashCode()).Append('\n');
+        foreach (var reference in project.MetadataReferences)
+        {
+            key.Append(reference.Display).Append('\n');
+        }
+        foreach (var document in project.Documents.Where(d => isUserFile(d.FilePath)).OrderBy(d => d.FilePath, StringComparer.OrdinalIgnoreCase))
+        {
+            var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
+            key.Append(document.FilePath).Append(' ').Append(Convert.ToHexString([.. text.GetChecksum()])).Append('\n');
+        }
+        return key.ToString();
     }
 
     /// <summary>Brings the workspace's documents in line with the saved files; returns the files deleted.</summary>

@@ -187,18 +187,20 @@ internal sealed class XamlCompiler : IDisposable
     /// <summary>
     /// Compiles <paramref name="xaml"/> (full paths) as a build would: pass 1 (the fields and InitializeComponent the
     /// app's code compiles against), then pass 2 (.g.cs and .xbf) against <paramref name="appImage"/>, the app's types
-    /// now; pass 2 also returns XamlTypeInfo.g.cs when the pages use a type or member it didn't describe.
+    /// now (built while pass 1 runs); pass 2 also returns XamlTypeInfo.g.cs when the pages use a type or member it didn't describe.
     /// </summary>
-    public async Task<XamlResult> CompileAsync(IReadOnlyList<string> xaml, byte[]? appImage, CancellationToken cancellationToken)
+    public async Task<XamlResult> CompileAsync(IReadOnlyList<string> xaml, Task<byte[]?> appImage, CancellationToken cancellationToken)
     {
         await _warm.ConfigureAwait(false);
         var files = xaml.ToList();
         var pass1 = await SendAsync(new ServeRequest { Pass = 1, Files = files }, cancellationToken).ConfigureAwait(false);
         if (Failed(pass1) is { } error1)
         {
+            _ = appImage.ContinueWith(static t => t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
             return CompilerFailed(pass1, files, error1);
         }
-        var image = appImage is null ? null : Convert.ToBase64String(appImage);
+        var bytes = await appImage.ConfigureAwait(false);
+        var image = bytes is null ? null : Convert.ToBase64String(bytes);
         var pass2 = await SendAsync(new ServeRequest { Pass = 2, Files = files, LocalAssemblyImage = image }, cancellationToken).ConfigureAwait(false);
         if (Failed(pass2) is { } error2)
         {

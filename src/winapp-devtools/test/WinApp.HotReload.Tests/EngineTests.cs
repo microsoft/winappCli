@@ -35,6 +35,30 @@ public sealed class EngineTests
     }
 
     [TestMethod]
+    public async Task TheAppImageIsReusedUntilTheAppsOwnCodeOrReferencesChange()
+    {
+        using var workspace = new AdhocWorkspace();
+        var project = workspace.AddProject("App", LanguageNames.CSharp);
+        var page = workspace.AddDocument(DocumentInfo.Create(DocumentId.CreateNewId(project.Id), "MainPage.xaml.cs",
+            loader: TextLoader.From(TextAndVersion.Create(SourceText.From("partial class MainPage { void OnClick() { } }"), VersionStamp.Create())),
+            filePath: @"C:\app\MainPage.xaml.cs"));
+        var generated = workspace.AddDocument(DocumentInfo.Create(DocumentId.CreateNewId(project.Id), "MainPage.g.cs",
+            loader: TextLoader.From(TextAndVersion.Create(SourceText.From("partial class MainPage { object _field1; }"), VersionStamp.Create())),
+            filePath: @"C:\app\obj\MainPage.g.cs"));
+        static bool IsUser(string? path) => path is not null && !path.Contains(@"\obj\", StringComparison.OrdinalIgnoreCase);
+        var solution = workspace.CurrentSolution;
+        var key = await RoslynEngine.ImageKeyAsync(solution.GetProject(project.Id)!, IsUser, CancellationToken.None);
+
+        var newMarkup = solution.WithDocumentText(generated.Id, SourceText.From("partial class MainPage { object _field1; object _field2; }"));
+        var newCode = solution.WithDocumentText(page.Id, SourceText.From("partial class MainPage { void OnClick() { } void OnOther() { } }"));
+        var newReference = solution.AddMetadataReference(project.Id, MetadataReference.CreateFromFile(typeof(object).Assembly.Location));
+
+        Assert.AreEqual(key, await RoslynEngine.ImageKeyAsync(newMarkup.GetProject(project.Id)!, IsUser, CancellationToken.None));
+        Assert.AreNotEqual(key, await RoslynEngine.ImageKeyAsync(newCode.GetProject(project.Id)!, IsUser, CancellationToken.None));
+        Assert.AreNotEqual(key, await RoslynEngine.ImageKeyAsync(newReference.GetProject(project.Id)!, IsUser, CancellationToken.None));
+    }
+
+    [TestMethod]
     public void AnSdkWithoutTheHotReloadServiceSaysSo()
     {
         var sdk = Directory.CreateTempSubdirectory("winapp-sdk9-");
