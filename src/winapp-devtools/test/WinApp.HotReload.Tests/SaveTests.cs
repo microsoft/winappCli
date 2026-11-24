@@ -48,26 +48,28 @@ public sealed class SaveTests
     }
 
     [TestMethod]
-    public async Task XamlRestartsWithAReasonOnStockWinUI()
+    public async Task XamlOnStockWinUISaysItNeedsARestartWithoutRestarting()
+    {
+        var xaml = Write(@"App\Page.xaml", "<Page><Grid></Page>");
+
+        var result = await _save.RunAsync([xaml], CancellationToken.None);
+
+        Assert.AreEqual(new SaveResult(Outcome.Unchanged, "Page.xaml: XAML changes need a restart on this WinUI version"), result);
+        Assert.AreEqual(0, _engine.Files.Count);
+    }
+
+    [TestMethod]
+    public async Task XamlSavedWithCodeAppliesTheCodeAndNotesTheXaml()
     {
         var page = Write(@"App\Page.cs", "class Page {}");
         var xaml = Write(@"App\Page.xaml", "<Page />");
 
         var result = await _save.RunAsync([page, xaml], CancellationToken.None);
 
-        Assert.AreEqual(new SaveResult(Outcome.Restart, "Page.xaml: XAML changes take effect when the app restarts (this app's WinUI can't reload XAML while it runs)"), result);
-        Assert.AreEqual(0, _engine.Files.Count);
-    }
-
-    [TestMethod]
-    public async Task HalfTypedXamlIsAnErrorNotARestart()
-    {
-        var xaml = Write(@"App\Page.xaml", "<Page><Grid></Page>");
-
-        var result = await _save.RunAsync([xaml], CancellationToken.None);
-
-        Assert.AreEqual(Outcome.Error, result.Outcome);
-        StringAssert.StartsWith(result.Detail, "Page.xaml(1,");
+        Assert.AreEqual(Outcome.Applied, result.Outcome);
+        Assert.AreEqual("Page.cs", result.Detail);
+        CollectionAssert.AreEqual(new[] { "Page.xaml: XAML changes need a restart on this WinUI version" }, result.Notes!.ToArray());
+        CollectionAssert.AreEqual(new[] { page }, _engine.Files.ToArray());
     }
 
     [TestMethod]

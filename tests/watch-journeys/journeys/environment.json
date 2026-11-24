@@ -12,10 +12,16 @@
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ]
     },
     {
-      "id": "r62-stock-xaml", "row": 62, "title": "Stock WinUI: a XAML save restarts, with a reason",
+      "id": "r62-stock-xaml", "row": 62, "title": "Stock WinUI: a XAML save isn't applied, and says it needs a restart",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\"", "text": "Text=\"People\"",
-      "expect": { "v1": "restart", "today": "unchanged" },
-      "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" } ]
+      "expect": { "v1": "unchanged", "reason": "^ContactsPage\\.xaml: XAML changes need a restart on this WinUI version", "today": "unchanged" },
+      "note": "user decision: on stock WinUI a XAML save neither restarts nor test-builds; it prints one line"
+    },
+    {
+      "id": "r62-stock-xaml-same-app", "row": 62, "title": "Then a C# save applies in the same app, which still shows the old XAML",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v2\";", "text": "return \"hello-v3\";",
+      "expect": { "v1": "live", "today": "?" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v3" }, { "assert": "text-equals", "target": "Header", "value": "Contacts" } ]
     },
     {
       "id": "r58-restart-compiler-warm", "row": 58, "title": "Restart while the XAML compiler service is warm",

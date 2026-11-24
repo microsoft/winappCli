@@ -1,9 +1,6 @@
 // Copyright (c) Microsoft Corporation and Contributors. All rights reserved.
 // Licensed under the MIT License.
 
-using System.Xml;
-using System.Xml.Linq;
-
 namespace WinApp.HotReload;
 
 internal enum Outcome { Applied, Unchanged, Waiting, Error, Restart }
@@ -11,25 +8,20 @@ internal enum Outcome { Applied, Unchanged, Waiting, Error, Restart }
 internal sealed record SaveResult(Outcome Outcome, string Detail, IReadOnlyList<string>? Notes = null);
 
 /// <summary>
-/// One save, end to end. Until the XAML layer arrives, a XAML save restarts the app with a reason (live XAML needs
-/// WinUI's hot reload runtime), as do edits to referenced projects, the package manifest and string resources. C# and
-/// the app's project file go through the engine seam.
+/// One save, end to end. Until the XAML layer arrives, a XAML save isn't applied: it says the change needs a restart on
+/// this WinUI version (live XAML needs WinUI's hot reload runtime). Edits to referenced projects, the package manifest
+/// and string resources restart the app with a reason. C# and the app's project file go through the engine seam.
 /// </summary>
 internal sealed class Save(ICSharpEngine engine, ProjectGraph graph)
 {
-    public async Task<SaveResult> RunAsync(IReadOnlyList<string> files, CancellationToken cancellationToken)
+    public async Task<SaveResult> RunAsync(IReadOnlyList<string> saved, CancellationToken cancellationToken)
     {
-        foreach (var xaml in files.Where(f => Is(f, ".xaml") && File.Exists(f)))
+        var xaml = saved.Where(f => Is(f, ".xaml") && graph.LibraryOf(f) is null).ToList();
+        var files = saved.Except(xaml).ToList();
+        var xamlLine = xaml.Count == 0 ? null : $"{string.Join(", ", xaml.Select(Relative))}: XAML changes need a restart on this WinUI version";
+        if (files.Count == 0)
         {
-            try
-            {
-                XDocument.Parse(await RoslynEngine.ReadSharedAsync(xaml, cancellationToken).ConfigureAwait(false));
-            }
-            catch (XmlException ex)
-            {
-                // A half-typed tag: the rebuild would only fail.
-                return new SaveResult(Outcome.Error, $"{Relative(xaml)}({ex.LineNumber},{ex.LinePosition}): {ex.Message}");
-            }
+            return new SaveResult(Outcome.Unchanged, xamlLine!);
         }
         if (RestartReason(files) is { } reason)
         {
@@ -46,10 +38,11 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph)
             return new SaveResult(Outcome.Error, buildError);
         }
         var names = string.Join(", ", files.Select(Relative));
+        var notes = (result.Detail?.Split(Environment.NewLine) ?? []).Concat(xamlLine is null ? [] : [xamlLine]).ToList();
         return result.Outcome switch
         {
-            CSharpOutcome.Applied => new SaveResult(Outcome.Applied, names, result.Detail?.Split(Environment.NewLine)),
-            CSharpOutcome.Unchanged => new SaveResult(Outcome.Unchanged, names),
+            CSharpOutcome.Applied => new SaveResult(Outcome.Applied, names, notes.Count > 0 ? notes : null),
+            CSharpOutcome.Unchanged => new SaveResult(Outcome.Unchanged, xamlLine ?? names),
             CSharpOutcome.Error => new SaveResult(Outcome.Error, result.Detail!),
             _ => new SaveResult(Outcome.Restart, result.Detail!),
         };
@@ -64,10 +57,6 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph)
             if (graph.LibraryOf(file) is { } library)
             {
                 return $"{name}: edits to {Path.GetFileNameWithoutExtension(library)}, a project the app references, take effect when the app restarts";
-            }
-            if (Is(file, ".xaml"))
-            {
-                return $"{name}: XAML changes take effect when the app restarts (this app's WinUI can't reload XAML while it runs)";
             }
             if (Is(file, ".appxmanifest"))
             {

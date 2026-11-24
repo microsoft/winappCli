@@ -33,7 +33,7 @@ internal partial class RunCommand
             {
                 return Fail(problem, false);
             }
-            logger.LogInformation("{Symbol} Watching {Project}: C# edits apply to the running app; other edits restart it and say why. Press Ctrl+C to stop.",
+            logger.LogInformation("{Symbol} Watching {Project}: C# edits apply to the running app, and each save says what happened. Press Ctrl+C to stop.",
                 UiSymbols.Search, csproj.Name);
             for (var iteration = 1; ; iteration++)
             {
