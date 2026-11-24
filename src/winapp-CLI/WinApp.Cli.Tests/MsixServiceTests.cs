@@ -1779,6 +1779,48 @@ public class MsixServiceTests
             () => svc.UnregisterExistingPackageAsync("MyApp", CreateTestTaskContext()));
     }
 
+    [TestMethod]
+    public async Task UnregisterExistingPackageAsync_AccessDeniedFromRemoval_StopsInsteadOfContinuing()
+    {
+        // Continuing would register over the old package and surface an opaque 0x8007007B instead (#1306).
+        var fake = new FakePackageRegistrationService
+        {
+            FakeDevPackages =
+            [
+                new DevPackageInfo("MyApp_1.0.0.0_neutral__abc", "MyApp", "1.0.0.0",
+                    Path.Join(_tempDir.FullName, "AppX"), IsDevelopmentMode: true)
+            ],
+            UnregisterByFullNameThrows = new UnauthorizedAccessException("Access is denied.")
+        };
+        var svc = CreateMsixServiceForUnregister(fake, _tempDir.FullName);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.UnregisterExistingPackageAsync("MyApp", CreateTestTaskContext()));
+
+        Assert.Contains("removing the existing registration of 'MyApp': Access is denied.", ex.Message);
+        Assert.IsInstanceOfType<UnauthorizedAccessException>(ex.InnerException);
+    }
+
+    [TestMethod]
+    [DataRow(true, true, DisplayName = "MSIX winapp points to the ZIP/NuGet winapp")]
+    [DataRow(false, false, DisplayName = "ZIP winapp gets the close-and-retry advice")]
+    public void BuildUnregisterAccessDeniedMessage_SuggestsUnpackagedWinappOnlyWhenPackaged(bool isPackaged, bool suggestsZip)
+    {
+        var message = MsixService.BuildUnregisterAccessDeniedMessage("MyApp", "Access is denied.\r\n\r\nAccess is denied.\r\n", isPackaged);
+
+        Assert.AreEqual(1, message.Split("Access is denied.").Length - 1, "Windows' repeated text should appear once");
+        Assert.AreEqual(suggestsZip, message.Contains("release ZIP", StringComparison.Ordinal));
+        Assert.Contains("Get-AppxPackage MyApp | Remove-AppxPackage", message);
+    }
+
+    [TestMethod]
+    public void BuildUnregisterAccessDeniedMessage_EmptyReason_FallsBackToWindowsText()
+    {
+        var message = MsixService.BuildUnregisterAccessDeniedMessage("MyApp", "\r\n", isPackaged: false);
+
+        Assert.Contains($"'MyApp': {new System.ComponentModel.Win32Exception(5).Message}", message);
+    }
+
     #endregion
 
     #region IsExistingRegistrationUpToDate Tests (issue #537)

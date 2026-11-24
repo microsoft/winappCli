@@ -2575,6 +2575,13 @@ internal partial class MsixService
             // distinctly from a normal "no package removed" outcome.
             throw;
         }
+        catch (Exception ex) when (ex.HResult == E_ACCESSDENIED)
+        {
+            // Registering over a package Windows wouldn't let us remove fails with an unrelated,
+            // opaque code (0x8007007B / 0x8007000D), so stop here with the real reason.
+            throw new InvalidOperationException(
+                BuildUnregisterAccessDeniedMessage(packageName, ex.Message, EngineStaging.IsPackaged), ex);
+        }
         catch (Exception ex)
         {
             // Other failures (e.g., transient deployment errors during inspection or
@@ -2583,6 +2590,22 @@ internal partial class MsixService
             taskContext.AddDebugMessage($"{UiSymbols.Note} Could not unregister existing package: {ex.Message}");
             return false;
         }
+    }
+
+    private const int E_ACCESSDENIED = unchecked((int)0x80070005);
+
+    internal static string BuildUnregisterAccessDeniedMessage(string packageName, string reason, bool isPackaged)
+    {
+        // Windows repeats its text ("Access is denied.\r\n\r\nAccess is denied."), so keep the first line.
+        var firstLine = reason.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? new System.ComponentModel.Win32Exception(5).Message; // ERROR_ACCESS_DENIED
+        var removeManually = $"'Get-AppxPackage {packageName} | Remove-AppxPackage'";
+        return $"Windows denied access when removing the existing registration of '{packageName}': {firstLine}" +
+            Environment.NewLine +
+            (isPackaged
+                ? "This winapp runs as an MSIX package and Windows refused it. Use the winapp from the release ZIP " +
+                  $"(https://github.com/microsoft/winappCli/releases) or the NuGet package instead, or remove it manually with {removeManually}."
+                : $"Close the app if it is running, then retry; or remove it manually with {removeManually}.");
     }
 
     /// <summary>
