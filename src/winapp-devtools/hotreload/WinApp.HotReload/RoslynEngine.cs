@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Text;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Host.Mef;
 using Microsoft.CodeAnalysis.Text;
@@ -33,6 +34,7 @@ internal sealed class RoslynEngine : ICSharpEngine
     private Solution _solution;
     private Solution _committed;
     private bool _offerExplicitInterfaces;
+    private IReadOnlyList<AnalyzerReference>? _imageAnalyzers;
 
     private RoslynEngine(ProjectGraph graph, AgentClient agent, string baseDirectory, AdhocWorkspace workspace, ProjectId projectId, Solution solution)
     {
@@ -285,6 +287,10 @@ internal sealed class RoslynEngine : ICSharpEngine
                 ? solution.WithDocumentText(existing.Id, text)
                 : solution.AddDocument(DocumentId.CreateNewId(_projectId), Path.GetFileName(path), text, filePath: path);
         }
+        // The XAML compiler reads the image like the built assembly, CsWinRT generator output included. Without it,
+        // x:DataType templates come out typed as their page.
+        _imageAnalyzers ??= _graph.ImageOnlyAnalyzers(_workspace);
+        solution = solution.WithProjectAnalyzerReferences(_projectId, Project.AnalyzerReferences.Concat(_imageAnalyzers));
         var compilation = (await solution.GetProject(_projectId)!.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
         using var stream = new MemoryStream();
         // Private members too: x:Bind reaches the page's private fields and methods.
