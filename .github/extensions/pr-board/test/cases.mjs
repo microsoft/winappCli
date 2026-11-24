@@ -1040,6 +1040,12 @@ export function register(test) {
         const add = await ctx.board.tool("pr_board_add_findings", { repo: REPO, pr: 101, findings: [{ id: "f9", title: "Log the retry count", category: "nit", severity: "low", file: "src/upload.js", line: 30, endLine: 31 }] });
         assert.ok(!add.warnings.some((w) => /f9: no file line/.test(w)), JSON.stringify(add.warnings));
         assert.deepEqual(state(ctx).prs["101"].review.findings.find((f) => f.id === "f9").files, [{ path: "src/upload.js", line: 30, endLine: 31 }]);
+        // A diagram sent as a Mermaid string becomes a diagram; anything else that isn't an object is skipped, never a crash.
+        const mm = await ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 101, review: { summary: "Diagrams as text.", verdict: "approve", diagrams: ["flowchart LR\n A[CLI] --> B[DevTools engine]\n B -->|RPC| C(App)", "not a diagram"] } });
+        assert.ok(mm.warnings.some((w) => /diagram 1: converted a Mermaid string into a flow diagram/.test(w)), JSON.stringify(mm.warnings));
+        assert.ok(mm.warnings.some((w) => /diagram 2: skipped; expected an object, got string/.test(w)));
+        await tabTo(page, "architecture");
+        await page.waitFor(`/DevTools engine/.test(document.getElementById('wsScroll').innerText)`, 4000, "the converted diagram");
         await assert.rejects(ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 101, review: { status: "ok" } }), /Nothing the board can show: expected at least one of summary, verdict, findings \(or rounds\[\]\.findings\).*Got keys: status/);
     });
     // ---- Branch review (issue with no PR yet) ------------------------------------------------------

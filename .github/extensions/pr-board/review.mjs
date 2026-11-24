@@ -240,14 +240,66 @@ export function adaptReview(raw) {
     return { review: out, notes };
 }
 
+// A Mermaid flowchart or sequence diagram, as sessions sometimes write it, turned into a board diagram.
+// Handles the common forms: A[Label], A(Label), A{Label}, A --> B, A -->|label| B, A -- label --> B, -.->, ==>, ---;
+// and participant / A->>B: text. Returns null when it isn't one of those.
+export function mermaidToDiagram(src, index = 0) {
+    const lines = String(src || "").split(/\r?\n|;/).map((l) => l.trim()).filter((l) => l && !l.startsWith("%%"));
+    const head = (lines[0] || "").match(/^(flowchart|graph)\s*(TB|TD|BT|LR|RL)?/i);
+    if (/^sequenceDiagram/i.test(lines[0] || "")) {
+        const participants = new Map(), messages = [];
+        const part = (id, label) => { if (!participants.has(id)) participants.set(id, { id, label: label || id }); };
+        for (const l of lines.slice(1)) {
+            let m = l.match(/^(?:participant|actor)\s+(\S+)(?:\s+as\s+(.+))?$/i);
+            if (m) { part(m[1], m[2]?.trim()); continue; }
+            m = l.match(/^([^-\s>]+)\s*-{1,2}>>?\+?\-?\s*([^:\s]+)\s*:\s*(.*)$/);
+            if (m) { part(m[1]); part(m[2]); messages.push({ from: m[1], to: m[2], label: m[3].trim() }); }
+        }
+        return participants.size ? { id: `d${index + 1}`, title: "Sequence", kind: "sequence", participants: [...participants.values()], messages } : null;
+    }
+    if (!head) return null;
+    const nodes = new Map(), edges = [];
+    const node = (tok) => {
+        const m = String(tok).trim().match(/^([\w.-]+)\s*(?:\[\(?|\(\(?|\{\{?|>)?\s*"?([^\]\)\}"]*)"?\s*(?:\)?\]|\)\)?|\}\}?)?$/);
+        if (!m) return null;
+        const id = m[1], label = (m[2] || "").trim();
+        if (!nodes.has(id)) nodes.set(id, { id, label: label || id });
+        else if (label) nodes.get(id).label = label;
+        return id;
+    };
+    for (const l of lines.slice(1)) {
+        if (/^(subgraph|end$|style|classDef|class|click|linkStyle)\b/i.test(l)) continue;
+        const parts = l.split(/\s*(-->\|[^|]*\||--\s[^-]+?\s-->|-\.\s[^.]+?\s\.->|-\.->|==>|-->|---)\s*/);
+        if (parts.length < 3) { node(l); continue; }
+        for (let i = 0; i + 2 < parts.length; i += 2) {
+            const from = node(parts[i]), to = node(parts[i + 2]);
+            const lab = (parts[i + 1].match(/\|([^|]*)\|/) || parts[i + 1].match(/^--\s(.+?)\s-->$/) || parts[i + 1].match(/^-\.\s(.+?)\s\.->$/) || [])[1];
+            if (from && to) edges.push({ from, to, ...(lab ? { label: lab.trim() } : {}) });
+        }
+    }
+    if (!nodes.size) return null;
+    const dir = (head[2] || "TB").toUpperCase();
+    return { id: `d${index + 1}`, title: "How it fits together", kind: "flow", direction: dir === "LR" || dir === "RL" ? "LR" : "TB", nodes: [...nodes.values()], edges };
+}
+
 /** Normalize in place; return warnings for the agent. */
 export function normalizeReview(review) {
     const warnings = [];
-    review.findings = ensureIds(arr(review.findings), "f");
-    review.diagrams = ensureIds(arr(review.diagrams), "d");
-    review.components = ensureIds(arr(review.components), "c");
+    // Entries must be objects; a Mermaid string becomes a diagram, anything else is dropped with a warning.
+    const objects = (items, what) => arr(items).map((x, i) => {
+        if (x && typeof x === "object" && !Array.isArray(x)) return x;
+        if (what === "diagram" && typeof x === "string") {
+            const d = mermaidToDiagram(x, i);
+            if (d) { warnings.push(`diagram ${i + 1}: converted a Mermaid string into a ${d.kind} diagram; send the object shape for titles, status colors and files`); return d; }
+        }
+        warnings.push(`${what} ${i + 1}: skipped; expected an object, got ${Array.isArray(x) ? "an array" : typeof x}${typeof x === "string" ? ` ("${x.slice(0, 40)}")` : ""}`);
+        return null;
+    }).filter(Boolean);
+    review.findings = ensureIds(objects(review.findings, "finding"), "f");
+    review.diagrams = ensureIds(objects(review.diagrams, "diagram"), "d");
+    review.components = ensureIds(objects(review.components, "component"), "c");
     review.functionality = arr(review.functionality);
-    review.changedFiles = arr(review.changedFiles).filter((f) => f && f.path);
+    review.changedFiles = arr(review.changedFiles).map((f) => (typeof f === "string" ? { path: f } : f)).filter((f) => f && f.path);
     for (const f of review.findings) {
         if (!CATEGORIES.includes(f.category)) { warnings.push(`finding ${f.id}: unknown category "${f.category}", using "risk"`); f.category = "risk"; }
         if (!SEVERITIES.includes(f.severity)) f.severity = f.category === "blocker" ? "high" : "medium";
