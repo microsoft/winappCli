@@ -55,6 +55,29 @@ public sealed class RecordAudioTests
 
         var implausible = AudioTimeline.EstimatePacketStarts([(480, Second - 3 * Second)], readHns: Second, Rate);
         Assert.AreSequenceEqual(new[] { Second - 100_000 }, implausible);
+
+        var future = AudioTimeline.EstimatePacketStarts([(480, Second + 8_000_000)], readHns: Second, Rate);
+        Assert.AreSequenceEqual(new[] { Second - 100_000 }, future, "A packet can't start after it was read.");
+    }
+
+    [TestMethod]
+    public void Recorder_DropsSoundPastTheEndOfTheVideo()
+    {
+        var now = 0L;
+        var source = new FakeAudioSource();
+        var writer = new CollectingAudioWriter();
+        using var recorder = new AudioTrackRecorder(source, writer, Format, () => now);
+
+        // A loud packet that played from 0.9 s to 3.0 s arrives as recording stops at 1.0 s.
+        now = 3 * Second;
+        source.Packets.Enqueue((Tone(Rate * 21 / 10, 1_000), Rate * 21 / 10, 0));
+        recorder.Finish(endHns: Second);
+
+        Assert.AreEqual(Second, writer.EndHns, "The audio ends with the video.");
+        var samples = writer.Samples();
+        Assert.AreEqual(Rate * 9 / 10, Array.FindIndex(samples, sample => sample != 0) / Format.Channels,
+            "Only the part that played before the video's end, 0.9-1.0 s, is kept.");
+        writer.AssertContiguous();
     }
 
     [TestMethod]

@@ -21,8 +21,8 @@ internal interface ILoopbackAudioSource : IDisposable
     /// </summary>
     /// <param name="onPacket">
     /// Receives the interleaved samples, the frame count, the packet's capture time on the
-    /// <see cref="System.Diagnostics.Stopwatch"/> clock in 100 ns units, and whether the packet is
-    /// silence (its bytes must then be ignored).
+    /// <see cref="System.Diagnostics.Stopwatch"/> clock in 100 ns units (0 when the device gave no
+    /// usable time), and whether the packet is silence (its bytes must then be ignored).
     /// </param>
     void Drain(LoopbackPacketHandler onPacket);
 }
@@ -239,8 +239,13 @@ internal sealed unsafe partial class LoopbackAudioCapture : ILoopbackAudioSource
             try
             {
                 var silent = (flags & (uint)_AUDCLNT_BUFFERFLAGS.AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+                var timestampBad = (flags & (uint)_AUDCLNT_BUFFERFLAGS.AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR) != 0;
                 var bytes = checked((int)frames * AudioFormat.BlockAlign);
-                onPacket(silent ? default : new ReadOnlySpan<byte>(data, bytes), (int)frames, (long)qpc, silent);
+                onPacket(
+                    silent ? default : new ReadOnlySpan<byte>(data, bytes),
+                    (int)frames,
+                    timestampBad ? 0 : (long)qpc,
+                    silent);
             }
             finally
             {

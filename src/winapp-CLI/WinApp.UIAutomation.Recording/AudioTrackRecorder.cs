@@ -26,7 +26,7 @@ internal static class AudioTimeline
 {
     private const long HnsPerSecond = 10_000_000;
 
-    /// <summary>A reported packet time further than this from when the packet was read is not trusted.</summary>
+    /// <summary>A reported packet time more than this before the packet was read, or any time after it, is not trusted.</summary>
     internal const long MaxTimestampSkewHns = 2 * HnsPerSecond;
 
     /// <summary>Drift smaller than this is jitter, not a gap or an overlap, and is left alone.</summary>
@@ -80,7 +80,7 @@ internal static class AudioTimeline
         {
             framesFromHereToEnd += packets[index].Frames;
             var reported = packets[index].ReportedHns;
-            starts[index] = reported > 0 && Math.Abs(readHns - reported) <= MaxTimestampSkewHns
+            starts[index] = reported > 0 && reported <= readHns && readHns - reported <= MaxTimestampSkewHns
                 ? reported
                 : readHns - FramesToHns(framesFromHereToEnd, sampleRate);
         }
@@ -158,6 +158,7 @@ internal sealed class AudioTrackRecorder : IDisposable
     private Thread? _thread;
     private long _startHns;
     private long _writtenFrames;
+    private long _endFrames = long.MaxValue;
     private int _peak;
     private int _pendingFrames;
     private bool _finished;
@@ -213,6 +214,11 @@ internal sealed class AudioTrackRecorder : IDisposable
         _stop.Set();
         _thread?.Join();
 
+        // Nothing past the video's end joins the track, including sound still waiting in the
+        // buffer or arriving in the last drain.
+        _endFrames = AudioTimeline.HnsToFrames(endHns, _format.SampleRate);
+        _pendingFrames = (int)Math.Clamp(_endFrames - _writtenFrames, 0, _pendingFrames);
+
         if (Failure is null)
         {
             try
@@ -225,8 +231,7 @@ internal sealed class AudioTrackRecorder : IDisposable
             }
         }
 
-        var endFrames = AudioTimeline.HnsToFrames(endHns, _format.SampleRate);
-        AppendSilence(endFrames - _writtenFrames - _pendingFrames);
+        AppendSilence(_endFrames - _writtenFrames - _pendingFrames);
         Flush();
     }
 
@@ -267,9 +272,7 @@ internal sealed class AudioTrackRecorder : IDisposable
             }
             else
             {
-                var kept16 = pcm.AsSpan(skip * _format.BlockAlign, kept * _format.BlockAlign);
-                _peak = Math.Max(_peak, AudioTimeline.Peak16(kept16));
-                Append(kept16);
+                Append(pcm.AsSpan(skip * _format.BlockAlign, kept * _format.BlockAlign));
             }
         }
     }
@@ -289,8 +292,12 @@ internal sealed class AudioTrackRecorder : IDisposable
         }
     }
 
+    /// <summary>Frames the track can still take before the video's end, once that is known.</summary>
+    private long Room => _endFrames - _writtenFrames - _pendingFrames;
+
     private void AppendSilence(long frames)
     {
+        frames = Math.Min(frames, Room);
         while (frames > 0)
         {
             var count = (int)Math.Min(frames, _flushFrames - _pendingFrames);
@@ -302,6 +309,12 @@ internal sealed class AudioTrackRecorder : IDisposable
 
     private void Append(ReadOnlySpan<byte> pcm)
     {
+        var room = Math.Max(0, Room);
+        if (pcm.Length / _format.BlockAlign > room)
+        {
+            pcm = pcm[..(int)(room * _format.BlockAlign)];
+        }
+        _peak = Math.Max(_peak, AudioTimeline.Peak16(pcm));
         while (!pcm.IsEmpty)
         {
             var count = Math.Min(pcm.Length / _format.BlockAlign, _flushFrames - _pendingFrames);
