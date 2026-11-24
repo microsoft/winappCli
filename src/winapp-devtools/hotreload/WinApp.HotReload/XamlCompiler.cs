@@ -228,16 +228,26 @@ internal sealed class XamlCompiler : IDisposable
     /// For an error in the compiler's generated C# (a handler or x:Bind path the code doesn't have yet), the XAML line
     /// that caused it: the generated code marks each element's code with "// Page.xaml line N".
     /// </summary>
-    public string? XamlLocation(string generatedPath, int line, string? text = null)
+    public string? XamlLocation(string generatedPath, int line)
     {
-        var lines = (text ?? (File.Exists(generatedPath) ? File.ReadAllText(generatedPath) : "")).Split('\n');
+        if (!File.Exists(generatedPath) || XamlLine(File.ReadAllText(generatedPath), line) is not { } xamlLine)
+        {
+            return null;
+        }
+        var stem = Stem(Path.GetRelativePath(Intermediate, generatedPath));
+        var xaml = Files.Keys.FirstOrDefault(f => Path.ChangeExtension(Path.GetRelativePath(_projectDirectory, f), null).Equals(stem, StringComparison.OrdinalIgnoreCase));
+        return xaml is null ? null : $"{Relative(xaml)}({xamlLine})";
+    }
+
+    /// <summary>The XAML line the generated code at <paramref name="line"/> (1-based) was made from.</summary>
+    internal static int? XamlLine(string generated, int line)
+    {
+        var lines = generated.Split('\n');
         for (var i = Math.Min(line, lines.Length) - 1; i >= 0; i--)
         {
-            if (Regex.Match(lines[i], @"//\s*(?<file>[^\s/]+\.xaml) line (?<line>\d+)") is { Success: true } match)
+            if (Regex.Match(lines[i], @"//\s*[^\s/]+\.xaml line (?<line>\d+)") is { Success: true } match)
             {
-                var stem = Stem(Path.GetRelativePath(Intermediate, generatedPath));
-                var xaml = Files.Keys.FirstOrDefault(f => Path.ChangeExtension(Path.GetRelativePath(_projectDirectory, f), null).Equals(stem, StringComparison.OrdinalIgnoreCase));
-                return $"{(xaml is null ? match.Groups["file"].Value : Relative(xaml))}({match.Groups["line"].Value})";
+                return int.Parse(match.Groups["line"].Value, System.Globalization.CultureInfo.InvariantCulture);
             }
         }
         return null;

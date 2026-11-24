@@ -1,0 +1,41 @@
+{
+  "id": "xaml-packaged",
+  "title": "XAML saves in a packaged app (rows 1, 10, 20)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "packaged": true,
+  "before": [ { "assert": "set-value", "target": "NoteBox", "value": "kept" } ],
+  "steps": [
+    {
+      "id": "p01-text", "row": 1, "title": "Text, layout, attribute",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\" FontSize=\"24\"", "text": "Text=\"People\" FontSize=\"28\"",
+      "expect": { "v1": "live+note", "today": "restart" },
+      "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" }, { "assert": "text-equals", "target": "NoteBox", "value": "kept" } ]
+    },
+    {
+      "id": "p10-datatemplate", "row": 10, "title": "DataTemplate with x:DataType: show the email too",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"ContactName\" Text=\"{x:Bind Name}\" />", "text": "<StackPanel>\n                        <TextBlock x:Name=\"ContactName\" Text=\"{x:Bind Name}\" />\n                        <TextBlock x:Name=\"ContactEmail\" Text=\"{x:Bind Email}\" />\n                    </StackPanel>",
+      "expect": { "v1": "live", "today": "restart" },
+      "checks": [ { "assert": "exists", "target": "ada@contoso.com" } ]
+    },
+    {
+      "id": "p20-usercontrol-edit", "row": 20, "title": "Edit a UserControl shown on the page",
+      "file": "App/ContactCard.xaml", "op": "replace", "find": "Text=\"card-v1\"", "text": "Text=\"card-v2\"",
+      "expect": { "v1": "live+note", "today": "restart" },
+      "checks": [ { "assert": "text-equals", "target": "CardText", "value": "card-v2" } ]
+    },
+    {
+      "id": "p09-runtime-value-error", "row": 9, "title": "A value only the runtime rejects",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />", "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "expect": { "v1": "error", "today": "restart", "reason": "Thickness|1,2,3,4,5" },
+      "checks": [ { "assert": "text-equals", "target": "NoteBox", "value": "kept" } ]
+    },
+    {
+      "id": "p09-fixed", "row": 9, "title": "The value is fixed",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "Margin=\"1,2,3,4,5\"", "text": "Margin=\"0,4,0,0\"",
+      "expect": { "v1": "live+note", "today": "restart" },
+      "checks": [ { "assert": "property-equals", "target": "StatusText", "value": "Margin=0,4,0,0" } ]
+    }
+  ]
+}

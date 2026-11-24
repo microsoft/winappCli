@@ -1,0 +1,197 @@
+{
+  "id": "frames",
+  "title": "Pages in nested Frames and in the Frame cache (rows 13, 14)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "setup": [
+    {
+      "op": "create-file",
+      "text": "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n<Page\n    x:Class=\"TodoBench.InnerPage\"\n    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"\n    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\">\n    <StackPanel Orientation=\"Horizontal\" Spacing=\"8\">\n        <TextBlock x:Name=\"InnerText\" />\n        <TextBlock x:Name=\"InnerMark\" Text=\"mark-v1\" />\n        <Button x:Name=\"InnerNext\" Content=\"Next\" Click=\"OnNext\" />\n    </StackPanel>\n</Page>",
+      "file": "App/InnerPage.xaml"
+    },
+    {
+      "op": "create-file",
+      "text": "using Microsoft.UI.Xaml;\nusing Microsoft.UI.Xaml.Controls;\nusing Microsoft.UI.Xaml.Navigation;\n\nnamespace TodoBench;\n\npublic sealed partial class InnerPage : Page\n{\n    public InnerPage()\n    {\n        InitializeComponent();\n    }\n\n    protected override void OnNavigatedTo(NavigationEventArgs e)\n    {\n        InnerText.Text = $\"inner {e.Parameter}\";\n    }\n\n    private void OnNext(object sender, RoutedEventArgs e)\n    {\n        Frame.Navigate(typeof(InnerPage), \"b\");\n    }\n}",
+      "file": "App/InnerPage.xaml.cs"
+    },
+    {
+      "op": "create-file",
+      "text": "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n<Page\n    x:Class=\"TodoBench.DetailsPage\"\n    xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"\n    xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"\n    NavigationCacheMode=\"Required\">\n    <StackPanel Padding=\"12\" Spacing=\"8\">\n        <TextBlock x:Name=\"DetailsText\" Text=\"details-v1\" />\n        <TextBlock x:Name=\"DetailsParam\" />\n        <Button x:Name=\"BackButton\" Content=\"Back\" Click=\"OnBack\" />\n    </StackPanel>\n</Page>",
+      "file": "App/DetailsPage.xaml"
+    },
+    {
+      "op": "create-file",
+      "text": "using Microsoft.UI.Xaml;\nusing Microsoft.UI.Xaml.Controls;\nusing Microsoft.UI.Xaml.Navigation;\n\nnamespace TodoBench;\n\npublic sealed partial class DetailsPage : Page\n{\n    public DetailsPage()\n    {\n        InitializeComponent();\n    }\n\n    protected override void OnNavigatedTo(NavigationEventArgs e)\n    {\n        DetailsParam.Text = $\"param {e.Parameter}\";\n    }\n\n    private void OnBack(object sender, RoutedEventArgs e)\n    {\n        Frame.GoBack();\n    }\n}",
+      "file": "App/DetailsPage.xaml.cs"
+    },
+    {
+      "op": "insert-after",
+      "find": "            <local:ContactCard x:Name=\"Card\" />",
+      "text": "            <Button x:Name=\"GoDetails\" Content=\"Details\" Click=\"OnDetails\" />\n            <Frame x:Name=\"InnerFrame\" Height=\"48\" />",
+      "file": "App/ContactsPage.xaml"
+    },
+    {
+      "op": "replace",
+      "find": "        InitializeComponent();\n    }",
+      "text": "        InitializeComponent();\n        InnerFrame.Navigate(typeof(InnerPage), \"a\");\n    }\n\n    private void OnDetails(object sender, RoutedEventArgs e)\n    {\n        Frame.Navigate(typeof(DetailsPage), \"from-contacts\");\n    }",
+      "file": "App/ContactsPage.xaml.cs"
+    }
+  ],
+  "before": [
+    {
+      "assert": "invoke",
+      "target": "GoDetails"
+    },
+    {
+      "assert": "exists",
+      "target": "DetailsText"
+    },
+    {
+      "assert": "invoke",
+      "target": "BackButton"
+    },
+    {
+      "assert": "exists",
+      "target": "InnerNext"
+    },
+    {
+      "assert": "invoke",
+      "target": "InnerNext"
+    },
+    {
+      "assert": "text-equals",
+      "target": "InnerText",
+      "value": "inner b"
+    }
+  ],
+  "steps": [
+    {
+      "id": "r14-frame-cache",
+      "row": 14,
+      "title": "A page kept in the Frame cache (NavigationCacheMode Required, not shown) is edited: shown again, it has the change",
+      "op": "replace",
+      "find": "Text=\"details-v1\"",
+      "text": "Text=\"details-v2\"",
+      "file": "App/DetailsPage.xaml",
+      "expect": {
+        "v1": "live",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "invoke",
+          "target": "GoDetails"
+        },
+        {
+          "assert": "text-equals",
+          "target": "DetailsText",
+          "value": "details-v2"
+        },
+        {
+          "assert": "text-equals",
+          "target": "DetailsParam",
+          "value": "param from-contacts"
+        }
+      ]
+    },
+    {
+      "id": "r13-shown-page-keeps-stacks",
+      "row": 13,
+      "title": "The page shown after a navigation is edited: same parameter, and Back still goes back",
+      "op": "replace",
+      "find": "Text=\"details-v2\"",
+      "text": "Text=\"details-v3\"",
+      "file": "App/DetailsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailsText",
+          "value": "details-v3"
+        },
+        {
+          "assert": "text-equals",
+          "target": "DetailsParam",
+          "value": "param from-contacts"
+        },
+        {
+          "assert": "invoke",
+          "target": "BackButton"
+        },
+        {
+          "assert": "exists",
+          "target": "Header"
+        },
+        {
+          "assert": "invoke",
+          "target": "InnerNext"
+        },
+        {
+          "assert": "text-equals",
+          "target": "InnerText",
+          "value": "inner b"
+        }
+      ]
+    },
+    {
+      "id": "r13-nested-frame-kept",
+      "row": 13,
+      "title": "The page hosting a nested Frame is rebuilt: the nested Frame shows the page it showed, with its parameter",
+      "op": "replace",
+      "find": "Text=\"Contacts\" FontSize=\"24\"",
+      "text": "Text=\"People\" FontSize=\"24\"",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "Header",
+          "value": "People"
+        },
+        {
+          "assert": "text-equals",
+          "target": "InnerText",
+          "value": "inner b"
+        }
+      ]
+    },
+    {
+      "id": "r13-nested-page-edit",
+      "row": 13,
+      "title": "The page in the nested Frame is edited: only it is rebuilt, with its parameter",
+      "op": "replace",
+      "find": "Text=\"mark-v1\"",
+      "text": "Text=\"mark-v2\"",
+      "file": "App/InnerPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart",
+        "reason": "InnerPage re-created"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "InnerMark",
+          "value": "mark-v2"
+        },
+        {
+          "assert": "text-equals",
+          "target": "InnerText",
+          "value": "inner b"
+        },
+        {
+          "assert": "text-equals",
+          "target": "Header",
+          "value": "People"
+        }
+      ]
+    }
+  ]
+}

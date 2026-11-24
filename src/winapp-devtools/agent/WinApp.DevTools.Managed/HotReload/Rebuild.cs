@@ -126,10 +126,10 @@ internal static class Rebuild
                 loading = payload;
                 LoadResources(payload);
             }
-            foreach (var (frame, page) in pages)
+            foreach (var (frame, page, shows) in pages)
             {
                 loading = markup.FirstOrDefault(m => m.ClassName == page.GetType().FullName) ?? markup.FirstOrDefault(m => m.Kind == "component");
-                if (await RebuildPageAsync(frame, page) is { } note)
+                if (await RebuildPageAsync(frame, page, shows) is { } note)
                 {
                     notes.Add(note);
                 }
@@ -154,6 +154,9 @@ internal static class Rebuild
         {
             s_changedAt[type] = s_generation;
         }
+        // A changed page or UserControl that nothing on screen shows: built with the change when the app opens it.
+        notes.AddRange(markup.Where(m => m.Kind == "component" && FindType(m.ClassName) is { } type && !pages.Any(p => p.Page.GetType() == type || p.Shows == type.Name))
+            .Select(m => $"{m.ClassName![(m.ClassName!.LastIndexOf('.') + 1)..]} isn't on screen; it has the change when the app shows it"));
         if (resources)
         {
             notes.AddRange(LiveWindows().Where(w => w.Content is not (Frame or Page)).Select(w =>
@@ -171,9 +174,9 @@ internal static class Rebuild
     /// one after a resource change; only the outermost when pages are nested in each other's frames. A changed
     /// component outside a page in a Frame (directly in a window) can't be rebuilt: that's the restart reason.
     /// </summary>
-    private static (List<(Frame Frame, Page Page)> Pages, string? Restart) Owners(HashSet<Type> changed, bool resources)
+    private static (List<(Frame Frame, Page Page, string? Shows)> Pages, string? Restart) Owners(HashSet<Type> changed, bool resources)
     {
-        var marked = new List<(Frame Frame, Page Page)>();
+        var marked = new List<(Frame Frame, Page Page, string? Shows)>();
         var parents = new Dictionary<Page, Page?>(ReferenceEqualityComparer.Instance);
         string? restart = null;
         void Visit(DependencyObject? node, Page? owner)
@@ -187,7 +190,7 @@ internal static class Rebuild
                 parents[page] = owner;
                 if (changed.Contains(page.GetType()) || (resources && owner is null))
                 {
-                    marked.Add((frame, page));
+                    marked.Add((frame, page, null));
                 }
                 owner = page;
             }
@@ -200,7 +203,7 @@ internal static class Rebuild
                 }
                 else if (!marked.Any(m => ReferenceEquals(m.Page, owner)))
                 {
-                    marked.Add((owner.Frame, owner));
+                    marked.Add((owner.Frame, owner, node.GetType().Name));
                 }
             }
             var count = VisualTreeHelper.GetChildrenCount(node);
@@ -225,7 +228,7 @@ internal static class Rebuild
             return false;
         }
         var pages = marked.Where(m => !InsideMarked(m.Page)).ToList();
-        foreach (var (frame, page) in pages)
+        foreach (var (frame, page, _) in pages)
         {
             if (NavigationState(frame) is null && !s_parameters.TryGetValue(page, out _))
             {
@@ -240,7 +243,8 @@ internal static class Rebuild
     /// Opens the page again in its Frame. The Frame's own navigation state (when every parameter in it can be saved)
     /// brings back the same parameter and stacks; otherwise the parameter seen when the page was opened. Returns the note.
     /// </summary>
-    private static async Task<string?> RebuildPageAsync(Frame frame, Page page)
+    /// <param name="shows">The changed UserControl the page is rebuilt for, if that's why.</param>
+    private static async Task<string?> RebuildPageAsync(Frame frame, Page page, string? shows = null)
     {
         var name = page.GetType().Name;
         var state = UiState.Take(page);
@@ -249,6 +253,9 @@ internal static class Rebuild
             .Select(f => (f.Name, State: NavigationState(f))).Where(f => f.State is not null).ToList();
         NavigationFailedEventHandler reported = (_, e) => e.Handled = true;
         frame.NavigationFailed += reported;
+        // A page the Frame keeps in its cache would be handed back as it is.
+        var cacheMode = page.NavigationCacheMode;
+        page.NavigationCacheMode = NavigationCacheMode.Disabled;
         try
         {
             if (NavigationState(frame) is { } navigation)
@@ -269,6 +276,10 @@ internal static class Rebuild
         finally
         {
             frame.NavigationFailed -= reported;
+            if (ReferenceEquals(frame.Content, page))
+            {
+                page.NavigationCacheMode = cacheMode;
+            }
         }
         if (frame.Content is not Page fresh || ReferenceEquals(fresh, page))
         {
@@ -287,7 +298,8 @@ internal static class Rebuild
         // Let what restoring raised run (a selection's handler) before the fields are compared.
         await YieldAsync(fresh.DispatcherQueue);
         var lost = Fields.Changed(fields, Fields.Take(fresh));
-        return lost.Count == 0 ? $"{name} re-created" : $"{name} re-created; its fields start over ({string.Join(", ", lost)})";
+        var why = shows is null ? "" : $" for the new {shows}";
+        return lost.Count == 0 ? $"{name} re-created{why}" : $"{name} re-created{why}; its fields start over ({string.Join(", ", lost)})";
     }
 
     /// <summary>App.xaml again into the application, or a merged dictionary again where it's merged; built before anything is replaced.</summary>

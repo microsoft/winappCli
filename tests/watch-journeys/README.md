@@ -8,12 +8,21 @@ at chosen steps, whether the app matches a clean build of the same source (the p
 # Build winapp first (.\scripts\build-cli.ps1 -SkipTests), then:
 .\tests\watch-journeys\Run-WatchJourney.ps1 -Journey e2-libs,plain-rude2 -DotnetRoot C:\dotnet11
 .\tests\watch-journeys\Run-WatchJourney.ps1            # every journey, on the SDK on PATH
+
+# Live XAML needs a WinUI with XAML hot reload support (a folder with its Microsoft.WindowsAppSDK.WinUI .nupkg):
+.\tests\watch-journeys\Run-WatchJourney.ps1 -Journey page-xaml -WinUI C:\winui-build -NuGetPackages C:\nuget-winui-build
+
+# A real app that isn't in apps\, from a checkout that builds with that WinUI:
+.\tests\watch-journeys\Run-WatchJourney.ps1 -Journey winui-gallery -AppSource @{ 'winui-gallery' = 'C:\src\WinUI-Gallery' }
 ```
 
 The run prints one line per save and writes `scoreboard.md`, plus each journey's `watch.log` and `results.json`, under
 `-OutputRoot` (default `%TEMP%\winapp-watch-journeys`). Journeys drive the app's UI, so don't use the desktop while they
 run. On a machine that other sessions share, pass `-DesktopLock <file>`: each journey waits for that lock file and holds
 it while it runs, and after a release the next journey waits 60 s so other sessions get a turn.
+
+With `-WinUI`, the app builds against that WinUI (self-contained) and restores into `-NuGetPackages` (default: a folder
+per WinUI build under `-OutputRoot`), so one build's package never stands in for another of the same version.
 
 ## Expectations and the scoreboard
 
@@ -34,7 +43,8 @@ Every step says what should happen in v1 (the design's target) and what happens 
 
 `today` is the outcome the run observes now: `applied`, `unchanged`, `waiting`, `error`, `restart` (with a reason),
 `restart-no-reason`, `stuck` (a restart whose rebuild failed, so no app), `crash`, `ignored` (nothing printed) or `timeout` (the save was picked up but no outcome followed, as when the app hangs). A `|` lists
-outcomes that vary between runs.
+outcomes that vary between runs. `today` is the outcome on a WinUI with XAML hot reload support (`-WinUI`); where stock
+WinUI differs (a XAML save can't apply there), `stock` records that one, and a run without `-WinUI` scores against it.
 
 | Status | Means |
 |---|---|
@@ -67,7 +77,8 @@ to make the scoreboard green: change its expectation instead, and say why.
 - `"op": "key", "key": "ctrl+r"` presses Ctrl+R instead of saving a file.
 - Checks: `invoke`, `set-value`, `exists`, `absent`, `text-equals`, `text-contains`, `text-changes` (the text moves on
   within 2 s, so the UI thread is alive), all through UI Automation by `x:Name` or visible text, and `property-equals`
-  (`"Property=Value"`, read through DevTools). Checks also run after a `timeout`, to show whether the app still responds.
+  (`"Property=Value"`, read through DevTools). Checks run after every outcome but a crash: after a save that reached the
+  app they show the change is on screen; after an `error` or `waiting`, that the app is as it was.
 - `parity: true` compares the app with a clean build after the step. The journey's `parity` object sets the `root` to
   read, `navigate` steps for the clean build, `probes` run on both apps, and `ignore` patterns.
 - `setup` edits are made before the first build; `before` checks run after each launch and restart.
@@ -76,4 +87,5 @@ to make the scoreboard green: change its expectation instead, and say why.
 The apps: `apps\winui` is a WinUI app (`App`, with `Core` and `Data` class libraries beside it) and `apps\reactor` is a
 Microsoft.UI.Reactor app. Both use the stock Windows App SDK 2.7.0 through `Microsoft.WindowsAppSDK.WinUI` and
 `Microsoft.WindowsAppSDK.Runtime`, because the `Microsoft.WindowsAppSDK` 2.7.0 metapackage also needs
-`Microsoft.WindowsAppSDK.AI` 2.7.0, which these runs' package feed doesn't have.
+`Microsoft.WindowsAppSDK.AI` 2.7.0, which these runs' package feed doesn't have. `winui-gallery` is WinUI Gallery,
+passed with `-AppSource`; a journey whose app isn't there doesn't run.

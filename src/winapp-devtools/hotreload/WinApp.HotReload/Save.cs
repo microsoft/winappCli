@@ -28,6 +28,8 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
     private readonly Dictionary<string, HashSet<string>> _keys = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>C# was saved since the build: the XAML compiler checks x:Bind against the app's types as they are now.</summary>
     private bool _codeChanged;
+    /// <summary>The attributes of each App.xaml's &lt;Application&gt; as the app started with them.</summary>
+    private readonly Dictionary<string, string> _settings = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Reads the resource keys the app starts with (before any save changes the files).</summary>
     public void Start()
@@ -39,6 +41,7 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
                 if (XDocument.Load(file) is { Root.Name.LocalName: "Application" or "ResourceDictionary" } document)
                 {
                     _keys[file] = Keys(document);
+                    _settings[file] = Settings(document);
                 }
             }
             catch (Exception ex) when (ex is IOException or XmlException or UnauthorizedAccessException)
@@ -60,7 +63,7 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
             catch (XmlException ex)
             {
                 // A half-typed tag: a build would only fail.
-                return new SaveResult(Outcome.Error, $"{Relative(file)}({ex.LineNumber},{ex.LinePosition}): {ex.Message}");
+                return new SaveResult(Outcome.Error, $"{Relative(file)}({ex.LineNumber},{ex.LinePosition}): invalid XML: {ex.Message}");
             }
         }
         if (RestartReason(files, documents) is { } reason)
@@ -127,6 +130,12 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
             if (FileOf(payload.Uri) is { } file && documents.TryGetValue(file, out var document))
             {
                 _keys[file] = Keys(document);
+                if (payload.Kind == "application" && _settings.TryGetValue(file, out var before) && Settings(document) is var now && now != before)
+                {
+                    // Settings on <Application> itself only apply when the app starts.
+                    notes.Add($"{Relative(file)}: settings on <Application> ({string.Join(", ", ChangedSettings(before, now))}) take effect when the app restarts");
+                }
+                _settings[file] = Settings(document);
             }
         }
         // A page built again runs its constructor and starts its fields over: what C# hot reload would say about objects
@@ -268,11 +277,18 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         var file = uri is null ? null : FileOf(uri);
         var match = Regex.Match(message, @"\s*\[Line: (?<line>\d+) Position: (?<column>\d+)\]\s*$");
         var where = file is null ? "" : match.Success ? $"{Relative(file)}({match.Groups["line"].Value},{match.Groups["column"].Value}): " : $"{Relative(file)}: ";
-        return where + (match.Success ? message[..match.Index] : message) + " (the app shows what it showed before)";
+        return where + (match.Success ? message[..match.Index] : message) + " The app is unchanged.";
     }
 
     private string? FileOf(string uri) =>
         xaml?.Files.FirstOrDefault(p => string.Equals("ms-appx:///" + p.Value, uri, StringComparison.OrdinalIgnoreCase)).Key;
+
+    /// <summary>The attributes of the root element (RequestedTheme="Dark"), without namespace declarations and x:Class.</summary>
+    private static string Settings(XDocument document) =>
+        string.Join("\n", document.Root!.Attributes().Where(a => !a.IsNamespaceDeclaration && a.Name.NamespaceName.Length == 0).Select(a => $"{a.Name.LocalName}={a.Value}"));
+
+    private static IEnumerable<string> ChangedSettings(string before, string after) =>
+        before.Split('\n').Concat(after.Split('\n')).Where(s => s.Length > 0).Except(before.Split('\n').Intersect(after.Split('\n'))).Select(s => s.Split('=')[0]).Distinct();
 
     private static HashSet<string> Keys(XDocument document) =>
         document.Descendants().Select(e => e.Attribute(XName.Get("Key", "http://schemas.microsoft.com/winfx/2006/xaml"))?.Value).OfType<string>().ToHashSet(StringComparer.Ordinal);

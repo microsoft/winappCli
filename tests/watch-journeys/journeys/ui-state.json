@@ -1,0 +1,237 @@
+{
+  "id": "ui-state",
+  "title": "What the user typed, selected and tapped survives a rebuild (matching chain, E8, UserControls)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "setup": [
+    {
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"CardText\" Text=\"card-v1\" />",
+      "text": "<StackPanel Spacing=\"4\"><TextBlock x:Name=\"CardText\" Text=\"card-v1\" /><TextBlock x:Name=\"CardBuilds\" Text=\"builds 0\" /><Button x:Name=\"TapButton\" Content=\"Tap\" Click=\"OnTap\" /><TextBlock x:Name=\"CardTaps\" Text=\"taps 0\" /></StackPanel>",
+      "file": "App/ContactCard.xaml"
+    },
+    {
+      "op": "replace",
+      "find": "        InitializeComponent();\n    }",
+      "text": "        InitializeComponent();\n        CardBuilds.Text = $\"builds {++s_builds}\";\n    }\n\n    private static int s_builds;\n    private int _taps;\n\n    private void OnTap(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)\n    {\n        _taps++;\n        CardTaps.Text = $\"taps {_taps}\";\n    }",
+      "file": "App/ContactCard.xaml.cs"
+    },
+    {
+      "op": "insert-after",
+      "find": "            <TextBox x:Name=\"NoteBox\" Width=\"200\" PlaceholderText=\"Note\" />",
+      "text": "            <TextBox AutomationProperties.Name=\"Comment\" Width=\"120\" />",
+      "file": "App/ContactsPage.xaml"
+    }
+  ],
+  "before": [
+    {
+      "assert": "set-value",
+      "target": "NoteBox",
+      "value": "kept"
+    },
+    {
+      "assert": "set-value",
+      "target": "Comment",
+      "value": "typed"
+    },
+    {
+      "assert": "invoke",
+      "target": "TapButton"
+    },
+    {
+      "assert": "invoke",
+      "target": "TapButton"
+    },
+    {
+      "assert": "invoke",
+      "target": "Grace"
+    }
+  ],
+  "steps": [
+    {
+      "id": "u1-typed-text-kept",
+      "row": 1,
+      "title": "A page edit keeps typed text (named and unnamed boxes), the selection, and builds its UserControl once",
+      "op": "replace",
+      "find": "Text=\"Contacts\" FontSize=\"24\"",
+      "text": "Text=\"People\" FontSize=\"24\"",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "Header",
+          "value": "People"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        },
+        {
+          "assert": "text-equals",
+          "target": "Comment",
+          "value": "typed"
+        },
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 2"
+        }
+      ]
+    },
+    {
+      "id": "u2-unnamed-box-inserted-above",
+      "row": 1,
+      "title": "An unnamed box inserted above the typed one: the text is dropped, never moved into the new box",
+      "op": "insert-before",
+      "find": "            <TextBox AutomationProperties.Name=\"Comment\" Width=\"120\" />",
+      "text": "            <TextBox AutomationProperties.Name=\"Other\" Width=\"120\" Text=\"other\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "Other",
+          "value": "other"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 3"
+        }
+      ]
+    },
+    {
+      "id": "u3-broken-save-keeps-selection",
+      "row": 9,
+      "title": "A value only the runtime rejects: an error, and the selection and typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 3"
+        }
+      ]
+    },
+    {
+      "id": "u4-fixed-keeps-selection",
+      "row": 9,
+      "title": "The value is fixed: live, and the selection is still there",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 4"
+        },
+        {
+          "assert": "invoke",
+          "target": "TapButton"
+        },
+        {
+          "assert": "invoke",
+          "target": "TapButton"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardTaps",
+          "value": "taps 2"
+        }
+      ]
+    },
+    {
+      "id": "u5-usercontrol-fields-start-over",
+      "row": 20,
+      "title": "A UserControl edit: its fields start over along with its UI, and the note names them",
+      "op": "replace",
+      "find": "Text=\"card-v1\"",
+      "text": "Text=\"card-v2\"",
+      "file": "App/ContactCard.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart",
+        "reason": "_taps"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "CardText",
+          "value": "card-v2"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardTaps",
+          "value": "taps 0"
+        },
+        {
+          "assert": "invoke",
+          "target": "TapButton"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardTaps",
+          "value": "taps 1"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 5"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1054 @@
+{
+  "id": "e8-broken-saves",
+  "title": "E8: 20 saves with a value only the runtime rejects, each fixed by the next (row 9, row 21)",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "setup": [
+    {
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"CardText\" Text=\"card-v1\" />",
+      "text": "<StackPanel Spacing=\"4\"><TextBlock x:Name=\"CardText\" Text=\"card-v1\" /><TextBlock x:Name=\"CardBuilds\" Text=\"builds 0\" /><Button x:Name=\"TapButton\" Content=\"Tap\" Click=\"OnTap\" /><TextBlock x:Name=\"CardTaps\" Text=\"taps 0\" /></StackPanel>",
+      "file": "App/ContactCard.xaml"
+    },
+    {
+      "op": "replace",
+      "find": "        InitializeComponent();\n    }",
+      "text": "        InitializeComponent();\n        CardBuilds.Text = $\"builds {++s_builds}\";\n    }\n\n    private static int s_builds;\n    private int _taps;\n\n    private void OnTap(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)\n    {\n        _taps++;\n        CardTaps.Text = $\"taps {_taps}\";\n    }",
+      "file": "App/ContactCard.xaml.cs"
+    }
+  ],
+  "before": [
+    {
+      "assert": "set-value",
+      "target": "NoteBox",
+      "value": "kept"
+    },
+    {
+      "assert": "invoke",
+      "target": "Grace"
+    }
+  ],
+  "steps": [
+    {
+      "id": "e8-broken-01",
+      "row": 9,
+      "title": "Broken save 1 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-01",
+      "row": 9,
+      "title": "Fixed again (1 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 2"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-02",
+      "row": 9,
+      "title": "Broken save 2 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-02",
+      "row": 9,
+      "title": "Fixed again (2 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 3"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-03",
+      "row": 9,
+      "title": "Broken save 3 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-03",
+      "row": 9,
+      "title": "Fixed again (3 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 4"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-04",
+      "row": 9,
+      "title": "Broken save 4 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-04",
+      "row": 9,
+      "title": "Fixed again (4 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 5"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-05",
+      "row": 9,
+      "title": "Broken save 5 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-05",
+      "row": 9,
+      "title": "Fixed again (5 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 6"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-06",
+      "row": 9,
+      "title": "Broken save 6 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-06",
+      "row": 9,
+      "title": "Fixed again (6 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 7"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-07",
+      "row": 9,
+      "title": "Broken save 7 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-07",
+      "row": 9,
+      "title": "Fixed again (7 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 8"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-08",
+      "row": 9,
+      "title": "Broken save 8 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-08",
+      "row": 9,
+      "title": "Fixed again (8 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 9"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-09",
+      "row": 9,
+      "title": "Broken save 9 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-09",
+      "row": 9,
+      "title": "Fixed again (9 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 10"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-10",
+      "row": 9,
+      "title": "Broken save 10 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-10",
+      "row": 9,
+      "title": "Fixed again (10 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 11"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-11",
+      "row": 9,
+      "title": "Broken save 11 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-11",
+      "row": 9,
+      "title": "Fixed again (11 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 12"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-12",
+      "row": 9,
+      "title": "Broken save 12 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-12",
+      "row": 9,
+      "title": "Fixed again (12 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 13"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-13",
+      "row": 9,
+      "title": "Broken save 13 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-13",
+      "row": 9,
+      "title": "Fixed again (13 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 14"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-14",
+      "row": 9,
+      "title": "Broken save 14 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-14",
+      "row": 9,
+      "title": "Fixed again (14 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 15"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-15",
+      "row": 9,
+      "title": "Broken save 15 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-15",
+      "row": 9,
+      "title": "Fixed again (15 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 16"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-16",
+      "row": 9,
+      "title": "Broken save 16 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-16",
+      "row": 9,
+      "title": "Fixed again (16 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 17"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-17",
+      "row": 9,
+      "title": "Broken save 17 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-17",
+      "row": 9,
+      "title": "Fixed again (17 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 18"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-18",
+      "row": 9,
+      "title": "Broken save 18 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-18",
+      "row": 9,
+      "title": "Fixed again (18 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 19"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-19",
+      "row": 9,
+      "title": "Broken save 19 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-19",
+      "row": 9,
+      "title": "Fixed again (19 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 20"
+        }
+      ]
+    },
+    {
+      "id": "e8-broken-20",
+      "row": 9,
+      "title": "Broken save 20 of 20: an error; the screen, the selection and the typed text stay",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "error",
+        "today": "restart",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "e8-fixed-20",
+      "row": 9,
+      "title": "Fixed again (20 of 20): live, the selection still there, the UserControl built once",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"StatusText\" Margin=\"1,2,3,4,5\" Text=\"ready\" />",
+      "text": "<TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "file": "App/ContactsPage.xaml",
+      "expect": {
+        "v1": "live+note",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "CardBuilds",
+          "value": "builds 21"
+        }
+      ]
+    }
+  ]
+}

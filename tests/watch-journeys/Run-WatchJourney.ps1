@@ -22,8 +22,15 @@ param(
     [string]$OutputRoot = (Join-Path ([IO.Path]::GetTempPath()) 'winapp-watch-journeys'),
     # A lock file shared by sessions that drive UI on this desktop; each journey runs while holding it.
     [string]$DesktopLock,
+    # A folder with a Microsoft.WindowsAppSDK.WinUI .nupkg built with XAML hot reload support (a WinUI fork build). The
+    # app then uses it (self-contained), and steps are scored against expect.today; without it, against expect.stock.
+    [string]$WinUI,
+    # Where packages restore; a fresh folder per WinUI build, so a package of the same version isn't mixed up with another.
+    [string]$NuGetPackages,
     [int]$SaveTimeoutSeconds = 90,
-    [switch]$NoParity
+    [switch]$NoParity,
+    # Apps that aren't in apps\ (a real app's checkout, set up to build), by the name journeys use: @{ 'winui-gallery' = 'C:\src\WinUI-Gallery' }.
+    [hashtable]$AppSource
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'WatchJourney.psm1') -Force
@@ -38,10 +45,15 @@ $env:DOTNET_CLI_UI_LANGUAGE = 'en'
 Push-Location ([IO.Path]::GetTempPath())
 $sdk = @(& dotnet --version | Where-Object { $_ -match '^\d+\.\d+\.\d+' })[0]
 Pop-Location
+if ($WinUI) {
+    $WinUI = (Resolve-Path $WinUI).Path
+    $env:NUGET_PACKAGES = if ($NuGetPackages) { $NuGetPackages } else { Join-Path $OutputRoot ('nuget-' + (Split-Path $WinUI -Leaf)) }
+    $winuiVersion = ([IO.Path]::GetFileNameWithoutExtension((Get-ChildItem $WinUI -Filter 'Microsoft.WindowsAppSDK.WinUI.*.nupkg' | Select-Object -First 1).Name)) -replace '^Microsoft\.WindowsAppSDK\.WinUI\.', ''
+}
 if (-not $Journey) { $Journey = @(Get-ChildItem (Join-Path $PSScriptRoot 'journeys') -Filter *.json | ForEach-Object BaseName) }
 $runRoot = Join-Path $OutputRoot "$(Get-Date -Format 'yyyyMMdd-HHmmss')-sdk$sdk"
 New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
-Write-Host "SDK $sdk, winapp $Winapp, results in $runRoot"
+Write-Host "SDK $sdk, WinUI $(if ($WinUI) { $WinUI } else { 'stock (the app''s own package)' }), winapp $Winapp, results in $runRoot"
 
 function Invoke-Ui([string[]]$Arguments) {
     $output = & $Winapp ui @Arguments 2>&1 | Out-String
@@ -113,12 +125,21 @@ function Invoke-Journey([string]$Name) {
     $journey = Get-Content (Join-Path $PSScriptRoot "journeys\$Name.json") -Raw | ConvertFrom-Json
     $dir = Join-Path $runRoot $Name
     $src = Join-Path $dir 'src'
-    $null = robocopy (Join-Path $PSScriptRoot "apps\$($journey.app)") $src /E /XD bin obj /NFL /NDL /NJH /NJS /NP
+    $appFolder = if ($AppSource -and $AppSource[$journey.app]) { $AppSource[$journey.app] } else { Join-Path $PSScriptRoot "apps\$($journey.app)" }
+    if (-not (Test-Path $appFolder)) { throw "The app '$($journey.app)' isn't in apps\: pass -AppSource @{ '$($journey.app)' = '<checkout>' }." }
+    $null = robocopy $appFolder $src /E /XD bin obj .git /NFL /NDL /NJH /NJS /NP
     $global:LASTEXITCODE = 0
     $projectDir = Join-Path $src $journey.project
     if ($journey.app -eq 'winui') {
         Copy-Item (Join-Path $PSScriptRoot '..\..\samples\winui-app\Assets') (Join-Path $projectDir 'Assets') -Recurse
-        if (-not $journey.packaged) { Set-Content (Join-Path $src 'Directory.Build.props') '<Project><PropertyGroup><WindowsPackageType>None</WindowsPackageType></PropertyGroup></Project>' }
+        $props = @(if (-not $journey.packaged) { '<WindowsPackageType>None</WindowsPackageType>' })
+        if ($WinUI) {
+            # The WinUI build carries its runtime: self-contained, and only for the app (class libraries reject it).
+            $props += "<WindowsAppSDKSelfContained Condition=`"'`$(MSBuildProjectFile)' == '$((Get-ChildItem $projectDir -Filter *.csproj | Select-Object -First 1).Name)'`">true</WindowsAppSDKSelfContained>"
+            Set-Content (Join-Path $src 'Directory.Build.targets') "<Project><ItemGroup Condition=`"'`$(UseWinUI)' == 'true'`"><PackageReference Update=`"Microsoft.WindowsAppSDK.WinUI`" Version=`"$winuiVersion`" /><PackageReference Remove=`"Microsoft.WindowsAppSDK.Runtime`" /></ItemGroup></Project>"
+            Set-Content (Join-Path $src 'nuget.config') "<?xml version=`"1.0`" encoding=`"utf-8`"?><configuration><packageSources><add key=`"winui-local`" value=`"$WinUI`" /></packageSources></configuration>"
+        }
+        if ($props) { Set-Content (Join-Path $src 'Directory.Build.props') "<Project><PropertyGroup>$($props -join '')</PropertyGroup></Project>" }
     }
     foreach ($edit in @($journey.setup | Where-Object { $_ })) { Invoke-JourneyEdit -Root $src -Step $edit }
     $log = Join-Path $dir 'watch.log'
@@ -197,9 +218,10 @@ function Invoke-Journey([string]$Name) {
             $row.Reason = if ($result) { $result.Reason } else { '' }
             if ($row.Observed -in 'restart', 'restart-no-reason') { Start-Sleep -Seconds 2; $appPid = Get-AppPid; if ($appPid) { Invoke-Before $appPid } }
             $row.SameProcess = ($appPid -eq $launchPid)
-            # The checks show whether the change is on screen; they only count when the save says it reached the app.
+            # The checks show whether the change is on screen (after a save that reached the app), or that the app is
+            # untouched (after one that didn't).
             $checksOk = $true
-            if ($row.Observed -in 'applied', 'restart', 'restart-no-reason', 'timeout' -and $appPid) {
+            if ($row.Observed -notin 'crash', 'ignored', 'stuck' -and $appPid) {
                 $row.Checks = @(foreach ($check in @($step.checks | Where-Object { $_ })) {
                     $r = Wait-UiCheck $check $appPid
                     if (-not $r.Ok) { $checksOk = $false }
@@ -212,7 +234,7 @@ function Invoke-Journey([string]$Name) {
                     if (-not $parity.Ok) { $checksOk = $false }
                 }
             }
-            $row.Status = Get-StepStatus -Step $step -Observed $row.Observed -Note ([bool]$result.Note) -ChecksOk $checksOk -Reason $row.Reason
+            $row.Status = Get-StepStatus -Step $step -Stock:(-not $WinUI) -Observed $row.Observed -Note ([bool]$result.Note) -ChecksOk $checksOk -Reason $row.Reason
             $row.Detail = (@($lines | Where-Object { $_ -match '^\[watch\]|^\s+note:|^dotnet watch|DevTools attached|app restarted|\berror\b' }) | Select-Object -First 15) -join "`n"
             $rows.Add([pscustomobject]$row)
             $failed = @($row.Checks | Where-Object { -not $_.Ok } | ForEach-Object Check)
@@ -240,7 +262,7 @@ $results = foreach ($name in $Journey) {
 # The scoreboard: every step, its v1 expectation, today's recorded outcome and what this run observed.
 $md = [System.Collections.Generic.List[string]]::new()
 $all = @($results | ForEach-Object { $_.Rows })
-$md.Add("# Watch journeys: SDK $sdk, $(Get-Date -Format 'yyyy-MM-dd HH:mm')")
+$md.Add("# Watch journeys: SDK $sdk, WinUI $(if ($WinUI) { Split-Path $WinUI -Leaf } else { 'stock' }), $(Get-Date -Format 'yyyy-MM-dd HH:mm')")
 $md.Add('')
 $md.Add("pass $(@($all | Where-Object Status -eq 'pass').Count) · gap $(@($all | Where-Object Status -eq 'gap').Count) · fail $(@($all | Where-Object Status -eq 'fail').Count) · untested $(@($all | Where-Object Status -eq 'untested').Count) · pending $(@($all | Where-Object Status -eq 'pending').Count)")
 foreach ($result in $results) {

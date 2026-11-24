@@ -117,24 +117,27 @@ function Get-WatchOutcome {
   Scores a step. pass: the v1 expectation is met (and the step's checks passed where the change should show).
   gap: today's recorded outcome, not yet v1 (an expected failure). fail: neither, so something changed: a regression,
   or an improvement whose "today" should be updated. untested: no v1 decision yet; only recorded. pending: not run.
+  -Stock: the app runs on stock WinUI (no XAML hot reload support), where "expect.stock" (when the step has one) is
+  today's outcome instead of "expect.today".
 #>
 function Get-StepStatus {
-    param($Step, [string]$Observed, [bool]$Note, [bool]$ChecksOk, [string]$Reason)
+    param($Step, [string]$Observed, [bool]$Note, [bool]$ChecksOk, [string]$Reason, [switch]$Stock)
     if ($Step.pending) { return 'pending' }
+    $today = if ($Stock -and $Step.expect.stock) { [string]$Step.expect.stock } else { [string]$Step.expect.today }
     $v1 = [string]$Step.expect.v1
     $meetsV1 = switch ($v1) {
         'live' { $Observed -eq 'applied' -and $ChecksOk }
         'live+note' { $Observed -eq 'applied' -and $Note -and $ChecksOk }
         'restart' { $Observed -eq 'restart' -and $ChecksOk }
-        default { $Observed -eq $v1 }
+        default { $Observed -eq $v1 -and $ChecksOk }
     }
     # "reason" (a regular expression) names the cause v1 expects, so an outcome with another cause doesn't count.
     if ($meetsV1 -and $Step.expect.reason -and $Reason -notmatch $Step.expect.reason) { $meetsV1 = $false }
     if ($v1 -eq 'untested') { return 'untested' }
     if ($meetsV1) { return 'pass' }
     # A new step whose outcome today hasn't been recorded yet: copy the observed outcome into "today".
-    if ($Step.expect.today -eq '?') { return 'record' }
-    if ($Observed -in @(([string]$Step.expect.today) -split '\|')) { return 'gap' }
+    if ($today -eq '?') { return 'record' }
+    if ($Observed -in @($today -split '\|')) { return 'gap' }
     return 'fail'
 }
 
