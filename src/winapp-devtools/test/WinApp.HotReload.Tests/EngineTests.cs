@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
 
 namespace WinApp.HotReload.Tests;
@@ -56,6 +57,20 @@ public sealed class EngineTests
         Assert.AreEqual(key, await RoslynEngine.ImageKeyAsync(newMarkup.GetProject(project.Id)!, IsUser, CancellationToken.None));
         Assert.AreNotEqual(key, await RoslynEngine.ImageKeyAsync(newCode.GetProject(project.Id)!, IsUser, CancellationToken.None));
         Assert.AreNotEqual(key, await RoslynEngine.ImageKeyAsync(newReference.GetProject(project.Id)!, IsUser, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public void TheWarmUpAddsAMethodToTheAppsFirstPartialClass()
+    {
+        var page = CSharpSyntaxTree.ParseText("namespace App.Views;\npublic sealed partial class MainPage : System.Object { }", path: @"C:\app\Views\MainPage.xaml.cs");
+        var generated = CSharpSyntaxTree.ParseText("namespace App.Views { partial class Other { } }", path: @"C:\app\obj\Other.g.cs");
+        var compilation = CSharpCompilation.Create("App", [generated, page], [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var edit = RoslynEngine.WarmUpEdit(compilation, path => path is not null && !path.Contains(@"\obj\", StringComparison.Ordinal), CancellationToken.None);
+
+        Assert.AreEqual("namespace App.Views { partial class MainPage { private static int WinAppHotReloadWarmUp() => 1; } }", edit);
+        Assert.IsFalse(compilation.AddSyntaxTrees(CSharpSyntaxTree.ParseText(edit)).GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error));
     }
 
     [TestMethod]

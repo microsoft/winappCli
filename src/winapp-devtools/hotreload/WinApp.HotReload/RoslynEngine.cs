@@ -71,7 +71,71 @@ internal sealed class RoslynEngine : ICSharpEngine
                 // The first save compiles again and reports what went wrong.
             }
         }, cancellationToken);
+        engine._editWarmUp = engine._warmUp.ContinueWith(_ => engine.WarmUpFirstEditAsync(graph.ProjectDirectory, cancellationToken), cancellationToken,
+            TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
         return engine;
+    }
+
+    /// <summary>Set by the first save: the warm-up of the first edit doesn't start any more, so that save doesn't wait for it.</summary>
+    private volatile bool _saved;
+
+    private Task _editWarmUp = Task.CompletedTask;
+
+    /// <summary>
+    /// The first C# change that isn't only a method body would otherwise pay for .NET's edit-and-continue analysis and
+    /// the first type image for the XAML compiler (0.8 s together). Both are done here, unless a save came first: the
+    /// update, a method added to one of the app's classes in a copy of the app, is discarded; the app never gets it.
+    /// </summary>
+    private async Task WarmUpFirstEditAsync(string projectDirectory, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var compilation = (await Project.GetCompilationAsync(cancellationToken).ConfigureAwait(false))!;
+            if (_saved)
+            {
+                return;
+            }
+            compilation.Emit(Stream.Null, options: new EmitOptions(metadataOnly: true, includePrivateMembers: true), cancellationToken: cancellationToken);
+            if (_saved)
+            {
+                return;
+            }
+            var copy = _solution.AddDocument(DocumentId.CreateNewId(_projectId), "WinAppHotReloadWarmUp.cs",
+                SourceText.From(WarmUpEdit(compilation, IsUserFile, cancellationToken), Encoding.UTF8),
+                filePath: Path.Combine(projectDirectory, "obj", "WinAppHotReloadWarmUp.cs"));
+            try
+            {
+                await _api.GetUpdatesAsync(copy, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _api.Discard();
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Only a warm-up: the first change pays for it instead.
+        }
+    }
+
+    /// <summary>
+    /// The warm-up's edit: a method added to the first partial class of the app's own code (a page's code-behind, say),
+    /// the way a new event handler is; a new class when there's none.
+    /// </summary>
+    internal static string WarmUpEdit(Compilation compilation, Func<string?, bool> isUserFile, CancellationToken cancellationToken)
+    {
+        foreach (var tree in compilation.SyntaxTrees.Where(t => isUserFile(t.FilePath)))
+        {
+            var partial = tree.GetRoot(cancellationToken).DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.ClassDeclarationSyntax>()
+                .FirstOrDefault(c => c.Parent is Microsoft.CodeAnalysis.CSharp.Syntax.BaseNamespaceDeclarationSyntax or Microsoft.CodeAnalysis.CSharp.Syntax.CompilationUnitSyntax &&
+                    c.TypeParameterList is null && c.Modifiers.Any(m => m.ValueText == "partial") && !c.Modifiers.Any(m => m.ValueText == "static"));
+            if (partial is not null && compilation.GetSemanticModel(tree).GetDeclaredSymbol(partial, cancellationToken) is { } type)
+            {
+                var body = $"partial class {type.Name} {{ private static int WinAppHotReloadWarmUp() => 1; }}";
+                return type.ContainingNamespace.IsGlobalNamespace ? body : $"namespace {type.ContainingNamespace.ToDisplayString()} {{ {body} }}";
+            }
+        }
+        return "internal static class WinAppHotReloadWarmUp { internal static int Value() => 1; }";
     }
 
     private Task _warmUp = Task.CompletedTask;
@@ -81,6 +145,9 @@ internal sealed class RoslynEngine : ICSharpEngine
     public async Task<CSharpResult> ApplyAsync(CSharpChange change, CancellationToken cancellationToken)
     {
         await _warmUp.ConfigureAwait(false);
+        _saved = true;
+        // A warm-up already computing its update finishes (and discards it) before this one starts.
+        await _editWarmUp.ConfigureAwait(false);
         var referencesChanged = false;
         if (change.Files.Any(f => string.Equals(f, _graph.ProjectFile, StringComparison.OrdinalIgnoreCase)))
         {
