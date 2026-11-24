@@ -216,8 +216,49 @@ internal sealed unsafe partial class LoopbackAudioCapture : ILoopbackAudioSource
     public void Start()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        _client.Start();
+        try
+        {
+            _client.Start();
+        }
+        catch (COMException ex)
+        {
+            // The device can go away between opening the stream and starting it.
+            throw Unavailable("audio", ex);
+        }
         _started = true;
+    }
+
+    /// <summary>
+    /// For an ApplicationFrameHost frame, the process that owns the app content (its CoreWindow) inside
+    /// it, or 0 when there is none; null when <paramref name="hwnd"/> is not such a frame.
+    /// </summary>
+    internal static int? FindFrameContentProcess(nint hwnd)
+    {
+        if (hwnd == 0)
+        {
+            return null;
+        }
+
+        var window = new HWND(hwnd);
+        Span<char> className = stackalloc char[64];
+        int length;
+        fixed (char* buffer = className)
+        {
+            length = PInvoke.GetClassName(window, buffer, className.Length);
+        }
+        if (!className[..Math.Max(0, length)].SequenceEqual("ApplicationFrameWindow"))
+        {
+            return null;
+        }
+
+        var content = PInvoke.FindWindowEx(window, HWND.Null, "Windows.UI.Core.CoreWindow", null);
+        if (content.IsNull)
+        {
+            return 0;
+        }
+        uint processId;
+        _ = PInvoke.GetWindowThreadProcessId(content, &processId);
+        return (int)processId;
     }
 
     public void Drain(LoopbackPacketHandler onPacket)

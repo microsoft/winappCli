@@ -152,13 +152,17 @@ internal sealed class AudioTrackRecorder : IDisposable
     private readonly long _toleranceFrames;
     private readonly long _idleLagFrames;
     private readonly int _flushFrames;
-    private readonly byte[] _pending;
+    private byte[] _pending;
     private readonly List<(byte[]? Pcm, int Frames, long ReportedHns)> _batch = [];
     private readonly ManualResetEventSlim _stop = new();
     private Thread? _thread;
     private long _startHns;
     private long _writtenFrames;
     private long _endFrames = long.MaxValue;
+
+    // How far the video has been written, in audio frames. Audio is held back until the video
+    // reaches it, so audio captured after the last frame never makes the track longer than the video.
+    private long _committedFrames;
     private int _peak;
     private int _pendingFrames;
     private bool _finished;
@@ -179,7 +183,7 @@ internal sealed class AudioTrackRecorder : IDisposable
 
         // Hand the encoder about 100 ms at a time.
         _flushFrames = format.SampleRate / 10;
-        _pending = new byte[_flushFrames * format.BlockAlign];
+        _pending = new byte[format.BytesPerSecond];
     }
 
     /// <summary>Why capture stopped early, or null. The track is still completed with silence.</summary>
@@ -200,6 +204,10 @@ internal sealed class AudioTrackRecorder : IDisposable
         _thread.Start();
     }
 
+    /// <summary>Records that the video now reaches <paramref name="endHns"/>, so audio up to there can be written.</summary>
+    public void CommitVideo(long endHns) =>
+        Volatile.Write(ref _committedFrames, AudioTimeline.HnsToFrames(endHns, _format.SampleRate));
+
     /// <summary>
     /// Stops capturing and completes the track up to <paramref name="endHns"/> on the track's own
     /// timeline (the video's length), with silence where nothing played.
@@ -217,6 +225,7 @@ internal sealed class AudioTrackRecorder : IDisposable
         // Nothing past the video's end joins the track, including sound still waiting in the
         // buffer or arriving in the last drain.
         _endFrames = AudioTimeline.HnsToFrames(endHns, _format.SampleRate);
+        Volatile.Write(ref _committedFrames, _endFrames);
         _pendingFrames = (int)Math.Clamp(_endFrames - _writtenFrames, 0, _pendingFrames);
 
         if (Failure is null)
@@ -232,7 +241,7 @@ internal sealed class AudioTrackRecorder : IDisposable
         }
 
         AppendSilence(_endFrames - _writtenFrames - _pendingFrames);
-        Flush();
+        WriteCommitted(final: true);
     }
 
     /// <summary>Reads what has arrived and appends it to the track. Runs on the pump thread.</summary>
@@ -248,6 +257,7 @@ internal sealed class AudioTrackRecorder : IDisposable
         {
             AppendSilence(AudioTimeline.IdleSilence(
                 _writtenFrames + _pendingFrames, nowFrames, _idleLagFrames, _toleranceFrames));
+            WriteCommitted(final: false);
             return;
         }
 
@@ -275,6 +285,7 @@ internal sealed class AudioTrackRecorder : IDisposable
                 Append(pcm.AsSpan(skip * _format.BlockAlign, kept * _format.BlockAlign));
             }
         }
+        WriteCommitted(final: false);
     }
 
     private void Run()
@@ -298,13 +309,12 @@ internal sealed class AudioTrackRecorder : IDisposable
     private void AppendSilence(long frames)
     {
         frames = Math.Min(frames, Room);
-        while (frames > 0)
+        if (frames <= 0)
         {
-            var count = (int)Math.Min(frames, _flushFrames - _pendingFrames);
-            _pending.AsSpan(_pendingFrames * _format.BlockAlign, count * _format.BlockAlign).Clear();
-            Advance(count);
-            frames -= count;
+            return;
         }
+        var bytes = Reserve((int)frames);
+        _pending.AsSpan(bytes.Offset, bytes.Length).Clear();
     }
 
     private void Append(ReadOnlySpan<byte> pcm)
@@ -314,42 +324,55 @@ internal sealed class AudioTrackRecorder : IDisposable
         {
             pcm = pcm[..(int)(room * _format.BlockAlign)];
         }
-        _peak = Math.Max(_peak, AudioTimeline.Peak16(pcm));
-        while (!pcm.IsEmpty)
-        {
-            var count = Math.Min(pcm.Length / _format.BlockAlign, _flushFrames - _pendingFrames);
-            pcm[..(count * _format.BlockAlign)].CopyTo(_pending.AsSpan(_pendingFrames * _format.BlockAlign));
-            Advance(count);
-            pcm = pcm[(count * _format.BlockAlign)..];
-        }
-    }
-
-    private void Advance(int frames)
-    {
-        _pendingFrames += frames;
-        if (_pendingFrames == _flushFrames)
-        {
-            Flush();
-        }
-    }
-
-    private void Flush()
-    {
-        if (_pendingFrames == 0)
+        if (pcm.IsEmpty)
         {
             return;
         }
-
-        var startFrame = _writtenFrames;
-        _writer.WriteAudio(
-            _pending.AsSpan(0, _pendingFrames * _format.BlockAlign),
-            AudioTimeline.FramesToHns(startFrame, _format.SampleRate),
-            AudioTimeline.FramesToHns(startFrame + _pendingFrames, _format.SampleRate) -
-                AudioTimeline.FramesToHns(startFrame, _format.SampleRate));
-        _writtenFrames += _pendingFrames;
-        _pendingFrames = 0;
+        _peak = Math.Max(_peak, AudioTimeline.Peak16(pcm));
+        var bytes = Reserve(pcm.Length / _format.BlockAlign);
+        pcm.CopyTo(_pending.AsSpan(bytes.Offset, bytes.Length));
     }
 
+    /// <summary>Makes room for <paramref name="frames"/> more pending frames and returns where they go.</summary>
+    private (int Offset, int Length) Reserve(int frames)
+    {
+        var offset = _pendingFrames * _format.BlockAlign;
+        var length = frames * _format.BlockAlign;
+        if (offset + length > _pending.Length)
+        {
+            Array.Resize(ref _pending, Math.Max(_pending.Length * 2, offset + length));
+        }
+        _pendingFrames += frames;
+        return (offset, length);
+    }
+
+    /// <summary>
+    /// Hands pending audio the video has already reached to the encoder, about 100 ms at a time.
+    /// With <paramref name="final"/>, also the last partial chunk.
+    /// </summary>
+    private void WriteCommitted(bool final)
+    {
+        while (_pendingFrames > 0)
+        {
+            var available = Math.Min(_pendingFrames, Volatile.Read(ref _committedFrames) - _writtenFrames);
+            var count = (int)Math.Min(available, _flushFrames);
+            if (count <= 0 || (count < _flushFrames && !final))
+            {
+                return;
+            }
+
+            var startFrame = _writtenFrames;
+            var bytes = count * _format.BlockAlign;
+            _writer.WriteAudio(
+                _pending.AsSpan(0, bytes),
+                AudioTimeline.FramesToHns(startFrame, _format.SampleRate),
+                AudioTimeline.FramesToHns(startFrame + count, _format.SampleRate) -
+                    AudioTimeline.FramesToHns(startFrame, _format.SampleRate));
+            _writtenFrames += count;
+            _pendingFrames -= count;
+            _pending.AsSpan(bytes, _pendingFrames * _format.BlockAlign).CopyTo(_pending);
+        }
+    }
     public void Dispose()
     {
         if (_disposed)

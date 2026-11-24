@@ -166,8 +166,6 @@ internal sealed partial class UiRecordingService(
         IFrameGrabber? grabber = null;
         RecordFrameArtifactCoordinator? frameOutput = null;
         RecordCursorOverlay? cursorOverlay = null;
-        ILoopbackAudioSource? audioSource = null;
-        AudioTrackRecorder? audioTrack = null;
         var wgcCaptureHwnd = rootHwnd;
 
         try
@@ -368,27 +366,26 @@ internal sealed partial class UiRecordingService(
             // Replacements are staged by RecordAsync; the encoder never clobbers its destination.
             // Audio opens first: a machine that can't record the requested sound fails before any
             // file exists, rather than producing a silent video.
-            if (options.Audio != RecordAudioMode.None)
+            var audioSource = OpenAudioSource(options, uiTarget, rootHwnd);
+            IVideoEncoder createdEncoder;
+            try
             {
-                if (options.Audio == RecordAudioMode.App && uiTarget is null)
-                {
-                    throw new ArgumentException(
-                        "App audio needs an app to record; use RecordAudioMode.System for a desktop recording.",
-                        nameof(options));
-                }
-                audioSource = s_openAudioSource(options.Audio, uiTarget?.ProcessId ?? 0);
+                createdEncoder = audioSource is null
+                    ? Mp4SinkWriterEncoder.s_createNoClobber(options.OutputPath, encoderW, encoderH, options.Fps, bitrate)
+                    : Mp4SinkWriterEncoder.s_createNoClobberWithAudio(
+                        options.OutputPath, encoderW, encoderH, options.Fps, bitrate, LoopbackAudioCapture.AudioFormat);
+            }
+            catch
+            {
+                audioSource?.Dispose();
+                throw;
             }
 
-            using var encoder = audioSource is null
-                ? Mp4SinkWriterEncoder.s_createNoClobber(options.OutputPath, encoderW, encoderH, options.Fps, bitrate)
-                : Mp4SinkWriterEncoder.s_createNoClobberWithAudio(
-                    options.OutputPath, encoderW, encoderH, options.Fps, bitrate, LoopbackAudioCapture.AudioFormat);
-            if (audioSource is not null)
-            {
-                audioTrack = new AudioTrackRecorder(
-                    audioSource, (IAudioSampleWriter)encoder, LoopbackAudioCapture.AudioFormat);
-                audioSource = null;
-            }
+            // Declared after the encoder so it is disposed first: its pump thread writes to the encoder.
+            using var encoder = createdEncoder;
+            using var audioTrack = audioSource is null
+                ? null
+                : new AudioTrackRecorder(audioSource, (IAudioSampleWriter)encoder, LoopbackAudioCapture.AudioFormat);
 
             var frameDurationHns = 10_000_000L / options.Fps;
             var totalFrames = options.DurationSec > 0 ? (long)options.DurationSec * options.Fps : (long?)null;
@@ -494,6 +491,7 @@ internal sealed partial class UiRecordingService(
                     slot * frameDurationHns,
                     frameDurationHns);
                 lastSlot = slot;
+                audioTrack?.CommitVideo((slot + 1) * frameDurationHns);
                 frameIndex++;
                 if (!startedSignaled)
                 {
@@ -865,8 +863,6 @@ internal sealed partial class UiRecordingService(
         }
         finally
         {
-            audioTrack?.Dispose();
-            audioSource?.Dispose();
             if (frameOutput is not null)
             {
                 try
@@ -896,6 +892,50 @@ internal sealed partial class UiRecordingService(
     /// <summary>Opens the loopback stream for a recording; a seam so tests need no audio device.</summary>
     internal static Func<RecordAudioMode, int, ILoopbackAudioSource> s_openAudioSource =
         static (mode, processId) => LoopbackAudioCapture.Open(mode, processId);
+
+    /// <summary>
+    /// For an ApplicationFrameHost frame, the process that owns the app content inside it (0 when the
+    /// content is missing); null for any other window. A seam so tests need no packaged app.
+    /// </summary>
+    internal static Func<nint, int?> s_findFrameContentProcess = LoopbackAudioCapture.FindFrameContentProcess;
+
+    /// <returns>The opened stream, or null when the recording has no audio.</returns>
+    private static ILoopbackAudioSource? OpenAudioSource(RecordOptions options, UiTarget? uiTarget, nint rootHwnd)
+    {
+        if (options.Audio == RecordAudioMode.None)
+        {
+            return null;
+        }
+        if (options.Audio == RecordAudioMode.System)
+        {
+            return s_openAudioSource(RecordAudioMode.System, 0);
+        }
+        if (uiTarget is null)
+        {
+            throw new ArgumentException(
+                "App audio needs an app to record; use RecordAudioMode.System for a desktop recording.",
+                nameof(options));
+        }
+        return s_openAudioSource(
+            RecordAudioMode.App, AudioProcessId(uiTarget.ProcessId, s_findFrameContentProcess(rootHwnd)));
+    }
+
+    /// <summary>The process whose sound <c>--audio app</c> records.</summary>
+    /// <param name="windowProcessId">The process that owns the recorded window.</param>
+    /// <param name="frameContentProcessId">See <see cref="s_findFrameContentProcess"/>.</param>
+    /// <remarks>
+    /// Packaged apps such as Calculator draw inside a frame owned by ApplicationFrameHost, which
+    /// plays no sound itself, so the app's own process is recorded instead.
+    /// </remarks>
+    /// <exception cref="RecordAudioUnavailableException">The window is a frame whose app can't be found.</exception>
+    internal static int AudioProcessId(int windowProcessId, int? frameContentProcessId) => frameContentProcessId switch
+    {
+        null => windowProcessId,
+        > 0 => frameContentProcessId.Value,
+        _ => throw new RecordAudioUnavailableException(
+            "Can't record only the app's audio: its window is hosted by ApplicationFrameHost and the app inside it couldn't be found.",
+            "Restore the app's window and retry, or use --audio system to record everything the machine plays."),
+    };
 
     private static RecordAudioResult DescribeAudio(RecordAudioMode mode, AudioTrackRecorder track)
     {

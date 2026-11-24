@@ -122,6 +122,7 @@ public sealed class RecordAudioTests
         var writer = new CollectingAudioWriter();
         // Not started, so no background pump races the test: it drives Pump itself, with time zero at 0.
         using var recorder = new AudioTrackRecorder(source, writer, Format, () => now);
+        recorder.CommitVideo(3 * Second);
 
         now = Second;
         recorder.Pump();
@@ -139,6 +140,39 @@ public sealed class RecordAudioTests
         Assert.AreEqual(2 * Rate - 480, firstSound, "The packet sits where it finished playing, at 1.99 s.");
         Assert.AreEqual(1_000 / 32768.0, recorder.PeakLevel, 1e-9);
         writer.AssertContiguous();
+    }
+
+    [TestMethod]
+    public void Recorder_HoldsAudioBackUntilTheVideoReachesIt()
+    {
+        var now = 0L;
+        var writer = new CollectingAudioWriter();
+        using var recorder = new AudioTrackRecorder(new FakeAudioSource(), writer, Format, () => now);
+
+        // The video stalled at 1 s while 2.5 s of silence was captured.
+        recorder.CommitVideo(Second);
+        now = 3 * Second;
+        recorder.Pump();
+        Assert.AreEqual(Second, writer.EndHns, "Only audio the video has reached is written.");
+
+        recorder.CommitVideo(2 * Second);
+        recorder.Pump();
+        Assert.AreEqual(2 * Second, writer.EndHns);
+
+        // Recording stops with the video at 2 s: the held-back 0.5 s is dropped.
+        recorder.Finish(endHns: 2 * Second);
+        Assert.AreEqual(2 * Second, writer.EndHns);
+        writer.AssertContiguous();
+    }
+
+    [TestMethod]
+    public void AudioProcessId_RecordsThePackagedAppInsideAnApplicationFrameHostFrame()
+    {
+        Assert.AreEqual(880, UiRecordingService.AudioProcessId(windowProcessId: 880, frameContentProcessId: null));
+        Assert.AreEqual(880, UiRecordingService.AudioProcessId(windowProcessId: 882, frameContentProcessId: 880),
+            "ApplicationFrameHost plays no sound; the app inside its frame does.");
+        Assert.ThrowsExactly<RecordAudioUnavailableException>(
+            () => UiRecordingService.AudioProcessId(windowProcessId: 882, frameContentProcessId: 0));
     }
 
     [TestMethod]
