@@ -14,7 +14,7 @@
     {
       "id": "g2-xaml-adds-binding", "row": 2, "title": "XAML: add a TextBlock with x:Name and x:Bind",
       "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />", "text": "            <TextBlock x:Name=\"TitleText\" Text=\"{x:Bind Vm.Title}\" />",
-      "expect": { "v1": "live", "today": "not-applied" },
+      "expect": { "v1": "live", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "text-equals", "target": "TitleText", "value": "Team" } ]
     },
     {

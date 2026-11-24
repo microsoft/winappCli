@@ -248,7 +248,7 @@
       "text": "<TextBlock x:Name=\"ContactName\" Margin=\"1,2,3,4,5\" Text=\"{x:Bind Name}\" />",
       "expect": {
         "v1": "error",
-        "today": "?",
+        "today": "error",
         "stock": "not-applied",
         "reason": "Thickness|1,2,3,4,5"
       },
@@ -279,7 +279,7 @@
       "text": "Margin=\"0,2,0,2\" Text=\"{x:Bind Name}\"",
       "expect": {
         "v1": "live+note",
-        "today": "?",
+        "today": "applied",
         "stock": "not-applied"
       },
       "checks": [

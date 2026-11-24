@@ -184,13 +184,13 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
             {
                 return $"{name}: edits to {Path.GetFileNameWithoutExtension(library)}, a project the app references, take effect when the app restarts";
             }
-            if (Is(file, ".xaml") && xaml is not null)
+            if (Is(file, ".xaml"))
             {
-                if (!File.Exists(file))
+                if (xaml is not null && !File.Exists(file))
                 {
                     return $"{name}: a deleted XAML file takes effect when the app is rebuilt";
                 }
-                if (documents.TryGetValue(file, out var document) && document.Root?.Name.LocalName == "Window")
+                if (xaml is not null && documents.TryGetValue(file, out var document) && document.Root?.Name.LocalName == "Window")
                 {
                     return $"{name}: a window's own XAML takes effect when the app restarts (put its content in a Page to keep edits live)";
                 }

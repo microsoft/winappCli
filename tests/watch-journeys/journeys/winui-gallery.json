@@ -7,7 +7,7 @@
   "process": "WinUIGallery",
   "packaged": true,
   "setup": [
-    { "file": "WinUIGallery/Package.Dev.appxmanifest", "op": "replace", "find": "        <uap3:Extension Category=\"windows.appUriHandler\">\n          <uap3:AppUriHandler>\n            <uap3:Host Name=\"winuigallery.com\" />\n            <uap3:Host Name=\"xamlcontrolsgallery.com\" />\n          </uap3:AppUriHandler>\n        </uap3:Extension>\n", "text": "", "note": "--unique-identity refuses an extension every copy would share" },
+    { "file": "WinUIGallery/Package.Dev.appxmanifest", "op": "replace", "find": "      <Extensions>\n        <uap3:Extension Category=\"windows.appUriHandler\">\n          <uap3:AppUriHandler>\n            <uap3:Host Name=\"winuigallery.com\" />\n            <uap3:Host Name=\"xamlcontrolsgallery.com\" />\n          </uap3:AppUriHandler>\n        </uap3:Extension>\n        <uap:Extension Category=\"windows.protocol\">\n          <uap:Protocol Name=\"winui3gallerydev\">\n            <uap:DisplayName>WinUI Gallery Dev</uap:DisplayName>\n          </uap:Protocol>\n        </uap:Extension>\n      </Extensions>\n", "text": "", "note": "--unique-identity refuses extensions every copy would share (a web link handler and a protocol)" },
     { "file": "WinUIGallery/App.xaml", "op": "insert-after", "find": "<x:String x:Key=\"ControlsName\">All</x:String>", "text": "            <SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FF808080\" />" },
     { "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": "<TextBlock Margin=\"8,8,8,4\" Style=\"{ThemeResource BaseTextBlockStyle}\">Filter by...</TextBlock>", "text": "<TextBlock x:Name=\"HrFilterLabel\" Margin=\"8,8,8,4\" Foreground=\"{ThemeResource HrAppBrush}\" Style=\"{ThemeResource BaseTextBlockStyle}\">Filter by...</TextBlock>" }
   ],
@@ -41,8 +41,15 @@
       "checks": [ { "assert": "property-equals", "target": "HrBind", "value": "Text=Single" } ]
     },
     {
+      "id": "g05-new-template-after-csharp", "row": 10, "title": "A new list with an x:DataType template, after a C# change (g03)",
+      "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "insert-after", "find": "<TextBlock x:Name=\"HrBind\" Margin=\"8\" Text=\"{x:Bind Control2.SelectionMode, Mode=OneWay}\" />", "text": "                    <ListView x:Name=\"HrTemplateList\" Height=\"80\" ItemsSource=\"{x:Bind contacts2}\">\n                        <ListView.ItemTemplate>\n                            <DataTemplate x:DataType=\"local:Contact\">\n                                <TextBlock x:Name=\"HrTemplateCompany\" Text=\"{x:Bind Company}\" />\n                            </DataTemplate>\n                        </ListView.ItemTemplate>\n                    </ListView>",
+      "expect": { "v1": "live+note", "today": "restart" },
+      "checks": [ { "assert": "exists", "target": "HrTemplateList" }, { "assert": "property-equals", "target": "HrTemplateCompany", "value": "Text=ABC Printers" } ],
+      "note": "the XAML compiler service must read the template's type from the app image by name (tracker: types matched by position)"
+    },
+    {
       "id": "g06-datatemplate", "row": 10, "title": "The list's DataTemplate",
-      "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": "                    Text=\"{x:Bind Company}\" />", "text": "                    Text=\"{x:Bind Company}\" />\n                <TextBlock Grid.Row=\"1\" Grid.Column=\"1\" Margin=\"200,0,0,6\" FontSize=\"10\" Text=\"tpl hr6\" />",
+      "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": "x:Phase=\"2\"\n                    Style=\"{ThemeResource BodyTextBlockStyle}\"\n                    Text=\"{x:Bind Company}\" />", "text": "x:Phase=\"2\"\n                    Style=\"{ThemeResource BodyTextBlockStyle}\"\n                    Text=\"{x:Bind Company}\" />\n                <TextBlock Grid.Row=\"1\" Grid.Column=\"1\" Margin=\"200,0,0,6\" FontSize=\"10\" Text=\"tpl hr6\" />",
       "expect": { "v1": "live+note", "today": "restart" },
       "checks": [ { "assert": "exists", "target": "tpl hr6" } ]
     },

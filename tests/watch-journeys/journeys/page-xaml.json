@@ -22,7 +22,7 @@
     {
       "id": "r03-xbind-missing-member", "row": 3, "title": "x:Bind to a missing member",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "{x:Bind Vm.Title}", "text": "{x:Bind Vm.Subtitle}",
-      "expect": { "v1": "error", "today": "unchanged", "stock": "not-applied", "reason": "Subtitle" }
+      "expect": { "v1": "error", "today": "error", "stock": "not-applied", "reason": "Subtitle" }
     },
     {
       "id": "r03-fix", "row": 3, "title": "x:Bind fixed again",
@@ -59,7 +59,7 @@
     {
       "id": "r08-half-typed-xml", "row": 8, "title": "Half-typed XML",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"DetailHint\" Text=\"Pick a contact\" />", "text": "<TextBlock x:Name=\"DetailHint\" Text=\"Pick a contact\" /><TextBl",
-      "expect": { "v1": "error", "today": "unchanged", "stock": "not-applied", "reason": "XML|xml|WMC" }
+      "expect": { "v1": "error", "today": "error", "stock": "not-applied", "reason": "XML|xml|WMC" }
     },
     {
       "id": "r08-fixed", "row": 8, "title": "The XML is finished",
