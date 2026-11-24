@@ -84,7 +84,8 @@ class Board {
     async refresh({ force = false } = {}) {
         if (this.inflight) return this.inflight;
         const gap = Date.now() - this.fetchedAt;
-        if (this.data && gap < (force ? MIN_FORCED_GAP_MS : MIN_REFRESH_GAP_MS)) return;
+        // A negative gap means the clock went back (or a test moved it): read again rather than wait it out.
+        if (this.data && gap >= 0 && gap < (force ? MIN_FORCED_GAP_MS : MIN_REFRESH_GAP_MS)) return;
         this.inflight = (async () => {
             try {
                 this.data = await fetchRepoData(this.repo);
@@ -160,7 +161,8 @@ class Board {
                     if (h) h.key = null;
                 }
                 const stable = Date.now() - this.headSeen.get(p.number).at >= 5 * 60_000;
-                if (!r.reviewCovered && local.reviewAsked?.sha !== sha && !local.pending && stable) {
+                const askedByGetReady = !!local.readyAsked && (local.readyAsked.head === p.headRefOid || local.readyAsked.sha === sha);
+                if (!r.reviewCovered && local.reviewAsked?.sha !== sha && !askedByGetReady && !local.pending && stable) {
                     const card = this.card(p.number);
                     updatePr(this.repo, p.number, (s) => { s.reviewAsked = { sha, at: nowIso() }; s.pending = { id: "rereview", at: nowIso() }; note(s, `The board asked the agent to run pr-review on ${sha.slice(0, 7)}`); });
                     await send(rerunReviewPrompt(card, this.repo, sha), this.repo, p.number, { quiet: true });
@@ -596,7 +598,8 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
     } else if (action === "hide" || action === "unhide") {
         updatePr(repo, pr, (s) => { s.hidden = action === "hide"; addHistory(s, action === "hide" ? "You removed it from the board" : "You put it back on the board"); });
     } else if (action === "get-ready") {
-        updatePr(repo, pr, (s) => { s.pending = { id: "get-ready", at: nowIso() }; s.monitorPending = { enable: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"], at: nowIso() }; note(s, "You asked the agent to get it ready for review and keep it ready"); });
+        // Its prompt already asks for pr-review on this head, so keep-ready won't ask again for the same commit.
+        updatePr(repo, pr, (s) => { s.pending = { id: "get-ready", at: nowIso() }; s.readyAsked = { head: card.headSha || null, sha: card.readiness?.reviewHead || null, at: nowIso() }; s.monitorPending = { enable: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"], at: nowIso() }; note(s, "You asked the agent to get it ready for review and keep it ready"); });
         await send(readyForReviewPrompt(card, repo, card.readiness), repo, pr, { quiet: true });
     } else if (action === "request-reviewer") {
         const who = String(extra.who || "*").replace(/[^\w.*-]/g, "").slice(0, 60) || "*";

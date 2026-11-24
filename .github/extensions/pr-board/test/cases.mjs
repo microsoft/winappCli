@@ -914,6 +914,34 @@ export function register(test) {
         assert.match(req.body, /Old helper still used.*\(`src\/legacy\.js:3`\)/s);
         assert.equal(ctx.world.mutations.length, 0, "the board posted it itself");
     });
+    test("regression: after Get it ready, keep-ready doesn't ask for pr-review again on the same commit", async (ctx) => {
+        const { page, world } = ctx;
+        world.allowMutations = true; // keep-ready requests a Copilot review after the push below
+        const realNow = Date.now;
+        const later = (min) => { const off = min * 60_000; Date.now = () => realNow() + off; };
+        const asks = () => ctx.host.sends.filter((x) => /pr-review hasn't run on it/.test(x.prompt)).map((x) => x.prompt.match(/commit is now (\w+)/)[1]);
+        try {
+            await page.eval(`post("/api/action", { pr: 107, action: "get-ready" })`);
+            assert.match(ctx.host.sends.at(-1)?.prompt || "", /get it ready|ready for (human )?review/i);
+            await ctx.board.tool("pr_board_sync_sessions", { repo: REPO, sessions: [{ pr: 107, sessionId: "s-107", name: "CSV export", role: "author", activity: "busy", agentMerge: { enabled: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"] } }] });
+            await ctx.board.tool("pr_board_reply", { repo: REPO, pr: 107, text: "On it: running pr-lifecycle." });
+            await refresh(ctx); // keep-ready first sees the head now
+            await sleep(800);
+            later(6); // the head has been stable for over 5 minutes
+            await refresh(ctx);
+            await sleep(1500);
+            assert.deepEqual(asks(), [], "asked for pr-review on the head the Get it ready prompt already covers");
+            // A new commit after that is new work: keep-ready asks for it, once.
+            const oid = world.push(107, "Address Copilot's comments");
+            later(7);
+            await refresh(ctx);
+            await sleep(800);
+            later(14);
+            await refresh(ctx);
+            for (let i = 0; i < 30 && !asks().length; i++) await sleep(100);
+            assert.deepEqual(asks(), [oid.slice(0, 7)]);
+        } finally { Date.now = realNow; }
+    }, { changesGitHub: true, allowMutations: true });
     // ---- Branch review (issue with no PR yet) ------------------------------------------------------
     test("changes tab: comment on a line, then send it to the agent", async (ctx) => {
         const { page } = ctx;
