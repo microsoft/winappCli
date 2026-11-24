@@ -403,6 +403,13 @@ every build and test lane and run only the docs port tests (`docs-tests`).
 `docs\npm-usage.md` is checked by npm tests, and other files in `docs\` (such as
 `winui-sample-index.schema.json`) are read by CLI tests, so changing them runs everything.
 
+The ADO pipelines restore only from the internal `pde-oss_Internal` feed, which refuses most
+nuget.org versions until they are about 7 days old. When a PR or merge group changes restore
+inputs (`*.csproj`, `*.props`, `*.targets`, `nuget.config`, `global.json`), the `package-age`
+job restores at the base and head commits and fails if the change adds a package version, direct
+or transitive, published to nuget.org less than 7 days ago. Run it locally with
+`.\scripts\test-package-age.ps1 -BaseRef origin/main`.
+
 CI runs `-TestSuite Cli -CliShard 1`, `-CliShard 2`, `-CliShard 4`,
 `-TestSuite Auxiliary`, and `-TestSuite UIAutomation` on separate runners, never
 concurrently in one workspace. Together with the native integration shard below,
