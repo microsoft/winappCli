@@ -32,6 +32,9 @@ internal sealed class ProjectGraph
     public string CompilerArgumentsFile => Path.Combine(_capture, "csc.rsp");
     public string SourcesAsBuilt => Path.Combine(_capture, "src");
 
+    /// <summary>The XAML compiler's inputs as the build used them (an editor's design-time build rewrites obj's).</summary>
+    public string XamlInputsAsBuilt => Path.Combine(_capture, "xaml-input.json");
+
     /// <summary>The copy of an app source the build compiled, or null for other files.</summary>
     public string? AsBuiltCopy(string path) =>
         IsUnder(path, ProjectDirectory) && LibraryOf(path) is null ? Path.Combine(SourcesAsBuilt, Path.GetRelativePath(ProjectDirectory, path)) : null;

@@ -36,14 +36,17 @@ internal sealed class XamlCompiler : IDisposable
     private Task _warm = Task.CompletedTask;
     private int _nextId;
 
-    private XamlCompiler(string exe, string inputs, string projectDirectory, Dictionary<string, string> links)
+    private XamlCompiler(string exe, string inputs, string intermediate, string projectDirectory, Dictionary<string, string> links)
     {
         _exe = exe;
-        _inputs = inputs;
-        Intermediate = Path.GetDirectoryName(inputs)!;
+        _inputs = _buildInputs = inputs;
+        Intermediate = intermediate;
         _projectDirectory = projectDirectory;
         _files = links;
     }
+
+    /// <summary>The build's inputs, which <see cref="UseReferences"/> starts from.</summary>
+    private readonly string _buildInputs;
 
     private readonly Dictionary<string, string> _files;
 
@@ -73,7 +76,7 @@ internal sealed class XamlCompiler : IDisposable
     /// </summary>
     public void UseReferences(IReadOnlyList<string> references)
     {
-        var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(Intermediate, "input.json")))!.AsObject();
+        var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(_buildInputs))!.AsObject();
         var built = (json["ReferenceAssemblies"]?.AsArray() ?? []).OfType<System.Text.Json.Nodes.JsonObject>().ToList();
         if (references.Count == 0 || built.Count == 0)
         {
@@ -102,7 +105,7 @@ internal sealed class XamlCompiler : IDisposable
     /// update (EnableXamlHotReloadCodegen, which only a WinUI with hot reload support honors: it leaves its state in
     /// obj\...\XamlHotReload); null otherwise, with the reason when it should have worked.
     /// </summary>
-    public static XamlCompiler? Start(string[] compilerArguments, string projectDirectory, out string? unavailable)
+    public static XamlCompiler? Start(string[] compilerArguments, string projectDirectory, string inputsAsBuilt, out string? unavailable)
     {
         unavailable = null;
         // A source file argument, not an option naming it (/embed:...\XamlTypeInfo.g.cs).
@@ -113,7 +116,9 @@ internal sealed class XamlCompiler : IDisposable
         {
             return null;
         }
-        var inputs = Path.Combine(intermediate, "input.json");
+        // The build's own copy: an editor's design-time build (VS Code, Visual Studio) rewrites obj's input.json
+        // for its first pass only, and the compiler fails on that.
+        var inputs = File.Exists(inputsAsBuilt) ? inputsAsBuilt : Path.Combine(intermediate, "input.json");
         if (FindCompiler(compilerArguments) is not { } exe || !File.Exists(inputs))
         {
             unavailable = "the XAML compiler or its inputs from the app's build (input.json next to XamlTypeInfo.g.cs) weren't found";
@@ -122,6 +127,11 @@ internal sealed class XamlCompiler : IDisposable
         var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         using (var json = JsonDocument.Parse(File.ReadAllText(inputs)))
         {
+            if (!json.RootElement.TryGetProperty("CompileMode", out var mode) || mode.GetString() != "RealBuildPass2")
+            {
+                unavailable = "the XAML compiler's inputs in obj are from an editor's design-time build, not the app's build; rebuild with Ctrl+R";
+                return null;
+            }
             foreach (var list in new[] { "XamlApplications", "XamlPages" })
             {
                 if (json.RootElement.TryGetProperty(list, out var items) && items.ValueKind == JsonValueKind.Array)
@@ -135,7 +145,7 @@ internal sealed class XamlCompiler : IDisposable
                 }
             }
         }
-        var compiler = new XamlCompiler(exe, inputs, projectDirectory, files);
+        var compiler = new XamlCompiler(exe, inputs, intermediate, projectDirectory, files);
         compiler._warm = compiler.WarmUpAsync();
         return compiler;
     }
@@ -186,13 +196,13 @@ internal sealed class XamlCompiler : IDisposable
         var pass1 = await SendAsync(new ServeRequest { Pass = 1, Files = files }, cancellationToken).ConfigureAwait(false);
         if (Failed(pass1) is { } error1)
         {
-            return XamlResult.Failed(error1);
+            return CompilerFailed(pass1, files, error1);
         }
         var image = appImage is null ? null : Convert.ToBase64String(appImage);
         var pass2 = await SendAsync(new ServeRequest { Pass = 2, Files = files, LocalAssemblyImage = image }, cancellationToken).ConfigureAwait(false);
         if (Failed(pass2) is { } error2)
         {
-            return XamlResult.Failed(error2);
+            return CompilerFailed(pass2, files, error2);
         }
         var stems = files.Select(f => Path.ChangeExtension(Path.GetRelativePath(_projectDirectory, f), null)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var generated = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -258,13 +268,19 @@ internal sealed class XamlCompiler : IDisposable
     {
         // The code the C# compiler saw: this session's latest, else the build's (a page not compiled since launch).
         var text = _generated.GetValueOrDefault(Path.GetFullPath(generatedPath)) ?? (File.Exists(generatedPath) ? File.ReadAllText(generatedPath) : null);
-        if (text is null || XamlLine(text, line) is not { } xamlLine)
+        if (text is null || XamlLine(text, line) is not { } xamlLine || XamlFileOf(generatedPath) is not { } xaml)
         {
             return null;
         }
-        var stem = Stem(Path.GetRelativePath(Intermediate, generatedPath));
+        return $"{xaml}({xamlLine})";
+    }
+
+    /// <summary>The XAML file (relative) the compiler generated <paramref name="generatedPath"/> from, if it's one of the app's.</summary>
+    public string? XamlFileOf(string generatedPath)
+    {
+        var stem = Stem(Path.GetRelativePath(Intermediate, Path.GetFullPath(generatedPath)));
         var xaml = Files.Keys.FirstOrDefault(f => Path.ChangeExtension(Path.GetRelativePath(_projectDirectory, f), null).Equals(stem, StringComparison.OrdinalIgnoreCase));
-        return xaml is null ? null : $"{Relative(xaml)}({xamlLine})";
+        return xaml is null ? null : Relative(xaml);
     }
 
     /// <summary>The XAML line the generated code at <paramref name="line"/> (1-based) was made from.</summary>
@@ -300,6 +316,22 @@ internal sealed class XamlCompiler : IDisposable
             : (response.Diagnostics ?? []).Any(IsError)
                 ? string.Join(Environment.NewLine + "  ", response.Diagnostics!.Where(IsError).Take(3).Select(Format))
                 : "the XAML compiler failed without saying why";
+
+    /// <summary>
+    /// A markup error as the compiler reports it; the compiler's own failure (an internal error, or none reported) is
+    /// said as that, and the next save starts a fresh compiler.
+    /// </summary>
+    private XamlResult CompilerFailed(ServeResponse response, IReadOnlyList<string> files, string error)
+    {
+        var diagnostics = (response.Diagnostics ?? []).Where(IsError).ToList();
+        if (diagnostics.Count > 0 && !diagnostics.Any(d => d.ErrorCode == "WMC9999"))
+        {
+            return XamlResult.Failed(error);
+        }
+        Stop();
+        var detail = diagnostics.FirstOrDefault() is { } d ? $"{d.ErrorCode}: {d.Message}" : "it reported no error";
+        return XamlResult.Failed($"{string.Join(", ", files.Select(Relative))}: the XAML compiler failed ({detail}); save again to retry, or press Ctrl+R to restart");
+    }
 
     private static bool IsError(ServeDiagnostic d) => string.Equals(d.Type, "Error", StringComparison.OrdinalIgnoreCase);
 

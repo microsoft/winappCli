@@ -1,0 +1,237 @@
+{
+  "id": "xaml-moves",
+  "title": "Moving an element with a Click handler: within its panel, to another panel, after naming a neighbor, and after a restart",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "setup": [
+    {
+      "file": "App/ContactsPage.xaml",
+      "op": "insert-after",
+      "find": "            <TextBox x:Name=\"NoteBox\" Width=\"200\" PlaceholderText=\"Note\" />",
+      "text": "            <TextBlock Text=\"{x:Bind Vm.Contacts.Count, Mode=OneWay}\" />"
+    }
+  ],
+  "parity": {
+    "root": "ContactsPage",
+    "ignore": [ "*#NoteBox*", "*#StatusText*" ]
+  },
+  "steps": [
+    {
+      "id": "m1-add-button-and-handler",
+      "row": 6,
+      "title": "A button with a Click handler, both files in one save",
+      "edits": [
+        {
+          "file": "App/ContactsPage.xaml",
+          "op": "insert-after",
+          "find": "            <Button x:Name=\"LibButton\" Content=\"Lib\" Click=\"OnLib\" />",
+          "text": "            <Button Content=\"Move me\" Click=\"OnMove\" />"
+        },
+        {
+          "file": "App/ContactsPage.xaml.cs",
+          "op": "insert-before",
+          "find": "    private void OnLib(",
+          "text": "    private int _moves;\n\n    private void OnMove(object sender, RoutedEventArgs e) => StatusText.Text = $\"moved {++_moves}\";\n"
+        }
+      ],
+      "expect": {
+        "v1": "live+note",
+        "today": "applied",
+        "stock": "not-applied"
+      },
+      "checks": [
+        {
+          "assert": "invoke",
+          "target": "Move me"
+        },
+        {
+          "value": "moved 1",
+          "assert": "text-equals",
+          "target": "StatusText"
+        }
+      ]
+    },
+    {
+      "id": "m2-move-within-parent",
+      "row": 6,
+      "title": "Move it between two buttons in the same panel: live, and Click still works",
+      "file": "App/ContactsPage.xaml",
+      "op": "replace",
+      "find": "            <Button x:Name=\"HelloButton\" Content=\"Hello\" Click=\"OnHello\" />\n            <Button x:Name=\"CountButton\" Content=\"Count\" Click=\"OnCount\" />\n            <Button x:Name=\"LibButton\" Content=\"Lib\" Click=\"OnLib\" />\n            <Button Content=\"Move me\" Click=\"OnMove\" />",
+      "text": "            <Button x:Name=\"HelloButton\" Content=\"Hello\" Click=\"OnHello\" />\n            <Button Content=\"Move me\" Click=\"OnMove\" />\n            <Button x:Name=\"CountButton\" Content=\"Count\" Click=\"OnCount\" />\n            <Button x:Name=\"LibButton\" Content=\"Lib\" Click=\"OnLib\" />",
+      "expect": {
+        "v1": "live+note",
+        "today": "applied",
+        "stock": "not-applied"
+      },
+      "checks": [
+        {
+          "assert": "invoke",
+          "target": "Move me"
+        },
+        {
+          "value": "moved 1",
+          "assert": "text-equals",
+          "target": "StatusText"
+        }
+      ],
+      "parity": true
+    },
+    {
+      "id": "m3-move-to-first-child",
+      "row": 6,
+      "title": "Move it again, to the first child of the panel",
+      "file": "App/ContactsPage.xaml",
+      "op": "replace",
+      "find": "            <TextBlock x:Name=\"Header\" Text=\"Contacts\" FontSize=\"24\" />\n            <Button x:Name=\"HelloButton\" Content=\"Hello\" Click=\"OnHello\" />\n            <Button Content=\"Move me\" Click=\"OnMove\" />",
+      "text": "            <Button Content=\"Move me\" Click=\"OnMove\" />\n            <TextBlock x:Name=\"Header\" Text=\"Contacts\" FontSize=\"24\" />\n            <Button x:Name=\"HelloButton\" Content=\"Hello\" Click=\"OnHello\" />",
+      "expect": {
+        "v1": "live+note",
+        "today": "applied",
+        "stock": "not-applied"
+      },
+      "checks": [
+        {
+          "assert": "invoke",
+          "target": "Move me"
+        },
+        {
+          "value": "moved 1",
+          "assert": "text-equals",
+          "target": "StatusText"
+        }
+      ]
+    },
+    {
+      "id": "m4-move-to-another-parent",
+      "row": 6,
+      "title": "Move it to another panel",
+      "file": "App/ContactsPage.xaml",
+      "op": "replace",
+      "find": "            <Button Content=\"Move me\" Click=\"OnMove\" />\n            <TextBlock x:Name=\"Header\" Text=\"Contacts\" FontSize=\"24\" />\n            <Button x:Name=\"HelloButton\" Content=\"Hello\" Click=\"OnHello\" />\n            <Button x:Name=\"CountButton\" Content=\"Count\" Click=\"OnCount\" />\n            <Button x:Name=\"LibButton\" Content=\"Lib\" Click=\"OnLib\" />\n        </StackPanel>\n        <StackPanel x:Name=\"StatusPanel\" Grid.Row=\"1\" Grid.ColumnSpan=\"2\" Orientation=\"Horizontal\" Spacing=\"12\">\n            <TextBlock x:Name=\"StatusText\" Text=\"ready\" />",
+      "text": "            <TextBlock x:Name=\"Header\" Text=\"Contacts\" FontSize=\"24\" />\n            <Button x:Name=\"HelloButton\" Content=\"Hello\" Click=\"OnHello\" />\n            <Button x:Name=\"CountButton\" Content=\"Count\" Click=\"OnCount\" />\n            <Button x:Name=\"LibButton\" Content=\"Lib\" Click=\"OnLib\" />\n        </StackPanel>\n        <StackPanel x:Name=\"StatusPanel\" Grid.Row=\"1\" Grid.ColumnSpan=\"2\" Orientation=\"Horizontal\" Spacing=\"12\">\n            <TextBlock x:Name=\"StatusText\" Text=\"ready\" />\n            <Button Content=\"Move me\" Click=\"OnMove\" />",
+      "expect": {
+        "v1": "live+note",
+        "today": "applied",
+        "stock": "not-applied"
+      },
+      "checks": [
+        {
+          "assert": "invoke",
+          "target": "Move me"
+        },
+        {
+          "value": "moved 1",
+          "assert": "text-equals",
+          "target": "StatusText"
+        }
+      ],
+      "parity": true
+    },
+    {
+      "id": "m5-xname-on-bound-element",
+      "row": 4,
+      "title": "Name a bound element that had no x:Name (its connection changes)",
+      "file": "App/ContactsPage.xaml",
+      "op": "replace",
+      "find": "<TextBlock Text=\"{x:Bind Vm.Contacts.Count, Mode=OneWay}\" />",
+      "text": "<TextBlock x:Name=\"ContactCount\" Text=\"{x:Bind Vm.Contacts.Count, Mode=OneWay}\" />",
+      "expect": {
+        "v1": "live+note",
+        "today": "applied",
+        "stock": "not-applied"
+      },
+      "checks": [
+        {
+          "assert": "exists",
+          "target": "ContactCount"
+        },
+        {
+          "assert": "invoke",
+          "target": "Move me"
+        },
+        {
+          "value": "moved 1",
+          "assert": "text-equals",
+          "target": "StatusText"
+        }
+      ]
+    },
+    {
+      "id": "m6-move-after-xname",
+      "row": 6,
+      "title": "Then move the button within its panel",
+      "file": "App/ContactsPage.xaml",
+      "op": "replace",
+      "find": "            <TextBlock x:Name=\"StatusText\" Text=\"ready\" />\n            <Button Content=\"Move me\" Click=\"OnMove\" />\n            <TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />\n            <TextBox x:Name=\"NoteBox\" Width=\"200\" PlaceholderText=\"Note\" />",
+      "text": "            <TextBlock x:Name=\"StatusText\" Text=\"ready\" />\n            <TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />\n            <Button Content=\"Move me\" Click=\"OnMove\" />\n            <TextBox x:Name=\"NoteBox\" Width=\"200\" PlaceholderText=\"Note\" />",
+      "expect": {
+        "v1": "live+note",
+        "today": "applied",
+        "stock": "not-applied"
+      },
+      "checks": [
+        {
+          "assert": "invoke",
+          "target": "Move me"
+        },
+        {
+          "value": "moved 1",
+          "assert": "text-equals",
+          "target": "StatusText"
+        }
+      ],
+      "parity": true
+    },
+    {
+      "id": "m7-ctrl-r",
+      "row": 58,
+      "title": "Ctrl+R restarts",
+      "op": "key",
+      "key": "ctrl+r",
+      "expect": {
+        "v1": "restart",
+        "reason": "^requested \\(Ctrl\\+R\\)",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "invoke",
+          "target": "Move me"
+        },
+        {
+          "value": "moved 1",
+          "assert": "text-equals",
+          "target": "StatusText"
+        }
+      ]
+    },
+    {
+      "id": "m8-move-after-restart",
+      "row": 6,
+      "title": "Right after the restart, move the button: live",
+      "file": "App/ContactsPage.xaml",
+      "op": "replace",
+      "find": "            <TextBlock x:Name=\"StatusText\" Text=\"ready\" />\n            <TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />\n            <Button Content=\"Move me\" Click=\"OnMove\" />",
+      "text": "            <Button Content=\"Move me\" Click=\"OnMove\" />\n            <TextBlock x:Name=\"StatusText\" Text=\"ready\" />\n            <TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />",
+      "expect": {
+        "v1": "live+note",
+        "today": "applied",
+        "stock": "not-applied"
+      },
+      "checks": [
+        {
+          "assert": "invoke",
+          "target": "Move me"
+        },
+        {
+          "value": "moved 1",
+          "assert": "text-equals",
+          "target": "StatusText"
+        }
+      ],
+      "parity": true
+    }
+  ]
+}

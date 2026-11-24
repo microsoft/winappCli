@@ -112,7 +112,8 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         var compiledCode = engine is not RestartingEngine && !files.Contains(graph.ProjectFile, StringComparer.OrdinalIgnoreCase);
         if (result.Outcome == CSharpOutcome.Restart)
         {
-            return compiledCode ? new SaveResult(Outcome.Restart, result.Detail!) : await RestartAsync(result.Detail!, cancellationToken).ConfigureAwait(false);
+            var why = InGeneratedCodeRestart(result.Detail!);
+            return compiledCode ? new SaveResult(Outcome.Restart, why) : await RestartAsync(why, cancellationToken).ConfigureAwait(false);
         }
         if (result.Outcome == CSharpOutcome.Error)
         {
@@ -294,6 +295,18 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
             id.FirstAncestorOrSelf<BaseMethodDeclarationSyntax>() is { } method &&
             (method.ParameterList.Parameters.Any(p => p.Identifier.ValueText == id.Identifier.ValueText) ||
                 method.DescendantNodes().OfType<VariableDeclaratorSyntax>().Any(v => v.Identifier.ValueText == id.Identifier.ValueText));
+    }
+
+    /// <summary>
+    /// A change .NET can't make to the running app, found in the XAML compiler's generated code
+    /// ("MainPage.g.cs(41,9): ENC0033: Deleting field 'obj4' ..."): said about the XAML file the code came from.
+    /// </summary>
+    private string InGeneratedCodeRestart(string detail)
+    {
+        var match = Regex.Match(detail, @"^(?<file>[^()]+\.g\.cs)\(\d+,\d+\): (?<code>ENC\d+): (?<message>.*)$");
+        return match.Success && xaml?.XamlFileOf(Path.Combine(graph.ProjectDirectory, match.Groups["file"].Value)) is { } file
+            ? $"{file}: the running app can't take this markup change, so it takes effect when the app restarts ({match.Groups["code"].Value}: {match.Groups["message"].Value})"
+            : detail;
     }
 
     /// <summary>

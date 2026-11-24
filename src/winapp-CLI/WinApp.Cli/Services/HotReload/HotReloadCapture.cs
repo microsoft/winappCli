@@ -32,6 +32,8 @@ internal sealed class HotReloadCapture : IDisposable
               <_WinAppHotReloadSource Include="@(Compile)" Condition="!$([System.IO.Path]::IsPathRooted('%(Compile.Identity)')) and !$([System.String]::Copy('%(Compile.Identity)').StartsWith('..'))" />
             </ItemGroup>
             <Copy SourceFiles="@(_WinAppHotReloadSource)" DestinationFiles="@(_WinAppHotReloadSource->'$(WinAppHotReloadOut)\src\%(Identity)')" SkipUnchangedFiles="true" />
+            <!-- The XAML compiler's inputs from this build: an editor's design-time build rewrites the one in obj. -->
+            <Copy SourceFiles="$(XamlGeneratedOutputPath)input.json" DestinationFiles="$(WinAppHotReloadOut)\xaml-input.json" Condition="'$(XamlGeneratedOutputPath)' != '' and Exists('$(XamlGeneratedOutputPath)input.json')" />
           </Target>
           <Target Name="WinAppHotReloadReferences" DependsOnTargets="ResolveReferences;FindReferenceAssembliesForReferences;WinAppHotReloadSettings">
             <WriteLinesToFile File="$(WinAppHotReloadOut)\references.txt" Overwrite="true" Lines="@(ReferencePathWithRefAssemblies->'/reference:%(FullPath)');@(Analyzer->'/analyzer:%(FullPath)');@(ReferenceCopyLocalPaths->'/copylocal:%(FullPath)|%(DestinationSubDirectory)')" />

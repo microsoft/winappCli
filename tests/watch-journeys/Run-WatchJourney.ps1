@@ -184,6 +184,16 @@ function Invoke-Journey([string]$Name) {
     }
     function Get-AppPid { (Get-Process $journey.process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($src, [StringComparison]::OrdinalIgnoreCase) } | Sort-Object StartTime -Descending | Select-Object -First 1).Id }
     function Invoke-Before([int]$ProcessId) { foreach ($check in @($journey.before | Where-Object { $_ })) { $null = Wait-UiCheck $check $ProcessId } }
+    # The build an editor runs for IntelliSense: the XAML compiler's first pass only, into the app's obj folder.
+    function Invoke-DesignTimeBuild([switch]$Background) {
+        $csproj = (Get-ChildItem $projectDir -Filter *.csproj | Select-Object -First 1).FullName
+        $msbuild = @('msbuild', "`"$csproj`"", '-nologo', '-v:q', '-t:Compile', '-p:DesignTimeBuild=true', '-p:BuildingProject=false',
+            '-p:SkipCompilerExecution=true', '-p:ProvideCommandLineArgs=true', '-p:BuildingInsideVisualStudio=true')
+        $started = Start-Process dotnet -ArgumentList $msbuild -WorkingDirectory $projectDir -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput (Join-Path $dir 'design-time.log')
+        if (-not $Background) { $started.WaitForExit() }
+        return $started
+    }
 
     $rows = [System.Collections.Generic.List[object]]::new()
     try {
@@ -212,12 +222,16 @@ function Invoke-Journey([string]$Name) {
                 $rows.Add([pscustomobject]$row); Write-Host ("[{0}] {1,-28} pending: {2}" -f $Name, $step.id, $pending); continue
             }
             $null = Read-NewLines
+            # An editor's design-time build (VS Code C# Dev Kit, Visual Studio) into the same obj folder.
+            $designTime = $null
+            if ($step.designTimeBuild -eq 'before') { $null = Invoke-DesignTimeBuild; $null = Read-NewLines }
             $saveStart = Get-Date
             if ($step.op -eq 'key') {
                 if ($step.key -ne 'ctrl+r') { throw "Unknown key '$($step.key)'." }
                 $keys.WriteByte(0x12); $keys.Flush()
             }
             else { Invoke-JourneyEdit -Root $src -Step $step }
+            if ($step.designTimeBuild -eq 'during') { $designTime = Invoke-DesignTimeBuild -Background }
             $lines = [System.Collections.Generic.List[string]]::new()
             $deadline = (Get-Date).AddSeconds($SaveTimeoutSeconds)
             $restartDeadline = $null
@@ -234,6 +248,7 @@ function Invoke-Journey([string]$Name) {
                 if ($result -and -not $restartDeadline) { $restartDeadline = (Get-Date).AddSeconds(300) }
                 if ((Get-Date) -ge $(if ($restartDeadline) { $restartDeadline } else { $deadline })) { break }
             }
+            if ($designTime) { $designTime.WaitForExit() }
             if ($result -and $result.Outcome -in 'restart', 'restart-no-reason' -and -not $result.Ready) {
                 $result = [pscustomobject]@{ Outcome = 'stuck'; Reason = 'the app did not come back'; Note = $false; Ready = $false }
             }
