@@ -99,7 +99,7 @@ internal static class BindingDiagnosis
     {
         "diagnose" => Diagnose(element, prop, authored),
         // Every other op reports the property's before/after values.
-        _ when IsSecret(prop) => Unavailable("'" + prop + "' holds a secret; DevTools does not read or write it.", nativeFallback: false),
+        _ when DevToolsSecrets.IsSecretName(prop) => Unavailable("'" + prop + "' holds a secret; DevTools does not read or write it.", nativeFallback: false),
         "capture" => Capture(element, prop, authored),
         "restore" => Restore(element, prop, authored, false),
         "restoreconfirmed" => Restore(element, prop, authored, true),
@@ -280,9 +280,16 @@ internal static class BindingDiagnosis
 
         bool differentType = current is not null && targetType != typeof(object) && !targetType.IsInstanceOfType(current);
         var sb = new StringBuilder(differentType ? "{\"state\":\"silent\"" : "{\"state\":\"evaluated\"");
-        // A secret's value never leaves the app, whichever side of the binding names it.
-        bool secret = IsSecret(prop) || segments.Length > 0 && IsSecret(segments[^1]);
-        string Value(object? value) => secret ? Redacted : Str(value);
+        // A secret's value never leaves the app, whichever side of the binding names it, nor does a value whose type
+        // holds one.
+        bool secret = DevToolsSecrets.IsSecretName(prop) || segments.Length > 0 && DevToolsSecrets.IsSecretName(segments[^1]);
+        string Value(object? value)
+        {
+            secret |= DevToolsSecrets.HoldsSecret(value?.GetType());
+            var text = secret ? DevToolsSecrets.Redacted : Str(value);
+            secret |= text == DevToolsSecrets.Redacted && value is not string;
+            return text;
+        }
         // This diagnosis is read-only evidence; it deliberately avoids claiming source freshness or ConvertBack success.
         Field(sb, "reason", "Forward path and CLR type evaluated only; target freshness, change notifications, ConvertBack and source setters were not checked. Prior reverse-write failures cannot be validated by this read.");
         Field(sb, "updateSourceTrigger", updateSourceTrigger);
@@ -299,10 +306,6 @@ internal static class BindingDiagnosis
         sb.Append('}');
         return sb.ToString();
     }
-
-    private const string Redacted = "<redacted>";
-
-    private static bool IsSecret(string name) => name.EndsWith("Password", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSimplePath(string path)
         => path.Length == 0 || path == "." || path.Split('.').All(segment =>
@@ -827,12 +830,16 @@ internal static class BindingDiagnosis
 
     private static string Describe(Exception ex) => ex.GetType().Name + ": " + ex.Message;
 
+    // A value's text; a value whose type holds a secret (DevToolsSecrets.HoldsSecret) is never printed.
     private static string Str(object? v)
     {
         if (v is null) return "(null)";
         if (ReferenceEquals(v, DependencyProperty.UnsetValue)) return "(unset)";
-        try { return v.ToString() ?? "(null)"; }
+        if (DevToolsSecrets.HoldsSecret(v.GetType())) return DevToolsSecrets.Redacted;
+        string text;
+        try { text = v.ToString() ?? "(null)"; }
         catch (Exception ex) { return "(ToString threw " + Describe(ex) + ")"; }
+        return DevToolsSecrets.PrintsSecret(v, text) ? DevToolsSecrets.Redacted : text;
     }
 
     private static void Field(StringBuilder sb, string key, string? value)

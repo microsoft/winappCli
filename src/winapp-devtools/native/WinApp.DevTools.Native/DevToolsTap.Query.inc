@@ -53,7 +53,8 @@ static std::wstring QueryValueJson(const DevToolsReadProp* property, const std::
             if (property->value == L"True" || property->value == L"true" || property->value == L"1") value = L"true";
             else if (property->value == L"False" || property->value == L"false" || property->value == L"0") value = L"false";
             else state = L"unresolved";
-        } else if (shortType == L"String" || !property->enumValues.empty() || (!property->fields.empty() && !property->value.empty()))
+        } else if (shortType == L"String" || !property->enumValues.empty() || DevToolsQuery::ColorBrush(*property) ||
+                   (!property->fields.empty() && !property->value.empty()))
             value = L"\"" + DevToolsJsonEscape(property->value) + L"\"";
         else state = DevToolsQuery::Numeric(type) ? L"unset" : L"object";
     }
@@ -246,6 +247,25 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         if (types.size() > 1) failure = L"ambiguous-type";
         else if (types.size() == 1) exactType = *types.begin();
     }
+    // A Reactor element kind (`Button`, `VStack`) selects the controls those elements produced, alongside any WinUI
+    // type of that name; `key` is a predicate on the Reactor key (empty for elements Reactor did not produce).
+    const auto reactor = TapReactorSnapshotByWire();
+    const auto typeMatches = [&](const DevToolsWindowNode& node) {
+        if (exactType.empty() || node.type == exactType) return true;
+        const auto annotation = reactor.find((unsigned long long)node.handle);
+        return annotation != reactor.end() && annotation->second.element == request.type;
+    };
+    const bool wantsKey = std::any_of(request.predicates.begin(), request.predicates.end(),
+        [](const DevToolsQuery::Predicate& predicate) { return predicate.property == L"key"; });
+    const auto addReactorKey = [&](const DevToolsWindowNode& node, std::vector<DevToolsReadProp>& properties) {
+        if (!wantsKey) return;
+        DevToolsReadProp key;
+        key.name = L"key";
+        key.type = L"System.String";
+        const auto annotation = reactor.find((unsigned long long)node.handle);
+        if (annotation != reactor.end()) key.value = annotation->second.key;
+        properties.push_back(std::move(key));
+    };
     AuthoredVerdicts authored;
     bool authoredFilter = request.authored;
     if (authoredFilter && failure.empty()) {
@@ -303,8 +323,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
         }
         if (!scope.count(raw)) continue;
         context.push_back({raw, node, {}, {}});
-        if (!failure.empty() || (authoredFilter && !authored.authored.count(raw)) ||
-            (!exactType.empty() && node.type != exactType)) continue;
+        if (!failure.empty() || (authoredFilter && !authored.authored.count(raw)) || !typeMatches(node)) continue;
         if (std::chrono::steady_clock::now() - started > kQueryBudget) {
             markTruncated(L"time-budget"); continue;
         }
@@ -332,6 +351,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
             if (FAILED(hr)) row.readError = HrStr(hr);
             else known[node.type].insert(indices.begin(), indices.end());
         }
+        addReactorKey(node, row.properties);
         for (const auto& property : row.properties) valueUnits += property.value.size();
         if (valueUnits > 4 * 1024 * 1024 || std::chrono::steady_clock::now() - started > kQueryBudget) {
             markTruncated(valueUnits > 4 * 1024 * 1024 ? L"value-budget" : L"time-budget"); break;
@@ -398,7 +418,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
             size_t currentMatches = 0;
             const auto recheckStarted = std::chrono::steady_clock::now();
             for (const auto& candidate : context) {
-                if (!exactType.empty() && candidate.node.type != exactType) continue;
+                if (!typeMatches(candidate.node)) continue;
                 if (std::chrono::steady_clock::now() - recheckStarted > kQueryBudget) {
                     failure = L"incomplete"; writeTimedOut = true; break;
                 }
@@ -409,6 +429,7 @@ static std::wstring ExecuteQuery_ui(const TapQueryRequest& request)
                 ++propertyReads;
                 const HRESULT read = ReadCuratedProps(candidate.raw, &observed, nullptr, nullptr, &projection, &propertyRows, &indices);
                 if (SUCCEEDED(read)) known[candidate.node.type].insert(indices.begin(), indices.end());
+                addReactorKey(candidate.node, observed);
                 const auto verdict = DevToolsQuery::Match(observed, request.predicates);
                 if (FAILED(read) || verdict.verdict == DevToolsQuery::Verdict::Unevaluated) {
                     recordDiagnostic({candidate.raw, candidate.node, std::move(observed), FAILED(read) ? HrStr(read) : L""},
@@ -594,6 +615,8 @@ static std::wstring HandleQuery(const std::wstring& id, const DevToolsJson& para
     if (!request.resource.empty() && (request.value.empty() || request.value.find_first_of(L" \t\r\n{},|") != std::wstring::npos))
         error = L"A resource key cannot be empty or contain spaces, braces, commas or '|'.";
     if (!error.empty()) return DevToolsRpcError(id, DevToolsErr::InvalidParams, error, L"bad-args");
+    // Reactor element kinds and keys are query criteria too; the UI-thread query reads the refreshed cache.
+    TapReactorRefreshAuthored();
     auto outcome = std::make_shared<TapQueryOutcome>();
     bool completed = false;
     const HRESULT hr = RunOnUiThread([request, outcome]() {

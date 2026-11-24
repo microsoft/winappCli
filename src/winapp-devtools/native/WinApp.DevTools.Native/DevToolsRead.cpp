@@ -170,7 +170,8 @@ static void AppendProp(std::wstring& out, const DevToolsReadProp& source, int de
     if (!p.authoredKey.empty()) { out += L",\"authoredKey\":\""; out += DevToolsJsonEscape(p.authoredKey); out += L"\""; }
     if (!p.liveResourceKind.empty()) { out += L",\"liveResourceKind\":\""; out += DevToolsJsonEscape(p.liveResourceKind); out += L"\""; }
     if (!p.liveResourceKey.empty())  { out += L",\"liveResourceKey\":\"";  out += DevToolsJsonEscape(p.liveResourceKey);  out += L"\""; }
-    std::wstring origin = DevToolsRead_OriginLabel(p.authoredKind, p.authored, p.authoredKey, p.binding, p.source, false);
+    std::wstring origin = DevToolsRead_OriginLabel(p.authoredKind, p.authored, p.authoredKey, p.binding,
+        p.source, false, p.defaultMayBeInherited);
     if (p.source == kDevToolsReadLiveEditSource && !p.liveResourceKind.empty())
         origin += (p.liveResourceKind == L"themeResource" ? L" ThemeResource " : L" StaticResource ") + p.liveResourceKey;
     if (!origin.empty())        { out += L",\"origin\":\"";      out += DevToolsJsonEscape(origin);        out += L"\""; }
@@ -352,8 +353,28 @@ std::wstring DevToolsRead_SerializeLayout(const DevToolsReadLayout& L)
         if (!L.gridColumnSpan.empty()) { out += L",\"columnSpan\":\""; out += DevToolsJsonEscape(L.gridColumnSpan); out += L"\""; }
         out += L"}";
     }
+    if (L.haveScreen)
+    {
+        out += L",\"screen\":{\"x\":" + LayoutNum(L.screenX) + L",\"y\":" + LayoutNum(L.screenY) +
+               L",\"w\":" + LayoutNum(L.screenW) + L",\"h\":" + LayoutNum(L.screenH) + L"}";
+    }
     out += L"}";
     return out;
+}
+
+bool DevToolsRead_LogicalToPhysical(double logicalLeft, double logicalTop, double logicalRight, double logicalBottom,
+                                    double physicalLeft, double physicalTop, double physicalRight, double physicalBottom,
+                                    double& x, double& y, double& w, double& h)
+{
+    if (logicalRight <= logicalLeft || logicalBottom <= logicalTop) return false;
+    const double sx = (physicalRight - physicalLeft) / (logicalRight - logicalLeft);
+    const double sy = (physicalBottom - physicalTop) / (logicalBottom - logicalTop);
+    if (!(sx > 0) || !(sy > 0)) return false;
+    x = physicalLeft + (x - logicalLeft) * sx;
+    y = physicalTop + (y - logicalTop) * sy;
+    w *= sx;
+    h *= sy;
+    return true;
 }
 
 bool DevToolsRead_IsCoreProp(const std::wstring& name)
@@ -553,7 +574,7 @@ std::wstring DevToolsRead_ShortTypeName(const std::wstring& type)
 
 std::wstring DevToolsRead_OriginLabel(const std::wstring& authoredKind, const std::wstring& authored,
                                       const std::wstring& authoredKey, const std::wstring& binding,
-                                      const std::wstring& valueSource, bool compact)
+                                      const std::wstring& valueSource, bool compact, bool defaultMayBeInherited)
 {
     if (valueSource == kDevToolsReadLiveEditSource) return valueSource;
     auto resource = [&](const wchar_t* kind) { return authoredKey.empty() ? std::wstring(kind) : std::wstring(kind) + L" " + authoredKey; };
@@ -564,6 +585,7 @@ std::wstring DevToolsRead_OriginLabel(const std::wstring& authoredKind, const st
     if (authoredKind == L"binding")         return compact ? L"Binding" : or_(authored, binding.empty() ? L"Binding" : binding.c_str());
     if (authoredKind == L"templateBinding") return compact ? L"TemplateBinding" : or_(authored, L"TemplateBinding");
     if (authoredKind == L"customMarkup")    return compact ? L"Markup" : or_(authored, L"Markup");
+    if (defaultMayBeInherited && valueSource == L"Default" && binding.empty()) return L"Default or inherited";
     // A literal authored on this element IS a local value, and the precedence slot says so in the runtime's words.
     return compact || binding.empty() ? valueSource : binding;
 }

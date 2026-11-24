@@ -101,7 +101,10 @@ internal partial class BuildToolsService(
                 var csproj = csprojFiles.Count > 0 ? csprojFiles[0] : null;
                 if (csproj != null)
                 {
-                    var packageList = dotNetService.GetPackageListAsync(csproj).GetAwaiter().GetResult();
+                    // Read the existing restore only. On SDK 10+ this command otherwise restores again
+                    // without the build's properties, which can wait minutes on an unreachable feed and
+                    // leaves the next 'winapp run' restore unable to skip work.
+                    var packageList = dotNetService.GetPackageListAsync(csproj, noRestore: true).GetAwaiter().GetResult();
 
                     var allPackages = packageList?.Projects?
                         .SelectMany(p => p.Frameworks ?? [])

@@ -27,6 +27,7 @@ public class PublicApiSurfaceTests
         "CaptureCoordinates",
         "CoordinateParser",
         "ForegroundCheck",
+        "ForegroundCheckSnapshot",
         "ForegroundGuard",
         "ForegroundLostException",
         "GestureTargeting",

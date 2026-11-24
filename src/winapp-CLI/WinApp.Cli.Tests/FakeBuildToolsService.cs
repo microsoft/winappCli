@@ -45,6 +45,9 @@ internal sealed class FakeBuildToolsService : IBuildToolsService
     /// </summary>
     public List<bool> EnsureBuildToolsForceLatest { get; } = [];
 
+    /// <summary>The <c>printErrors</c> argument of each <see cref="RunBuildToolAsync"/> call, in order.</summary>
+    public List<bool> PrintErrors { get; } = [];
+
     public FileInfo? GetBuildToolPath(string toolName) => new(Path.Combine(Path.GetTempPath(), toolName));
 
     public VerifiedTool OpenVerifiedTool(FileInfo toolPath)
@@ -62,6 +65,7 @@ internal sealed class FakeBuildToolsService : IBuildToolsService
     public Task<(string stdout, string stderr)> RunBuildToolAsync(Tool tool, string arguments, TaskContext taskContext, bool printErrors = true, FileInfo? toolPathOverride = null, IReadOnlyDictionary<string, string>? environment = null, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
         Invocations.Add((tool.ExecutableName, arguments));
+        PrintErrors.Add(printErrors);
         OnRun?.Invoke(arguments);
         var result = Handler?.Invoke(tool, arguments) ?? (string.Empty, string.Empty);
         return Task.FromResult(result);

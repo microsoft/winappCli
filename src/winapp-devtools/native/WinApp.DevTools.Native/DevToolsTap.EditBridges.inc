@@ -286,7 +286,9 @@ static DevToolsCardRow ToCardRow(const DevToolsReadProp& p)
     row.editKind = p.editKind;
     for (const auto& c : p.chain) {
         DevToolsCardChainEntry e;
-        e.source = c.source; e.value = c.value; e.file = c.file; e.line = c.line; e.winner = c.winner;
+        e.source = DevToolsRead_OriginLabel(L"", L"", L"", L"", c.source, true,
+            c.winner && p.defaultMayBeInherited);
+        e.value = c.value; e.file = c.file; e.line = c.line; e.winner = c.winner;
         row.chain.push_back(std::move(e));
     }
     for (const auto& c : p.children) row.children.push_back(ToCardRow(c));
@@ -315,6 +317,14 @@ static void Route1ReadRows(InstanceHandle wire, std::wstring& outType, std::wstr
     std::vector<DevToolsReadProp> props;
     if (FAILED(ReadCuratedProps(ih, &props, &outAuthoredState, &outAuthoredXaml))) return;
     for (const auto& p : props) outRows.push_back(ToCardRow(p));
+    // No XAML declaration: the C# statement a Reactor element was created by stands in for the authored XAML.
+    if (outAuthoredXaml.empty() && outAuthoredState == L"noSourceInfo") {
+        ReactorSource source;
+        if (TapReactorSourceFor(ih, &source, true)) {
+            outAuthoredState = L"csharp";
+            outAuthoredXaml = source.code;
+        }
+    }
 }
 
 // Microsoft.UI.Xaml.Automation.AutomationProperties statics, resolved once. Used only to answer "did the
@@ -620,7 +630,14 @@ static bool Route1Source(InstanceHandle wire, std::wstring& outFile, unsigned in
     ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
     ReleaseSRWLockShared(&g_censusLock);
     if (!ok) { outFile.clear(); outLine = 0; outCol = 0; return false; }
-    return ReadDisplaySourceInfo(ih, outFile, outLine, outCol);
+    if (ReadDisplaySourceInfo(ih, outFile, outLine, outCol) && !outFile.empty()) return true;
+    // No XAML declaration: the Reactor call site that created it, as a path on this machine.
+    ReactorSource source;
+    if (!TapReactorSourceFor(ih, &source, false)) return false;
+    outFile = source.path;
+    outLine = source.node.line;
+    outCol = source.node.column;
+    return true;
 }
 
 // Read parent layout facts once per selection on the UI thread. Missing reads stay absent,
@@ -732,6 +749,32 @@ static bool OverlaySourceBridge(InstanceHandle raw, std::wstring* outFile, unsig
     if (outLine) *outLine = ln;
     if (outCol) *outCol = col;
     return ok;
+}
+
+// For an element with no XAML declaration, the Reactor call site that created it (or the nearest Reactor element's)
+// from the annotation cache. UI thread; the cache is refreshed off the UI thread when the tree changes.
+static bool OverlayCSharpBridge(InstanceHandle raw, DevToolsCSharpSourceInfo* out)
+{
+    ReactorSource source;
+    if (!out || !TapReactorSourceFor(raw, &source, true)) {
+        if (TapReactorMaybePresent()) TapReactorRefreshInspectorAsync();
+        return false;
+    }
+    ReactorAnnotation own;
+    const bool hasOwn = TapReactorAnnotationFor(raw, false, &own);
+    out->label = TapReactorLabel(hasOwn ? own : source.node);
+    // The C# variable the element was assigned to reads like an x:Name: `Button #incrementButton`.
+    if (hasOwn && !own.name.empty()) {
+        out->name = own.name;
+        out->label += L" #" + own.name;
+    }
+    const std::wstring owner = !source.node.owner.empty() ? L"<" + source.node.owner + L">" : TapReactorLabel(source.node);
+    out->header = owner + L" \u00B7 " + TapReactorShortSource(source.node);
+    out->path = source.path;
+    out->line = source.node.line;
+    out->code = source.code;
+    out->exact = source.exact;
+    return true;
 }
 
 // Flips the SAME g_overlayBuilding flag TryBuildOverlay's OverlayBuildScope uses, so every card element's Add during

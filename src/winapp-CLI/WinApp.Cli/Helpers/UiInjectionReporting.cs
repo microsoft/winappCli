@@ -24,9 +24,21 @@ internal static class UiInjectionReporting
     /// <param name="action">Verb used in the message, e.g. "click", "drag", "scroll --wheel".</param>
     public static bool TryEnsureForeground(
         this IForegroundGuard guard, long targetHwnd, ILogger logger, bool json, string action,
-        TextWriter? errorOut = null)
+        TextWriter? errorOut = null, string? gate = null, string? requestDetails = null)
     {
-        switch (guard.CheckForeground(targetHwnd))
+        ForegroundCheckSnapshot? snapshot = null;
+        var outcome = gate is null
+            ? guard.CheckForeground(targetHwnd)
+            : guard.CheckForeground(targetHwnd, out snapshot);
+        var details = gate is not null && outcome != ForegroundCheck.Proceed
+            ? FormatForegroundDetails(gate, requestDetails, snapshot)
+            : null;
+        if (details is not null && !json)
+        {
+            logger.LogDebug("{ForegroundDetails}", details);
+        }
+
+        switch (outcome)
         {
             case ForegroundCheck.Proceed:
                 return true;
@@ -37,7 +49,7 @@ internal static class UiInjectionReporting
                     UiSymbols.Error);
                 UiJsonError.Emit(json, UiJsonError.CodeNoInteractiveDesktop,
                     "No interactive desktop is available (session locked or on a secure desktop). Unlock the session and retry.",
-                    errorOut: errorOut);
+                    details: details, errorOut: errorOut);
                 return false;
 
             case ForegroundCheck.ForegroundNotTarget:
@@ -47,9 +59,25 @@ internal static class UiInjectionReporting
                     UiSymbols.Error, action);
                 UiJsonError.Emit(json, UiJsonError.CodeForegroundNotTarget,
                     $"Target window is not in the foreground — refusing to {action} to avoid acting on the wrong window. Activate the intended window manually, check for a blocking dialog, then retry.",
-                    errorOut: errorOut);
+                    details: details, errorOut: errorOut);
                 return false;
         }
+    }
+
+    private static string FormatForegroundDetails(string gate, string? requestDetails, ForegroundCheckSnapshot? snapshot)
+    {
+        if (snapshot is null)
+        {
+            return $"gate={gate}; guardSnapshot=unavailable; {requestDetails}";
+        }
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"gate={gate}; comparedAtUtc={snapshot.ComparedAtUtc:O}; targetHwnd={snapshot.TargetHwnd}; " +
+            $"rootHwnd={snapshot.RootHwnd}; rootWasCompared={snapshot.RootWasCompared}; foregroundHwnd={snapshot.ForegroundHwnd}; " +
+            $"classifiedAtUtc={snapshot.ClassifiedAtUtc:O}; classificationForegroundHwnd={snapshot.ClassificationForegroundHwnd}; " +
+            $"metadataAtUtc={snapshot.MetadataAtUtc:O}; targetPid={snapshot.TargetProcessId}; rootPid={snapshot.RootProcessId}; " +
+            $"foregroundPid={snapshot.ForegroundProcessId}; classificationForegroundPid={snapshot.ClassificationForegroundProcessId}; " +
+            $"ownershipMetadata=queried-after-decision; {requestDetails}");
     }
 
     /// <summary>

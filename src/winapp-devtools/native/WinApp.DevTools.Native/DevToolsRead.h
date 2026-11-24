@@ -72,6 +72,9 @@ struct DevToolsReadProp
 
     // The value is a secret (see DevToolsRead_IsSecretProperty) and was replaced by kDevToolsRedacted.
     bool redacted = false;
+
+    // WinUI's Default slot can contain inherited text formatting, not the property's type default.
+    bool defaultMayBeInherited = false;
 };
 
 // A secret's value never leaves the app: PasswordBox.Password, or any property whose name ends in "Password".
@@ -103,7 +106,7 @@ bool DevToolsRead_IsUnsetRuntimeLocal(const std::wstring& name, const std::wstri
 // window's pill.
 std::wstring DevToolsRead_OriginLabel(const std::wstring& authoredKind, const std::wstring& authored,
                                       const std::wstring& authoredKey, const std::wstring& binding,
-                                      const std::wstring& valueSource, bool compact);
+                                      const std::wstring& valueSource, bool compact, bool defaultMayBeInherited = false);
 
 std::wstring DevToolsRead_NormalizeColor(const std::wstring& raw);
 bool DevToolsRead_IsHexColor(const std::wstring& value);
@@ -128,9 +131,19 @@ struct DevToolsReadLayout
     std::wstring parentOrientation, parentSpacing, parentPadding;
     int childIndex = -1, childCount = 0;
     std::wstring gridRow, gridColumn, gridRowSpan, gridColumnSpan;
+    // Where the element is on screen, in physical pixels (what UI Automation reports).
+    bool haveScreen = false;
+    double screenX = 0, screenY = 0, screenW = 0, screenH = 0;
 };
 
 std::wstring DevToolsRead_SerializeLayout(const DevToolsReadLayout& L);
+
+// Maps a rectangle (x, y, w, h) in a window's logical screen pixels to physical ones, given where the window's client
+// area is in both. A window that is not per-monitor DPI aware is stretched to the monitor's scale, so its logical
+// pixels are not the physical ones UI Automation reports. False when the client area is empty.
+bool DevToolsRead_LogicalToPhysical(double logicalLeft, double logicalTop, double logicalRight, double logicalBottom,
+                                    double physicalLeft, double physicalTop, double physicalRight, double physicalBottom,
+                                    double& x, double& y, double& w, double& h);
 
 // Core-property curation controls ordering and the compact overlay card, never wire read inclusion.
 bool DevToolsRead_IsCoreProp(const std::wstring& name);

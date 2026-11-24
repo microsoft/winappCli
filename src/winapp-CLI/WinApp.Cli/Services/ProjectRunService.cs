@@ -70,6 +70,12 @@ internal sealed partial class ProjectRunService(
         "SelfContained",
         "PublishProfile",
         "PublishProfileName",
+        // Microsoft.UI.Reactor source mapping, for `run --devtools` (see DevTools.ReactorBuildFacts).
+        "ReactorSourceMap",
+        "InterceptorsNamespaces",
+        "_MicrosoftUIReactorTargetsLoaded",
+        "PathMap",
+        "Configuration",
         "PublishProfileFullPath",
         "WebPublishProfileFile",
         "PublishProfileImported",
@@ -109,6 +115,16 @@ internal sealed partial class ProjectRunService(
             minimumPatch: 100,
             upgradeHint: "Running csproj requires .NET SDK 8.0.100 or newer. Install or update it from https://aka.ms/dotnet/download.",
             tooOldReason: "is too old for project mode",
+            cancellationToken);
+
+    /// <inheritdoc />
+    public Task<string?> CheckPackagedWatchSdkAsync(DirectoryInfo workingDirectory, CancellationToken cancellationToken)
+        => CheckSdkFloorAsync(
+            workingDirectory,
+            minimumMajor: 9,
+            minimumPatch: 100,
+            upgradeHint: "Install .NET SDK 9.0.100 or newer from https://aka.ms/dotnet/download, or run without --watch.",
+            tooOldReason: "can't relaunch a packaged app under --watch",
             cancellationToken);
 
     /// <summary>
@@ -709,8 +725,12 @@ internal sealed partial class ProjectRunService(
             AppxManifestPath: appxManifestPath,
             AppxRecipePath: appxRecipePath,
             DevToolsCompilerArtifacts: compiler,
+            DevToolsReactor: options.CaptureDevToolsSources
+                ? DevTools.ReactorBuildFacts.From(props, GetProp(props, "ProjectAssetsFile")) : null,
             DevToolsUnsupportedFramework: options.CaptureDevToolsSources
-                ? ReadDevToolsUnsupportedFramework(props, stdout) : ProjectAppFramework.Unknown);
+                ? ReadDevToolsUnsupportedFramework(props, stdout) : ProjectAppFramework.Unknown,
+            BuildOptions: options,
+            CsWinRTMetadata: csWinRTMetadata);
 
         return new ProjectBuildOutcome(resolution, 0);
     }
@@ -843,6 +863,17 @@ internal sealed partial class ProjectRunService(
         // indeterminate; let the authoritative build classify.
         return props is not null
             && string.Equals(GetProp(props, "WindowsPackageType"), "None", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsPackagedBeforeBuildAsync(
+        FileInfo csproj,
+        ProjectRunOptions options,
+        CancellationToken cancellationToken)
+    {
+        var props = await TryEvaluateProjectPropertiesAsync(csproj, options, cancellationToken);
+        return props is not null
+            && DeterminePackaging(props, GetProp(props, "TargetDir")) == ProjectPackaging.Packaged;
     }
 
     /// <summary>

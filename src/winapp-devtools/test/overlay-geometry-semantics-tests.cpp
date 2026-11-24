@@ -1000,6 +1000,25 @@ int main()
             likelyPanel.find(L"DevToolsConfirmLikelySource") != std::wstring::npos &&
             likelyPanel.find(L"IsChecked=\"False\"") != std::wstring::npos,
             "source attribution", "a likely source is shown for review with an unchecked explicit confirmation");
+        DevToolsCSharpSourceInfo csharp;
+        csharp.label = L"Button";
+        csharp.header = L"<Counter> \u00B7 App.cs:67";
+        csharp.path = L"C:\\src\\App.cs";
+        csharp.line = 67;
+        csharp.code = L"Button(\"+1\", () => setCount(count + 1)));";
+        const auto csharpPanel = BuildSelectionPanelMarkup(L"Button",L"Button",0,0,500,0,0,L"",
+            L"",0,true,L"noSourceInfo",L"",{},0,0,false,&csharp);
+        check(csharpPanel.find(L"Text=\"&lt;Counter&gt; \u00B7 App.cs:67\"") != std::wstring::npos &&
+            csharpPanel.find(L"Not linked to source") == std::wstring::npos &&
+            csharpPanel.find(L"DevToolsConfirmLikelySource") == std::wstring::npos,
+            "source attribution", "a Reactor element's flyout names its component and C# call site");
+        csharp.exact = false;
+        const auto nearestPanel = BuildSelectionPanelMarkup(L"TextBlock",L"TextBlock",0,0,500,0,0,L"",
+            L"",0,true,L"noSourceInfo",L"",{},0,0,false,&csharp);
+        check(nearestPanel.find(L"nearest Reactor element") != std::wstring::npos &&
+            nearestPanel.find(L"DevToolsSelAuthoredCSharp") != std::wstring::npos &&
+            nearestPanel.find(L"DevToolsConfirmLikelySource") != std::wstring::npos,
+            "source attribution", "a template part offers the nearest Reactor element's C# for explicit confirmation");
         check(panel.find(L"DevToolsConfirmLikelySource") == std::wstring::npos && !LikelySourceConfirmed(nullptr),
             "source attribution", "non-likely panel has no confirmation and a missing checkbox never confirms");
         check(XmlEscapeLines(L"a\r\nb")==L"a&#xD;&#xA;b","markup","markup keeps both line-break characters");
@@ -2021,20 +2040,25 @@ int main()
                 [&](int result) { completed = result; }), "guest resolve", "actual asynchronous resolve starts owned writer");
             check(completed == -1 && commentCommand.find(L"comments update --status resolved") != std::wstring::npos &&
                 commentCommand.find(revision) != std::wstring::npos, "guest resolve", "spawn retains original revision without reporting persistence");
+            g_selGen += 2;
             commentExitCode = outcome; SetEvent(commentProcess);
             GuestCommentTimerProc(nullptr, 0, 0, 0);
-            check(completed == static_cast<int>(outcome), "guest resolve", "completion reports acknowledgement or failure exactly");
+            check(completed == static_cast<int>(outcome), "guest resolve", "completion reports acknowledgement or failure despite changing element selection");
             check(GuestCommentCanEdit(99), "guest resolve", "failed resolution without a prose draft does not lock unrelated editing");
         }
-        {
+        for (const bool changedAuthority : {false, true}) {
             g_guestCommentWrite = {};
             int completed = -1;
             DevToolsOverlay_ResolveComment(L"old-window-note", std::wstring(64, L'A'),
                 [&](int result) { completed = result; });
-            ++g_selGen;
+            if (changedAuthority) g_guestCommentAuthority.store(nullptr);
+            else g_pickRoot = 20;
             commentExitCode = 0; SetEvent(commentProcess);
             GuestCommentTimerProc(nullptr, 0, 0, 0);
-            check(completed == -1, "guest resolve", "selection or surface generation change suppresses stale completion");
+            check(completed == -1 && !g_guestCommentWrite.completed,
+                "guest resolve", "changed authority or surface suppresses and releases stale completion");
+            g_guestCommentAuthority.store(&authority);
+            g_pickRoot = 10;
         }
         g_guestCommentWrite = {};
         g_guestCommentAuthority.store(nullptr);
@@ -2055,11 +2079,12 @@ int main()
                     "local resolve", "starting the child does not acknowledge resolution");
                 GuestCommentTimerProc(nullptr, 0, 0, 0);
                 check(calls == 0, "local resolve", "pending child is polled without an early callback");
+                g_selGen += 2;
                 commentExitCode = outcome; SetEvent(commentProcess);
                 GuestCommentTimerProc(nullptr, 0, 0, 0);
                 GuestCommentTimerProc(nullptr, 0, 0, 0);
                 check(calls == 1 && completed == static_cast<int>(outcome),
-                    "local resolve", "actual child outcome is delivered once, including nonzero exits");
+                    "local resolve", "actual child outcome is delivered once after selection changes, including nonzero exits");
                 check(!g_guestCommentWrite.process && !g_guestCommentWrite.completed,
                     "local resolve", "completion releases the callback and writer state");
                 check(authoritative || (g_pins.empty() == (outcome == 0)),
@@ -2072,11 +2097,12 @@ int main()
             unsigned calls = 0;
             check(DevToolsOverlay_ResolveComment(L"old-local-card", L"", [&](int) { ++calls; }),
                 "local resolve", "local lifetime regression starts the writer");
-            ++g_selGen;
+            g_pickRoot = 20;
             commentExitCode = 0; SetEvent(commentProcess);
             GuestCommentTimerProc(nullptr, 0, 0, 0);
             check(calls == 0 && !g_guestCommentWrite.completed,
-                "local resolve", "changed selection suppresses and releases the old card's callback");
+                "local resolve", "changed surface suppresses and releases the old card's callback");
+            g_pickRoot = 10;
         }
         guestWriterTest = false;
         g_cliExe.store(nullptr); g_cardReadInput = nullptr; g_anchorOf = nullptr; g_wireOf = nullptr;

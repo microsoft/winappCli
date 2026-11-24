@@ -1400,6 +1400,23 @@ int main()
         check(BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.TextBlock",L"Title",L"TextBlock",L"Window > Grid",
             L"",0,{text},L"noFile",L"",&stretched).find(L"A value an {x:Bind} sets appears as Local.")!=std::wstring::npos,
             "the reason says an x:Bind value reads as Local");
+        // A Reactor element: its component badge, the C# source with the statement, and no "authored values
+        // unavailable" note, because the C# is its authored source.
+        g_selReactorLabel=L"<Counter>";
+        const auto csharp=BuildPropsFragment(L"Microsoft.UI.Xaml.Controls.Border",L"",L"Border",L"Window > StackPanel",
+            L"C:\\src\\App.cs",36,{text},L"csharp",L"Component<Counter>(),",nullptr);
+        check(DetailsTitleText(L"Microsoft.UI.Xaml.Controls.Border",L"",L"Border")==L"<Counter>  \u00B7  Border",
+            "a component row's details header names the component before its WinUI type");
+        g_selTreeName=L"incrementButton";
+        check(DetailsTitleText(L"Microsoft.UI.Xaml.Controls.Border",L"",L"Border")==L"<Counter>  \u00B7  Border #incrementButton",
+            "and the C# variable it was assigned to");
+        g_selTreeName.clear();
+        check(csharp.find(L"AutomationProperties.Name=\"C# source\"")!=std::wstring::npos &&
+            csharp.find(L"Component&lt;Counter&gt;(),")!=std::wstring::npos && csharp.find(L"Text=\"C# on disk\"")!=std::wstring::npos,
+            "the properties pane shows the C# statement at the Reactor call site");
+        check(csharp.find(L"x:Bind and resource sources not shown")==std::wstring::npos && csharp.find(L"App.cs : 36")!=std::wstring::npos,
+            "a C# element shows its call site and no missing-XAML note");
+        g_selReactorLabel.clear();
         g_layoutSectionOpen=-1;
     }
     {
@@ -1550,6 +1567,24 @@ int main()
         g_ctx.previewFn = nullptr; g_allTreeNodes.clear();
     }
     {
+        // A live caption change rewrites a Reactor row's preview runs and keeps its Reactor identity: the call-site
+        // run after the preview is not overwritten, and the accessible name and filter still read as Reactor.
+        DevToolsWindowNode reactor{};
+        reactor.type = L"Microsoft.UI.Xaml.Controls.Button";
+        reactor.name = L"incrementButton";
+        reactor.reactorLabel = L"<Counter>";
+        reactor.reactorSource = L"key=inc  App.cs:74";
+        DevToolsWindowNode xaml = reactor;
+        xaml.reactorLabel.clear();
+        xaml.reactorSource.clear();
+        check(TreeRowIdentity(reactor) == L"<Counter> #incrementButton key=inc  App.cs:74",
+              "a Reactor row is named by its component and call site");
+        check(TreeRowIdentity(xaml) == L"Button #incrementButton", "a XAML row is named by its type");
+        const auto search = TreeRowSearchText(reactor, L"Count: 3");
+        check(search.find(L"Count: 3") != std::wstring::npos && search.find(L"<Counter>") != std::wstring::npos &&
+              search.find(L"App.cs:74") != std::wstring::npos, "the filter still finds a Reactor row by component and call site");
+    }
+    {
         // A pick that opens the inspector selects its row before the tree's first layout. That reveal must wait for
         // the tree to get a size rather than be dropped.
         TestElement scroll, rowElement;
@@ -1614,6 +1649,61 @@ int main()
         ResolveCommentById(L"resolve-card", [&](int result) { ++calls; outcome = result; });
         check(calls == 3 && outcome == 1, "synchronous launch failure is not delivered twice");
         g_commentResolveFn = nullptr;
+    }
+    {
+        for (const int result : {0, 0x57410001, 1, 0x57410002}) {
+            for (const bool editing : {false, true}) {
+                auto saved = std::make_shared<CommentBoxSaved>();
+                saved->id = L"resolve-from-list"; saved->text = L"saved comment";
+                g_commentBoxSaved = saved;
+                unsigned hidden = 0;
+                g_presentCommentBox = [&](bool showEditor) { if (!showEditor) ++hidden; };
+                std::function<void(int)> acknowledge;
+                g_commentResolveFn = [&](const wchar_t*, std::function<void(int)> completed) {
+                    acknowledge = std::move(completed); return true;
+                };
+                DevToolsWindowComment comment; comment.id = saved->id;
+                g_commentRows = {comment};
+                CommentResolveSink sink; sink.Init(0);
+                sink.Invoke(nullptr, nullptr);
+                check(saved->resolving && saved->id == comment.id && hidden == 0,
+                    "resolving from the list blocks a card save without claiming success before acknowledgement");
+                saved->editing = editing;
+                acknowledge(result);
+                acknowledge(result);
+                const bool success = result == 0 || result == 0x57410001;
+                check(!saved->resolving && saved->id == (success ? L"" : comment.id) &&
+                      saved->text == (success ? L"" : L"saved comment"),
+                    "list resolution clears the card identity on confirmed success only, so an edit cannot reopen that ID");
+                check(hidden == (success && !editing ? 1u : 0u) && saved->editing == editing,
+                    "list resolution hides the saved card once, but leaves an editor opened during resolution intact");
+            }
+        }
+        auto saved = std::make_shared<CommentBoxSaved>();
+        saved->id = L"resolve-from-list"; saved->text = L"saved comment";
+        g_commentBoxSaved = saved;
+        unsigned hidden = 0;
+        g_presentCommentBox = [&](bool) { ++hidden; };
+        g_commentResolveFn = [](const wchar_t*, std::function<void(int)>) { return false; };
+        ResolveCommentById(saved->id);
+        check(!saved->resolving && saved->id == L"resolve-from-list" && hidden == 0,
+            "a list resolution that cannot start leaves the card editable for retry");
+        std::function<void(int)> acknowledge;
+        g_commentResolveFn = [&](const wchar_t*, std::function<void(int)> completed) {
+            acknowledge = std::move(completed); return true;
+        };
+        ResolveCommentById(saved->id);
+        auto other = std::make_shared<CommentBoxSaved>();
+        other->id = L"other-comment"; other->text = L"another element's draft"; other->editing = true;
+        g_commentBoxSaved = other;
+        acknowledge(0);
+        check(other->id == L"other-comment" && other->text == L"another element's draft" &&
+              other->editing && hidden == 0,
+            "switching elements before list resolution completes leaves the new card and draft untouched");
+        g_commentBoxSaved.reset();
+        g_presentCommentBox = nullptr;
+        g_commentResolveFn = nullptr;
+        g_commentRows.clear();
     }
     {
         // The inspector's comment box starts from the element's existing comment, found as the Comments pane finds it.
@@ -2061,6 +2151,14 @@ int main()
             g_ctx.readInputFn=savedRead; g_propRows={text};
         }
         g_editRecords.clear(); g_appChanged.clear(); g_ctx.clearFn=nullptr; g_statusTb=nullptr; g_valuesFn=nullptr;
+    }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
+    {
+        // The live tree refresh follows a tree that never settles at a steady pace.
+        check(TreeRefreshDueAt(10000, 10000, 0) == 10250, "a single change refreshes after the debounce");
+        check(TreeRefreshDueAt(10300, 10000, 0) == 10550, "a burst keeps pushing the refresh back");
+        check(TreeRefreshDueAt(12900, 10000, 0) == 13000, "but no later than three seconds after its first change");
+        check(TreeRefreshDueAt(20300, 20300, 20000) == 22000, "and no sooner than two seconds after the last refresh");
     }    std::printf("Native window: checks=%u passed=%u failed=%u skipped=0\n",checks,checks-failed,failed);
     return failed ? 1 : 0;
 }

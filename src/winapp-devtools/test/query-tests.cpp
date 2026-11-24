@@ -66,6 +66,44 @@ int RunQueryTests()
     check(Compare(&row, {L"Visibility", L"==", L"Hidden"}).verdict == Verdict::Unevaluated, "unknown enum member refused");
     row.enumValues.clear(); row.type = L"Microsoft.UI.Xaml.Controls.StackPanel"; row.value = L"Save";
     check(Compare(&row, {L"Content", L"*=", L"Save"}).verdict == Verdict::Unevaluated, "object display text not scalar");
+    row.type = L"Microsoft.UI.Xaml.Media.SolidColorBrush"; row.value = L"#B3FFFFFF";
+    check(Compare(&row, {L"Background", L"==", L"#b3ffffff"}).verdict == Verdict::Match, "brush compares its color");
+    check(Compare(&row, {L"Background", L"!=", L"#FFF"}).verdict == Verdict::Match, "brush color literal is normalized");
+    check(Compare(&row, {L"Background", L"*=", L"FF"}).verdict == Verdict::Unevaluated, "brush color has no contains");
+    check(Compare(&row, {L"Background", L"==", L"White"}).verdict == Verdict::Unevaluated, "brush needs a hex color literal");
+    for (const auto* type : {L"Microsoft.UI.Xaml.Media.LinearGradientBrush", L"Microsoft.UI.Xaml.Media.AcrylicBrush"}) {
+        DevToolsReadProp brush;
+        brush.name = L"Background"; brush.type = type;
+        brush.value = L"{" + ShortType(type) + L"}"; brush.valueState = L"unresolved";
+        for (const auto* literal : {L"#123", L"#8123", L"#123456", L"#801234ab"}) {
+            check(Match({brush}, {{L"Background", L"==", literal}}).verdict == Verdict::NoMatch,
+                "known non-solid brush is an evaluated color non-match");
+            check(Match({brush}, {{L"Background", L"!=", literal}}).verdict == Verdict::Match,
+                "known non-solid brush is an evaluated color inequality match");
+        }
+        for (const auto* op : {L"==", L"!="}) {
+            for (const auto* literal : {L"", L"White", L"#12", L"#GGHHII"})
+                check(Compare(&brush, {L"Background", op, literal}).verdict == Verdict::Unevaluated,
+                    "non-solid brush does not make invalid color comparisons conclusive");
+            for (const auto* state : {L"unset", L"unreadable", L"unavailable"}) {
+                brush.valueState = state;
+                check(Compare(&brush, {L"Background", op, L"#123456"}).verdict == Verdict::Unevaluated,
+                    "non-solid brush does not bypass failed value states");
+            }
+            brush.valueState = L"unresolved";
+        }
+        for (const auto* op : {L"*=", L"<", L"<=", L">", L">="})
+            check(Compare(&brush, {L"Background", op, L"#123456"}).verdict == Verdict::Unevaluated,
+                "non-solid brush only supports color equality and inequality");
+    }
+    for (const auto* type : {L"Microsoft.UI.Xaml.Media.Brush", L"Microsoft.UI.Xaml.Media.SolidColorBrush",
+        L"Example.CustomBrush", L"Example.AcrylicBrush", L"Example.LinearGradientBrush", L""}) {
+        DevToolsReadProp brush;
+        brush.name = L"Background"; brush.type = type; brush.valueState = L"unresolved";
+        for (const auto* op : {L"==", L"!="})
+            check(Compare(&brush, {L"Background", op, L"#123456"}).verdict == Verdict::Unevaluated,
+                "unresolved solid, generic and unknown brush types remain unknown");
+    }
     row.name = L"Text"; row.type = L"String"; row.value = L"Today";
     check(Match({row}, {{L"Text", L"==", L"Today"}, {L"Text", L"*=", L"day"}}).verdict == Verdict::Match, "AND both true");
     check(Match({row}, {{L"Text", L"==", L"Today"}, {L"Text", L"==", L"Upcoming"}}).verdict == Verdict::NoMatch, "AND false");

@@ -55,11 +55,30 @@ static size_t TreeNodeIndex(DevToolsXC::TreeViewNode const& node)
     return DevToolsTreeLayout::kNoRow;
 }
 
+// A row's identity as its caption reads it: a Reactor element by its component or element kind and call site.
+static std::wstring TreeRowIdentity(const DevToolsWindowNode& n)
+{
+    std::wstring identity = n.reactorLabel.empty() ? ShortType(n.type) : n.reactorLabel;
+    if (!n.name.empty()) { identity += L" #"; identity += n.name; }
+    if (!n.reactorSource.empty()) { identity += L" "; identity += n.reactorSource; }
+    return identity;
+}
+
+// What the tree filter matches besides the type and name, with the caption's current preview.
+static std::wstring TreeRowSearchText(const DevToolsWindowNode& n, const std::wstring& preview)
+{
+    return preview + L" " + n.searchText + L" " + n.sourceUri + L" " + n.reactorLabel + L" " + n.reactorSource;
+}
+
+// A caption's runs, every one always present so recycled captions copy the same shape: the type (or Reactor label),
+// "  #" and the name, the quoted preview, and a Reactor element's call site (empty for XAML).
+constexpr uint32_t kTreeCaptionRuns = 7;
+constexpr uint32_t kTreePreviewRun = 3;
+
 static std::wstring TreeRowName(size_t index)
 {
     const auto& node = g_allTreeNodes[g_renderedOriginalIndices[index]];
-    std::wstring name = g_treeShortType[index];
-    if (!node.name.empty()) name += L" #" + node.name;
+    std::wstring name = TreeRowIdentity(node);
     if (!node.preview.empty()) name += L" " + node.preview;
     return name;
 }
@@ -93,9 +112,10 @@ static void NameTreeContainer(size_t index, DevToolsXC::TreeViewItem const& cont
     DevToolsTreeA::AutomationProperties::SetName(container, TreeRowAccessibleName(index));
     container.AllowDrop(false);
     const auto& node = g_allTreeNodes[g_renderedOriginalIndices[index]];
-    std::wstring full = g_treeShortType[index];
+    std::wstring full = node.reactorLabel.empty() ? g_treeShortType[index] : node.reactorLabel;
     if (!node.name.empty()) full += L"  #" + node.name;
     if (!node.preview.empty()) full += L"  \u201C" + node.preview + L"\u201D";
+    if (!node.reactorSource.empty()) full += L"  " + node.reactorSource;
     DevToolsXC::ToolTipService::SetToolTip(container, winrt::box_value(full));
     void* control = nullptr;
     winrt::check_hresult(reinterpret_cast<IUnknown*>(winrt::get_abi(container))->QueryInterface(
@@ -207,13 +227,15 @@ static DevToolsXC::TextBlock BuildTreeCaption(size_t index, DevToolsWindowNode c
         if (italic) run.FontStyle(winrt::Windows::UI::Text::FontStyle::Italic);
         caption.Inlines().Append(run);
     };
-    // Keep every segment present so recycled captions always copy the same six runs.
-    addRun(g_treeShortType[index], g_palAccent);
+    // Keep every segment present so recycled captions always copy the same kTreeCaptionRuns runs.
+    // A Reactor element reads as its component (`<Counter>`) or element kind, not the WinUI type.
+    addRun(node.reactorLabel.empty() ? g_treeShortType[index] : node.reactorLabel, g_palAccent);
     addRun(node.name.empty() ? L"" : L"  #", g_palTertiary);
     addRun(node.name, g_palPrimary);
     addRun(node.preview.empty() ? L"" : L"  \u201C", g_palTertiary);
     addRun(node.preview, g_palSecondary, true);
     addRun(node.preview.empty() ? L"" : L"\u201D", g_palTertiary);
+    addRun(node.reactorSource.empty() ? L"" : L"  " + node.reactorSource, g_palTertiary);
     DevToolsTreeA::AutomationProperties::SetAccessibilityView(
         caption, winrt::Microsoft::UI::Xaml::Automation::Peers::AccessibilityView::Raw);
     return caption;
@@ -273,6 +295,7 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
             LR"(<Run Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>)"
             LR"(<Run Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontStyle="Italic"/>)"
             LR"(<Run Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>)"
+            LR"(<Run Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>)"
             LR"(</TextBlock></DataTemplate>)",
             itemTemplate.put()));
         g_treeView.ItemTemplate(itemTemplate.as<DevToolsX::DataTemplate>());
@@ -329,8 +352,7 @@ static IInspectable* BuildTreeRowsDirect(const std::vector<DevToolsWindowNode>& 
             g_treeDepth[i] = n.depth;
             g_treeShortType[i] = ShortType(n.type);
             g_treeAppAuthored[i] = original < g_allTreeAppAuthored.size() ? g_allTreeAppAuthored[original] : 0;
-            g_treeLabel[i] = DevToolsTreeLayout::BuildTreeFilterLabel(n.type, n.name,
-                n.preview + L" " + n.searchText + L" " + n.sourceUri);
+            g_treeLabel[i] = DevToolsTreeLayout::BuildTreeFilterLabel(n.type, n.name, TreeRowSearchText(n, n.preview));
             if (n.handle) g_nodeIdxByWire[n.handle] = i;
             auto caption = BuildTreeCaption(i, n);
             DevToolsXC::TreeViewNode treeNode;

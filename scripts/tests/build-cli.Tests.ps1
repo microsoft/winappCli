@@ -346,6 +346,62 @@ Describe 'build-cli.ps1 control flow' {
         $result.Output | Should -Not -Match 'Ready for distribution'
     }
 
+    It 'publishes only the requested CLI architecture in the Cli stage' {
+        $result = Invoke-BuildFixture $root -Flags @{ Stage = 'Cli'; Architecture = 'arm64'; SkipTests = $true; SkipDocs = $true }
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $publishes = @($result.Calls | Where-Object { $_.Name -eq 'dotnet' -and $_.Arguments[0] -eq 'publish' })
+        $publishes.Count | Should -Be 1
+        $publishes[0].Arguments -join ' ' | Should -Match 'win-arm64.*1\.2\.3\.17'
+        $result.Calls.Name | Should -Not -Contain 'engine-build'
+        $result.Calls.Name | Should -Not -Contain 'engine-verify'
+        $result.Trace | Should -Not -Match 'package-npm|package-nuget|package-msix'
+    }
+
+    It 'builds only the requested engine in the Engine stage without touching the CLI' {
+        $result = Invoke-BuildFixture $root -Flags @{ Stage = 'Engine'; Architecture = 'x64'; SkipTests = $true; SkipDocs = $true }
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $builds = @($result.Calls | Where-Object Name -EQ 'engine-build')
+        $builds.Count | Should -Be 1
+        $builds[0].Arguments[0] | Should -Be 'x64'
+        Join-Path $root 'artifacts\devtools\win-x64\WinApp.DevTools.Native.dll' | Should -Exist
+        $result.Trace | Should -Not -Match 'dotnet publish|engine-verify|package-npm|package-nuget|package-msix'
+    }
+
+    It 'combines downloaded parts and packages them in the Package stage without rebuilding' {
+        foreach ($arch in 'x64', 'arm64') {
+            $dir = New-Item -ItemType Directory -Path (Join-Path $root "artifacts\devtools\win-$arch") -Force
+            foreach ($name in 'WinApp.DevTools.Native.dll', 'WinApp.DevTools.Managed.dll', 'WinApp.DevTools.Native.pdb', 'winapp-devtools-schema.json') {
+                Set-Content (Join-Path $dir $name) "part $arch $name"
+            }
+        }
+        $result = Invoke-BuildFixture $root -Flags @{ Stage = 'Package'; SkipTests = $true; SkipDocs = $true }
+
+        $result.ExitCode | Should -Be 0 -Because $result.Output
+        $result.Trace | Should -Not -Match 'dotnet publish|engine-build'
+        (Get-Content (Join-Path $root 'artifacts\cli\win-arm64\winapp.exe') -Raw) | Should -Match 'downloaded win-arm64'
+        (Get-Content (Join-Path $root 'artifacts\cli\win-arm64\WinApp.DevTools.Native.dll') -Raw) | Should -Match 'part arm64'
+        $result.Calls.Name | Should -Contain 'engine-verify'
+        foreach ($name in @('package-npm', 'package-nuget', 'package-msix')) {
+            @($result.Calls | Where-Object Name -EQ $name).Count | Should -Be 1
+        }
+        $result.Trace | Should -Match 'package-npm 1.2.3-fixture.17 Stable=False'
+        Join-Path $root 'artifacts\nuget\Microsoft.Windows.SDK.BuildTools.WinApp.9.8.7-prerelease.42.nupkg' | Should -Not -Exist
+    }
+
+    It 'rejects <Case> for split stages' -ForEach @(
+        @{ Case = 'a stage without SkipTests'; Flags = @{ Stage = 'Package'; SkipDocs = $true } }
+        @{ Case = 'a CLI stage without an architecture'; Flags = @{ Stage = 'Cli'; SkipTests = $true; SkipDocs = $true } }
+        @{ Case = 'an architecture without a CLI or engine stage'; Flags = @{ Stage = 'Package'; Architecture = 'x64'; SkipTests = $true; SkipDocs = $true } }
+    ) {
+        $before = Get-ArtifactSnapshot $root
+        $result = Invoke-BuildFixture $root -Flags $Flags
+        $result.ExitCode | Should -Not -Be 0
+        $result.Calls | Should -BeNullOrEmpty
+        (Get-ArtifactSnapshot $root) | Should -BeExactly $before
+    }
+
     It 'runs only the UI Automation lane without Node, analyzer or Pester setup' {
         $before = Get-ArtifactSnapshot $root
         $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'UIAutomation' } -PesterVersion ''
@@ -448,6 +504,7 @@ Describe 'build-cli.ps1 control flow' {
     It 'runs CLI shard <Shard> through the helper and collects uniquely named reports' -ForEach @(
         @{ Shard = 1 }
         @{ Shard = 2 }
+        @{ Shard = 4 }
     ) {
         $result = Invoke-BuildFixture $root -Flags @{ OnlyTests = $true; UseExistingArtifacts = $true; TestSuite = 'Cli'; CliShard = $Shard }
 
@@ -462,11 +519,12 @@ Describe 'build-cli.ps1 control flow' {
         Join-Path $root 'artifacts\TestResults\WinApp.Cli.Tests.trx' | Should -Not -Exist
     }
 
-    It 'merges the four validation lanes without filename collisions and with exactly three TRX reports' {
+    It 'merges the five validation lanes without filename collisions and with exactly four TRX reports' {
         $files = @(
             foreach ($lane in @(
                 @{ TestSuite = 'Cli'; CliShard = 1 },
                 @{ TestSuite = 'Cli'; CliShard = 2 },
+                @{ TestSuite = 'Cli'; CliShard = 4 },
                 @{ TestSuite = 'Auxiliary' },
                 @{ TestSuite = 'UIAutomation' }
             )) {
@@ -479,9 +537,9 @@ Describe 'build-cli.ps1 control flow' {
         )
         @($files | Group-Object Name | Where-Object Count -GT 1).Count | Should -Be 0
         (($files | Where-Object Extension -EQ '.trx' | Sort-Object Name).Name -join ',') |
-            Should -BeExactly 'WinApp.Cli.Tests.shard-1.trx,WinApp.Cli.Tests.shard-2.trx,WinApp.UIAutomation.Tests.trx'
+            Should -BeExactly 'WinApp.Cli.Tests.shard-1.trx,WinApp.Cli.Tests.shard-2.trx,WinApp.Cli.Tests.shard-4.trx,WinApp.UIAutomation.Tests.trx'
         (($files | Where-Object Name -Like 'cli-schema-*' | Sort-Object Name).Name -join ',') |
-            Should -BeExactly 'cli-schema-Auxiliary.json,cli-schema-Cli-1.json,cli-schema-Cli-2.json'
+            Should -BeExactly 'cli-schema-Auxiliary.json,cli-schema-Cli-1.json,cli-schema-Cli-2.json,cli-schema-Cli-4.json'
     }
 
     It 'fails shard validation for <Step> and preserves any produced reports' -ForEach @(

@@ -468,7 +468,8 @@ static bool FindInResourceDictionary(const DevToolsX::ResourceDictionary& dictio
     return false;
 }
 
-static ResourceLookup FindResourceInScope_ui(InstanceHandle h, const std::wstring& key, std::wstring* valueType)
+static ResourceLookup FindResourceInScope_ui(InstanceHandle h, const std::wstring& key, std::wstring* valueType,
+                                             bool* valueIsBrush = nullptr)
 {
     if (!g_diag) return ResourceLookup::Unknown;
     try {
@@ -502,6 +503,7 @@ static ResourceLookup FindResourceInScope_ui(InstanceHandle h, const std::wstrin
                 if (type.starts_with(boxed) && type.back() == L'>') type = type.substr(boxed.size(), type.size() - boxed.size() - 1);
                 *valueType = type;
             }
+            if (valueIsBrush && found) *valueIsBrush = static_cast<bool>(found.try_as<DevToolsXM::Brush>());
             return ResourceLookup::Found;
         }
         return probe.partial ? ResourceLookup::Unknown : ResourceLookup::NotFound;
@@ -515,20 +517,26 @@ static ResourceLookup FindResourceInScope_ui(InstanceHandle h, const std::wstrin
 static const HRESULT kResourceNotInScope = HRESULT_FROM_WIN32(ERROR_RESOURCE_NAME_NOT_FOUND);
 static const HRESULT kResourceWrongType = HRESULT_FROM_WIN32(ERROR_INVALID_DATATYPE);
 
-// True only when both types are well-known and can never be assigned to each other, such as a Style resource for a
-// Brush property. Anything else (Object, a base class, a custom type) is left to the runtime. Refusing up front
-// matters: a refused ResolveResource can leave the element resolving later ThemeResources in the wrong theme.
-static bool ResourceTypeKnownMismatch(const std::wstring& resourceType, const std::wstring& propType)
+// True when the resource can never be assigned to the property. A Brush property takes only a Brush or a Color
+// (WinUI builds a SolidColorBrush from a Color). Otherwise only a Style, template or Brush paired with a different
+// well-known type is refused; value types such as Double and Thickness are left to the runtime, which converts some
+// of them. Refusing up front matters: a refused ResolveResource can leave the element resolving later
+// ThemeResources in the wrong theme.
+static bool ResourceTypeKnownMismatch(const std::wstring& resourceType, bool resourceIsBrush, const std::wstring& propType)
 {
+    if (resourceType.empty() && !resourceIsBrush) return false;
     const auto family = [](const std::wstring& type) {
         const std::wstring s = DevToolsRead_ShortTypeName(type);
         return s.size() >= 5 && s.compare(s.size() - 5, 5, L"Brush") == 0 ? std::wstring(L"Brush") : s;
     };
+    const std::wstring a = resourceIsBrush ? std::wstring(L"Brush") : family(resourceType), b = family(propType);
+    if (b == L"Brush") return a != L"Brush" && a != L"Color";
+    static const std::set<std::wstring> objects{ L"Brush", L"Style", L"DataTemplate", L"ControlTemplate",
+        L"ItemsPanelTemplate" };
     static const std::set<std::wstring> known{ L"Brush", L"Style", L"DataTemplate", L"ControlTemplate",
         L"ItemsPanelTemplate", L"Double", L"Thickness", L"Color", L"CornerRadius", L"Boolean", L"FontWeight",
-        L"GridLength" };
-    const std::wstring a = family(resourceType), b = family(propType);
-    return a != b && known.count(a) && known.count(b);
+        L"GridLength", L"FontFamily", L"String" };
+    return a != b && known.count(a) && known.count(b) && (objects.count(a) || objects.count(b));
 }
 
 // Assign {ThemeResource key} or {StaticResource key} to a property. UI thread. A key that is not in the element's
@@ -547,14 +555,15 @@ static HRESULT AssignResource(InstanceHandle h, const std::wstring& prop, const 
     if (idx == 0xFFFFFFFF) { Log(L"setres: '%s' not found on %llu", prop.c_str(), h); return E_INVALIDARG; }
     const std::wstring markup = std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}";
     std::wstring valueType;
-    const ResourceLookup lookup = FindResourceInScope_ui(h, key, &valueType);
+    bool valueIsBrush = false;
+    const ResourceLookup lookup = FindResourceInScope_ui(h, key, &valueType, &valueIsBrush);
     Log(L"setres: '%s' <- %s lookup=%d type='%s'", prop.c_str(), markup.c_str(), static_cast<int>(lookup), valueType.c_str());
     if (lookup == ResourceLookup::NotFound) {
         if (error) *error = L"resource-not-found|Resource '" + key + L"' was not found in this element's resources, "
                             L"its parents' resources, or the app's resources. " + prop + L" was not changed.";
         return kResourceNotInScope;
     }
-    if (lookup == ResourceLookup::Found && ResourceTypeKnownMismatch(valueType, propType)) {
+    if (lookup == ResourceLookup::Found && ResourceTypeKnownMismatch(valueType, valueIsBrush, propType)) {
         if (error) *error = L"property-write-failed|Resource '" + key + L"' is a " + DevToolsRead_ShortTypeName(valueType) +
                             L", which can't be assigned to " + prop + L". " + prop + L" was not changed.";
         return kResourceWrongType;

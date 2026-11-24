@@ -37,6 +37,7 @@ static void* g_commentRepeater = nullptr;
 static void* g_commentsOffNoteTb = nullptr;
 static void* g_commentsOffNoteUi = nullptr;
 static bool g_xamlHandlerPresent = false;
+static bool g_csHandlerPresent = false;
 static void RefreshCommentsPane();
 
 static void ReleaseCommentRowUi()
@@ -82,10 +83,14 @@ struct CommentRowSink : DevToolsSinkBase
 static void ResolveCommentById(const std::wstring& id, std::function<void(int)> done = nullptr)
 {
     if (id.empty()) return;
+    if (g_commentBoxSaved && g_commentBoxSaved->id == id) {
+        if (g_commentBoxSaved->resolving) return;
+        g_commentBoxSaved->resolving = true;
+    }
     const auto generation = g_route1Gen;
     const auto answered = std::make_shared<bool>(false);
     SetStatusText(L"Resolving " + id + L"\u2026");
-    if (!g_commentResolveFn || !g_commentResolveFn(id.c_str(), [generation, id, answered, done](int result) {
+    const auto complete = [generation, id, answered, done](int result) {
         if (*answered) return;
         *answered = true;
         if (generation != g_route1Gen) return;
@@ -93,12 +98,18 @@ static void ResolveCommentById(const std::wstring& id, std::function<void(int)> 
             result == 0x57410001 ? L"Resolved on the host; comment markers could not refresh: " + id :
             result == 0x57410002 ? L"The host comment changed after the earlier save. Refresh: " + id :
             L"Host resolution was not confirmed. Refresh before retrying: " + id);
+        // Both Resolve buttons retire the matching card's identity, never an unrelated element's draft.
+        if (g_commentBoxSaved && g_commentBoxSaved->id == id && g_commentBoxSaved->FinishResolve(result)) {
+            if (auto box = g_commentBox.get()) box.Text(L"");
+            if (g_presentCommentBox) g_presentCommentBox(false);
+        }
         if (done) done(result);
-    })) {
+    };
+    if (!g_commentResolveFn || !g_commentResolveFn(id.c_str(), complete)) {
         if (!*answered) {
-            *answered = true;
-            SetStatusText(L"Resolution could not start. Finish any pending comment save and check the CLI/host connection.");
-            if (done) done(1);
+            complete(1);
+            if (generation == g_route1Gen)
+                SetStatusText(L"Resolution could not start. Finish any pending comment save and check the CLI/host connection.");
         }
     }
 }
@@ -248,16 +259,18 @@ static std::wstring BuildCommentRowMarkup(size_t idx, const DevToolsWindowCommen
     m += L"<StackPanel x:Name=\"A" + i + L"\" Orientation=\"Horizontal\""
          L" Margin=\"16,0,0,4\" Spacing=\"4\">";
     if (!c.uri.empty()) {
-        if (g_xamlHandlerPresent) {
+        const bool csharp = IsCSharpPath(c.uri);
+        const std::wstring extension = csharp ? L".cs" : L".xaml";
+        if (csharp ? g_csHandlerPresent : g_xamlHandlerPresent) {
             m += L"<HyperlinkButton x:Name=\"O" + i + L"\" Content=\"Open source\" Padding=\"6,0\" FontSize=\"11\""
                  L" AutomationProperties.AutomationId=\"CommentOpenSource" + i + L"\""
                  L" AutomationProperties.Name=\"Open source for: " + subject + L"\""
-                 L" ToolTipService.ToolTip=\"Hand this file to whatever opens .xaml on this machine\"/>";
+                 L" ToolTipService.ToolTip=\"Hand this file to whatever opens " + extension + L" on this machine\"/>";
         } else {
             m += L"<HyperlinkButton x:Name=\"E" + i + L"\" Content=\"Show in File Explorer\" Padding=\"6,0\" FontSize=\"11\""
                  L" AutomationProperties.Name=\"Show in File Explorer: " + subject + L"\""
                  L" AutomationProperties.AutomationId=\"CommentReveal" + i + L"\""
-                 L" ToolTipService.ToolTip=\"Nothing on this machine opens .xaml files. Show it in File Explorer instead\"/>";
+                 L" ToolTipService.ToolTip=\"Nothing on this machine opens " + extension + L" files. Show it in File Explorer instead\"/>";
             m += L"<HyperlinkButton x:Name=\"C" + i + L"\" Content=\"Copy path\" Padding=\"6,0\" FontSize=\"11\""
                  L" AutomationProperties.AutomationId=\"CommentCopyPath" + i + L"\""
                  L" AutomationProperties.Name=\"Copy path for: " + subject + L"\""
@@ -294,6 +307,7 @@ static std::wstring BuildCommentsFragment(const std::vector<DevToolsWindowCommen
     g_commentRowItem.clear();
     g_commentItems.clear();
     g_xamlHandlerPresent = !ShellAssocFor(L".xaml").empty();
+    g_csHandlerPresent = !ShellAssocFor(L".cs").empty();
     size_t open = 0;
     for (const auto& c : all) if (c.status != L"resolved") ++open;
 
@@ -319,6 +333,8 @@ static std::wstring BuildCommentsFragment(const std::vector<DevToolsWindowCommen
         g_commentRowItem.push_back(static_cast<int>(g_commentItems.size()));
         g_commentItems.push_back({ CommentItemKind::Row, g_commentRows.size(), L"" });
         g_commentRows.push_back(c);
+        // A C# comment has no ms-appx URI; its row actions use the file's full path, which they accept directly.
+        if (auto& added = g_commentRows.back(); added.uri.empty()) added.uri = ResolveProjectCSharpFile(added.file);
         g_commentRowLive.push_back(live ? 1 : 0);
     };
     std::vector<std::wstring> files;
@@ -598,6 +614,17 @@ static void OnInspectorRailSelection(bool comments)
     SetCommentsView(comments);
 }
 
+// The details header's title: `Button #SaveButton`, or for a Reactor element its component or element kind first
+// (`<Counter>  ·  Border`), named by its x:Name or the C# variable it was assigned to.
+static std::wstring DetailsTitleText(const std::wstring& type, const std::wstring& name, const std::wstring& label)
+{
+    std::wstring text = type.empty() ? label : ShortType(type);
+    if (!g_selReactorLabel.empty()) text = g_selReactorLabel + L"  \u00B7  " + text;
+    if (!name.empty()) text += L" #" + name;
+    else if (!g_selTreeName.empty()) text += L" #" + g_selTreeName;
+    return text;
+}
+
 // The details header does not scroll: the element's title, its two nearest ancestors (the whole path is the
 // tooltip), the Comment button, and "Show in tree" while the Comments panel is open.
 static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& name,
@@ -607,11 +634,7 @@ static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& na
         const auto shown = [](bool v) { return v ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed; };
         const bool selected = g_selWire != 0;
         if (const auto& header = g_shell.detailsHeader) header.Visibility(shown(selected));
-        if (const auto& title = g_shell.detailTitle) {
-            std::wstring text = type.empty() ? label : ShortType(type);
-            if (!name.empty()) text += L" #" + name;
-            title.Text(text);
-        }
+        if (const auto& title = g_shell.detailTitle) title.Text(DetailsTitleText(type, name, label));
         if (const auto& crumb = g_shell.detailCrumb) {
             size_t segments = 0;
             crumb.Text(ElideBreadcrumb(breadcrumb, segments));
@@ -646,6 +669,7 @@ static unsigned g_addCommentGen = 0;
 static void WireAddComment(void* frameworkElement)
 {
     g_openCommentBox = nullptr;
+    g_presentCommentBox = nullptr;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, frameworkElement);
@@ -697,6 +721,7 @@ static void WireAddComment(void* frameworkElement)
         }
         g_commentBox = weakText;
         g_commentBoxSaved = saved;
+        g_presentCommentBox = present;
         if (auto it = g_selWire ? g_commentDrafts.find(g_selWire) : g_commentDrafts.end(); it != g_commentDrafts.end()) {
             text.Text(it->second);
             status.Text(L"Your unsaved comment is back. Press Enter to save it, or Esc to discard it.");
@@ -716,15 +741,10 @@ static void WireAddComment(void* frameworkElement)
             });
         }
         if (cardResolve) {
-            cardResolve.Click([present, weakText, gen, saved](auto&&, auto&&) {
+            cardResolve.Click([weakText, saved](auto&&, auto&&) {
                 auto text = weakText.get();
                 if (!text || saved->id.empty() || saved->resolving || text.IsReadOnly()) return;
-                saved->resolving = true;
-                ResolveCommentById(saved->id, [present, weakText, gen, saved](int result) {
-                    if (gen != g_addCommentGen || !saved->FinishResolve(result)) return;
-                    if (auto box = weakText.get()) box.Text(L"");
-                    present(false);
-                });
+                ResolveCommentById(saved->id);
             });
         }
         text.PreviewKeyDown([present, weakText, weakStatus, gen, saved](auto&&, DevToolsXI::KeyRoutedEventArgs const& args) {

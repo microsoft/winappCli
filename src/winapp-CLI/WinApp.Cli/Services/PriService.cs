@@ -35,7 +35,7 @@ internal partial class PriService(
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
             await buildToolsService.RunBuildToolAsync(new MakePriTool(),
                 $"""dump /if "{priFile.FullName}" /of "{output}" /dt Detailed""", taskContext,
-                cancellationToken: timeout.Token).ConfigureAwait(false);
+                printErrors: false, cancellationToken: timeout.Token).ConfigureAwait(false);
             await using var dump = new FileStream(output, FileMode.Open, FileAccess.Read, FileShare.Read);
             if (dump.Length > 64 * 1024 * 1024) { throw new InvalidDataException("The XAML PRI dump exceeds its 64 MiB limit."); }
             using var reader = XmlReader.Create(dump, new XmlReaderSettings

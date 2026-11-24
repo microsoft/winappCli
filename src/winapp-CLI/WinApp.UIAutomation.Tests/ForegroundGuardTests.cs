@@ -96,6 +96,70 @@ public class ForegroundGuardTests
     }
 
     [TestMethod]
+    [DataRow(10L, 10L, 20L, ForegroundCheck.Proceed)]
+    [DataRow(20L, 20L, 20L, ForegroundCheck.Proceed)]
+    [DataRow(20L, 30L, 40L, ForegroundCheck.ForegroundNotTarget)]
+    [DataRow(0L, 0L, 40L, ForegroundCheck.NoInteractiveDesktop)]
+    [DataRow(0L, 20L, 40L, ForegroundCheck.ForegroundNotTarget)]
+    [DataRow(20L, 0L, 40L, ForegroundCheck.NoInteractiveDesktop)]
+    [DataRow(10L, 0L, 40L, ForegroundCheck.Proceed)]
+    public void CheckForeground_SnapshotRetainsOriginalReadsAndDecision(
+        long firstForeground, long secondForeground, long rootHwnd, ForegroundCheck expected)
+    {
+        var calls = new List<string>();
+        ConfigureReads();
+        Assert.AreEqual(expected, ForegroundGuard.CheckForeground(10));
+        var originalCalls = calls.ToArray();
+
+        calls.Clear();
+        ConfigureReads();
+        var result = new RealForegroundGuard().CheckForeground(10, out var snapshot);
+
+        Assert.AreEqual(expected, result);
+        Assert.AreSequenceEqual(originalCalls, calls.Take(originalCalls.Length).ToArray(),
+            "Diagnostics must preserve both foreground reads and the comparison's root lookup order.");
+        Assert.AreEqual(2, calls.Count(c => c.StartsWith("foreground", StringComparison.Ordinal)));
+        if (expected == ForegroundCheck.Proceed)
+        {
+            Assert.IsNull(snapshot);
+            Assert.AreSequenceEqual(originalCalls, calls, "Accepted checks need no diagnostic ownership queries.");
+            return;
+        }
+
+        Assert.IsNotNull(snapshot);
+        ForegroundGuard.s_getForegroundWindow = () => throw new AssertFailedException("Do not re-read foreground for retained diagnostics.");
+        Assert.AreEqual(firstForeground, snapshot.ForegroundHwnd);
+        Assert.AreEqual(secondForeground, snapshot.ClassificationForegroundHwnd);
+        Assert.AreEqual(rootHwnd, snapshot.RootHwnd);
+        Assert.AreEqual(firstForeground != 0, snapshot.RootWasCompared);
+        Assert.AreEqual(110u, snapshot.TargetProcessId);
+        Assert.AreEqual((uint)(rootHwnd + 100), snapshot.RootProcessId);
+        Assert.AreEqual(firstForeground == 0 ? 0u : (uint)(firstForeground + 100), snapshot.ForegroundProcessId);
+        Assert.AreEqual(secondForeground == 0 ? 0u : (uint)(secondForeground + 100), snapshot.ClassificationForegroundProcessId);
+
+        void ConfigureReads()
+        {
+            var foregrounds = new Queue<long>([firstForeground, secondForeground]);
+            ForegroundGuard.s_getForegroundWindow = () =>
+            {
+                var hwnd = foregrounds.Dequeue();
+                calls.Add($"foreground:{hwnd}");
+                return new HWND((nint)hwnd);
+            };
+            ForegroundGuard.s_getRootAncestor = hwnd =>
+            {
+                calls.Add($"root:{(nint)hwnd}");
+                return new HWND((nint)rootHwnd);
+            };
+            ForegroundGuard.s_getProcessIdForWindow = hwnd =>
+            {
+                calls.Add($"pid:{hwnd}");
+                return (uint)(hwnd + 100);
+            };
+        }
+    }
+
+    [TestMethod]
     public void RealForegroundGuard_DelegatesToForegroundGuard()
     {
         ForegroundGuard.s_getForegroundWindow = () => new HWND(1);

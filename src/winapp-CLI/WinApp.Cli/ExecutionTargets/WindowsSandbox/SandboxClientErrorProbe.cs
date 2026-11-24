@@ -36,13 +36,27 @@ internal static class SandboxClientErrorProbe
     internal static SandboxClientSurface Classify(
         IReadOnlyList<Control> shell, IReadOnlyList<Control> page, bool renderer)
     {
+        // The viewer's options menu, flyouts and tooltips are popup windows it owns, and UI
+        // Automation lists them beside the viewer's own parts. They cover the viewer only on the
+        // host, so they change neither what the guest shows nor where winapp's input lands.
+        shell = [.. shell.Where(control => control.ClassName != "Microsoft.UI.Content.PopupWindowSiteBridge")];
+
         var renderHosts = shell.Count(control => control.ClassName == "AtlAxWin");
-        var knownShell = shell.Count == 4 + renderHosts &&
+        var windowedShell = shell.Count == 4 + renderHosts &&
             shell.Count(control => control.ClassName == "InputNonClientPointerSource") == 1 &&
             shell.Count(control => control.ClassName == "ReunionWindowingCaptionControls") == 1 &&
             shell.Count(control => control.ClassName == "Microsoft.UI.Content.DesktopChildSiteBridge") == 1 &&
             shell.Count(control => control is { ClassName: "", AutomationId: "TitleBar" }) == 1;
-        if (!knownShell)
+
+        // Full screen replaces the title bar with Remote Desktop's connection bar, which hides
+        // itself once unpinned, and leaves the viewer's own page empty.
+        var connectionBars = shell.Count(control => control.ClassName == "BBarWindowClass");
+        var fullScreenShell = connectionBars <= 1 &&
+            shell.Count == 2 + renderHosts + connectionBars &&
+            shell.Count(control => control.ClassName == "InputNonClientPointerSource") == 1 &&
+            shell.Count(control => control.ClassName == "Microsoft.UI.Content.DesktopChildSiteBridge") == 1;
+
+        if (!windowedShell && !fullScreenShell)
         {
             return SandboxClientSurface.Unknown;
         }
@@ -52,8 +66,15 @@ internal static class SandboxClientErrorProbe
         // shell layout, warning, partial tree, or missing renderer is not proof.
         if (IsTerminalError(page, complete: true))
         {
-            return renderHosts == 0 && !renderer
+            return windowedShell && renderHosts == 0 && !renderer
                 ? SandboxClientSurface.TerminalError
+                : SandboxClientSurface.Unknown;
+        }
+
+        if (fullScreenShell)
+        {
+            return renderHosts == 1 && renderer && page.Count == 0
+                ? SandboxClientSurface.Session
                 : SandboxClientSurface.Unknown;
         }
 
@@ -85,7 +106,10 @@ internal static class SandboxClientErrorProbe
     internal static bool IsExpectedRoot([NotNullWhen(true)] IUIAutomationElement? root, int processId) =>
         root is not null &&
         root.get_CurrentProcessId() == processId &&
-        Read(root.get_CurrentClassName()) == "WinUIDesktopWin32WindowClass";
+        Read(root.get_CurrentClassName()) == ViewerWindowClass;
+
+    /// <summary>Window class of the Sandbox client's top-level viewer window.</summary>
+    internal const string ViewerWindowClass = "WinUIDesktopWin32WindowClass";
 
     private static SandboxClientSurface ReadSurface(SandboxClientWindow client)
     {

@@ -388,24 +388,34 @@ Each sample under `samples/` has a self-contained **Pester 5.x** test file (`tes
 
 ### CI integration
 
-`Build and Package` builds both CLI architectures and all packages together
-with `-SkipTests -SkipDocs`. Keep full git history in `build-artifacts` so the
-build number is calculated correctly. It uploads packages, then starts the full
-test suite, documentation validation, UI E2E, and (on PRs and merge queue runs) sample tests as
-independent jobs. The test suite uses `-OnlyTests -UseExistingArtifacts`; it must
-not republish or delete the downloaded CLI and NuGet packages.
-CI runs `-TestSuite Cli -CliShard 1`, `-TestSuite Cli -CliShard 2`,
+`Build and Package` publishes each CLI architecture and builds each DevTools engine
+on its own runner (`build-parts`, `build-cli.ps1 -Stage Cli|Engine -Architecture`).
+`build-artifacts` then combines them and creates every package (`-Stage Package`).
+The default `-Stage All` still does everything in one run. Keep full git history in
+these jobs so they all calculate the same build number and version. After the
+packages are uploaded, the test suite, documentation validation, UI E2E, and (on PRs
+and merge queue runs) sample tests start as independent jobs. The test suite uses
+`-OnlyTests -UseExistingArtifacts`; it must not republish or delete the downloaded
+CLI and NuGet packages.
+
+PRs and merge groups that change only Markdown files in `docs\` or the repo root skip
+every build and test lane and run only the docs port tests (`docs-tests`).
+`docs\npm-usage.md` is checked by npm tests, and other files in `docs\` (such as
+`winui-sample-index.schema.json`) are read by CLI tests, so changing them runs everything.
+
+CI runs `-TestSuite Cli -CliShard 1`, `-CliShard 2`, `-CliShard 4`,
 `-TestSuite Auxiliary`, and `-TestSuite UIAutomation` on separate runners, never
 concurrently in one workspace. Together with the native integration shard below,
 they cover the default `All` suite.
 Auxiliary owns Node unit tests, analyzer tests/stand-down, and both Pester suites.
-Both CLI shards prepare the Node CLI needed by integration tests, but do not
+All three CLI lanes prepare the Node CLI needed by integration tests, but do not
 rerun Node unit tests.
 
-`validate-devtools` verifies the downloaded engine payload, runs the native
+`validate-devtools` starts without waiting for the build. It runs the native
 security/ABI/protocol and inspector tests in a separate output directory, and
-runs managed binding/startup-hook contracts on .NET 8 and 10. It never overwrites
-`artifacts\cli`. The real native-element capture lifetime gate remains in the
+runs managed binding/startup-hook contracts on .NET 8 and 10. It never writes
+`artifacts\cli`; `validate-docs` checks the shipped engine payload in the downloaded
+CLI. The real native-element capture lifetime gate remains in the
 interactive UI job. Both jobs are required by `build-and-package`.
 
 `scripts\test-managed-devtools.ps1` runs the headless managed contracts with a
@@ -414,9 +424,10 @@ the desktop lifetime gate. Restore, build, discovery and execution each retain
 bounded phase logs under `artifacts\TestResults\devtools`. The validation job
 uploads partial results even on failure or cancellation.
 
-`scripts\test-cli-shard.ps1` partitions the CLI suite into three disjoint sets:
+`scripts\test-cli-shard.ps1` partitions the CLI suite into four disjoint sets:
 native integration tests (shard 3, in `validate-devtools` after its fixture build),
-then package-command tests (shard 1) and all remaining tests (shard 2).
+package-command and perf-fixture tests (shard 1), end-to-end tests and the slowest
+one-at-a-time classes (shard 4), and all remaining tests (shard 2).
 The native lane sets `WINAPP_NATIVE_TEST_FIXTURE` to its freshly built dispatcher
 fixture; ordinary artifact-reuse lanes do not build or require native test fixtures.
 New tests always enter one shard. Each invocation requires at least one executed test,
@@ -436,7 +447,8 @@ how `winapp run` or `winapp package` build .NET projects; see its README.
 
 Keep `build-and-package` and `test-samples-result` as top-level aggregate check
 names for branch protection. They must fail on failures, cancellations, and
-unexpected skips, not just test failures. Metrics join package artifacts with
+unexpected skips, not just test failures. `metrics` only reports, so
+`build-and-package` does not wait for it. Metrics join package artifacts with
 the validation job's TRX and coverage reports; never report zero tests just
 because the packages were uploaded first. Publish combined test results even
 when validation fails on main, but promote metrics to the main baseline only
