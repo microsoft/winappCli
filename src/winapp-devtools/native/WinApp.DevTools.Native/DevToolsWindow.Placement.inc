@@ -232,8 +232,11 @@ static void PositionInspectorBesideApp()
     // Return to the remembered spot only while a monitor still shows it; otherwise keep its size beside the app.
     HMONITOR mon = nullptr;
     if (remembered) {
-        const RECT last = ToRECT(remembered->rect);
-        mon = MonitorFromRect(&last, MONITOR_DEFAULTTONULL);
+        // Only the visible window counts: its invisible border may hang onto a neighbouring monitor.
+        const auto& r = remembered->rect;
+        const auto& f = remembered->frame;
+        const RECT visible{ r.left + f.left, r.top + f.top, r.right - f.right, r.bottom - f.bottom };
+        mon = MonitorFromRect(&visible, MONITOR_DEFAULTTONULL);
     }
     const bool restore = mon != nullptr;
     if (!mon) mon = MonitorFromWindow(app ? app : self, MONITOR_DEFAULTTONEAREST);
