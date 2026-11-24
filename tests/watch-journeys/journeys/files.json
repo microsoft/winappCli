@@ -37,6 +37,19 @@
       "checks": [ { "assert": "text-equals", "target": "BadgeText", "value": "badge-v1" } ]
     },
     {
+      "id": "r07-click-first-no-handlers", "row": 7, "title": "A Click in a UserControl with no event handlers yet, XAML saved first: waiting, at the XAML line",
+      "file": "App/Badge.xaml", "op": "replace", "find": "    <TextBlock x:Name=\"BadgeText\" Text=\"badge-v1\" />", "text": "    <StackPanel>\n        <TextBlock x:Name=\"BadgeText\" Text=\"badge-v1\" />\n        <Button x:Name=\"BadgeButton\" Content=\"badge\" Click=\"OnBadgeClick\" />\n    </StackPanel>",
+      "expect": { "v1": "waiting", "reason": "^Badge\\.xaml\\(5\\): CS1061", "today": "waiting", "stock": "not-applied" },
+      "checks": [ { "assert": "text-equals", "target": "BadgeText", "value": "badge-v1" } ],
+      "note": "the launch build's Badge.g.cs has no code for event handlers; the error maps through the code this save compiled"
+    },
+    {
+      "id": "r07-no-handlers-method-added", "row": 7, "title": "Then the handler: both apply",
+      "file": "App/Badge.xaml.cs", "op": "replace", "find": "        InitializeComponent();\n    }\n}", "text": "        InitializeComponent();\n    }\n\n    private void OnBadgeClick(object sender, Microsoft.UI.Xaml.RoutedEventArgs e) => BadgeText.Text = \"badge-clicked\";\n}",
+      "expect": { "v1": "live", "today": "applied", "stock": "applied" },
+      "checks": [ { "assert": "invoke", "target": "BadgeButton" }, { "assert": "text-equals", "target": "BadgeText", "value": "badge-clicked" } ]
+    },
+    {
       "id": "r19-delete-cs-file", "row": 19, "title": "Delete a .cs file nothing uses",
       "edits": [
         { "file": "App/Unused.cs", "op": "create-file", "text": [ "namespace TodoBench;", "", "internal static class Unused", "{", "    public static int Value => 1;", "}" ] }

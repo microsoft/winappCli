@@ -449,7 +449,11 @@ internal partial class RunCommand
             }
             if (restart)
             {
-                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Check} The app restarted (PID {pid}); DevTools attached again.");
+                // Under the hot reload helper, its "[watch] ready ... (PID n)" line says this, and the two lines race.
+                if (!hotReloadHelperRuns)
+                {
+                    ansiConsole.MarkupLineInterpolated($"{UiSymbols.Check} The app restarted (PID {pid}); DevTools attached again.");
+                }
             }
             else
             {

@@ -52,6 +52,8 @@ internal sealed class XamlCompiler : IDisposable
 
     /// <summary>The .xbf the app runs for each URI it was given since its build (by default, the build's in obj).</summary>
     private readonly Dictionary<string, byte[]> _applied = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The latest generated C# per path, which errors in generated code refer to.</summary>
+    private readonly Dictionary<string, string> _generated = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Records markup the app took, to go back to if a later save's doesn't load.</summary>
     public void Applied(IEnumerable<MarkupPayload> markup)
@@ -201,7 +203,7 @@ internal sealed class XamlCompiler : IDisposable
             // The service may return every page's code; the other pages' is what the app already runs.
             if (isTypeInfo || (relative.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase) && stems.Contains(Stem(relative))))
             {
-                generated[path] = text.TrimStart('\uFEFF');
+                generated[path] = _generated[Path.GetFullPath(path)] = text.TrimStart('\uFEFF');
             }
         }
         var markup = new List<MarkupPayload>();
@@ -254,7 +256,9 @@ internal sealed class XamlCompiler : IDisposable
     /// </summary>
     public string? XamlLocation(string generatedPath, int line)
     {
-        if (!File.Exists(generatedPath) || XamlLine(File.ReadAllText(generatedPath), line) is not { } xamlLine)
+        // The code the C# compiler saw: this session's latest, else the build's (a page not compiled since launch).
+        var text = _generated.GetValueOrDefault(Path.GetFullPath(generatedPath)) ?? (File.Exists(generatedPath) ? File.ReadAllText(generatedPath) : null);
+        if (text is null || XamlLine(text, line) is not { } xamlLine)
         {
             return null;
         }

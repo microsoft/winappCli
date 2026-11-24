@@ -19,6 +19,8 @@ internal partial class RunCommand
 
         private readonly HashSet<string> watchNotes = new(StringComparer.Ordinal);
 
+        private bool hotReloadHelperRuns;
+
         private volatile TaskCompletionSource restartKey = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         /// <summary>
@@ -38,6 +40,7 @@ internal partial class RunCommand
             logger.LogInformation("{Symbol} Watching {Project}: C# edits apply to the running app, and each save says what happened. Press Ctrl+R to restart, Ctrl+C to stop.",
                 UiSymbols.Search, csproj.Name);
             ListenForRestartKey();
+            hotReloadHelperRuns = true;
             for (var iteration = 1; ; iteration++)
             {
                 if (iteration > 1 || !capture.Captured)
