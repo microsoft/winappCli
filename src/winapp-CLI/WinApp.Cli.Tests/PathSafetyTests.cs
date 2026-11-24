@@ -390,6 +390,126 @@ public class PathSafetyTests
     }
 
     [TestMethod]
+    [DataRow(@"Global\C:\Cache\pkg", @"C:\Cache\pkg")]
+    [DataRow(@"global\d:/Cache", @"d:/Cache")]
+    [DataRow(@"Global\UNC\server\share", @"UNC\server\share")]
+    [DataRow(@"Global\GLOBALROOT\Device\Mup\server\share", @"GLOBALROOT\Device\Mup\server\share")]
+    [DataRow(@"Global\Cache", @"Global\Cache")]
+    [DataRow(@"C:\Global\Cache", @"C:\Global\Cache")]
+    public void StripGlobalNamespace_RemovesOnlyTheNamespacePrefix(string target, string expected)
+    {
+        Assert.AreEqual(expected, PathSafety.StripGlobalNamespace(target));
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_GlobalNamespaceTargets_AreFollowed()
+    {
+        // A junction stored as \??\Global\C:\... reads back as Global\C:\..., and Windows
+        // follows it. The walk must follow it too instead of losing the chain.
+        string real = Path.Combine(_tempDir.FullName, "RealCache");
+        string middle = Path.Combine(_tempDir.FullName, "MiddleCache");
+        string first = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(Path.Combine(real, "pkg"));
+        if (!TryCreateJunction(middle, real))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        bool firstCreated = false;
+        try
+        {
+            firstCreated = TryCreateJunction(first, Path.Combine(middle, "pkg"));
+            if (!firstCreated)
+            {
+                Assert.Inconclusive("Could not create a junction on this machine.");
+            }
+
+            string winmd = Path.Combine(first, "Api.winmd");
+            Assert.IsFalse(
+                PathSafety.RedirectsToNetwork(winmd, static info => @"Global\" + info.LinkTarget),
+                "A local chain stays allowed.");
+
+            var inspected = new List<string>();
+            bool refused = PathSafety.RedirectsToNetwork(winmd, info =>
+            {
+                inspected.Add(info.FullName);
+                return string.Equals(info.FullName, @"\\?\" + middle, StringComparison.OrdinalIgnoreCase)
+                    ? @"\\server\share"
+                    : @"Global\" + info.LinkTarget;
+            });
+            Assert.IsTrue(refused, "A network hop after a Global\\ target must still be found.");
+            Assert.AreSequenceEqual(new[] { @"\\?\" + first, @"\\?\" + middle }, inspected);
+        }
+        finally
+        {
+            if (firstCreated)
+            {
+                Directory.Delete(first);
+            }
+            Directory.Delete(middle);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_LinkTargetThatCannotBePlaced_IsRefused()
+    {
+        // A target read in a form the walk misplaces would look missing here, while
+        // Windows may follow it somewhere else. Refuse instead of answering "local".
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string link = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsTrue(PathSafety.RedirectsToNetwork(
+                Path.Combine(link, "Api.winmd"), static _ => @"Unplaceable\Cache"));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_MissingTargetPartAfterAnotherLink_IsRefused()
+    {
+        // LinkedCache -> MiddleCache\missing, MiddleCache -> RealCache. "missing" still
+        // belongs to the first link's target after the walk restarts at RealCache.
+        string real = Path.Combine(_tempDir.FullName, "RealCache");
+        string middle = Path.Combine(_tempDir.FullName, "MiddleCache");
+        string first = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(real);
+        if (!TryCreateJunction(middle, real))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        bool firstCreated = false;
+        try
+        {
+            firstCreated = TryCreateJunction(first, Path.Combine(middle, "missing"));
+            if (!firstCreated)
+            {
+                Assert.Inconclusive("Could not create a junction on this machine.");
+            }
+
+            Assert.IsTrue(PathSafety.RedirectsToNetwork(Path.Combine(first, "Api.winmd")));
+        }
+        finally
+        {
+            if (firstCreated)
+            {
+                Directory.Delete(first);
+            }
+            Directory.Delete(middle);
+        }
+    }
+
+    [TestMethod]
     [DataRow(@"\\server\share")]
     [DataRow(@"\\?\UNC\server\share")]
     [DataRow(@"\\?\GLOBALROOT\Device\Mup\server\share")]

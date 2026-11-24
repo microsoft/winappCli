@@ -161,6 +161,10 @@ internal static class PathSafety
         const int MaxLinkHops = 64;
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int linkHops = 0;
+        // How many leading segments of the current path come from a link target. Those
+        // must exist: a missing one means the target was read in a form this walk could
+        // not place, while Windows may still follow it somewhere else.
+        int requiredSegments = 0;
         try
         {
             while (true)
@@ -192,7 +196,7 @@ internal static class PathSafety
                     }
                     catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
                     {
-                        return false;
+                        return index < requiredSegments;
                     }
                     if ((attributes & FileAttributes.ReparsePoint) == 0)
                     {
@@ -209,16 +213,31 @@ internal static class PathSafety
                     // Even ResolveLinkTarget(false) constructs a target FileSystemInfo,
                     // which can probe short names. LinkTarget only reads the reparse data.
                     string? target = readLinkTarget(info);
-                    if (string.IsNullOrEmpty(target) || IsNetworkPath(target) || IsDeviceOrNtNamespaceTarget(target))
+                    if (string.IsNullOrEmpty(target))
+                    {
+                        return true;
+                    }
+                    target = StripGlobalNamespace(target);
+                    if (IsNetworkPath(target) || IsDeviceOrNtNamespaceTarget(target))
                     {
                         return true;
                     }
 
                     // The target's parents can themselves be links. Restart from its
                     // root before probing them, keeping the original unvisited suffix.
-                    path = Path.Combine(
-                        Path.IsPathRooted(target) ? target : Path.Combine(Path.GetDirectoryName(current)!, target),
-                        string.Join(Path.DirectorySeparatorChar, segments[(index + 1)..]));
+                    string? resolved = NormalizeLocalPathWithoutProbing(
+                        Path.IsPathRooted(target) ? target : Path.Combine(Path.GetDirectoryName(current)!, target));
+                    string? resolvedRoot = resolved is null ? null : Path.GetPathRoot(resolved);
+                    if (string.IsNullOrEmpty(resolvedRoot))
+                    {
+                        return true;
+                    }
+                    int targetSegments = resolved![resolvedRoot.Length..].Split(
+                        [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                        StringSplitOptions.RemoveEmptyEntries).Length;
+                    // Segments after this link that came from an earlier target stay required.
+                    requiredSegments = targetSegments + Math.Max(0, requiredSegments - (index + 1));
+                    path = Path.Combine(resolved, string.Join(Path.DirectorySeparatorChar, segments[(index + 1)..]));
                     redirected = true;
                     break;
                 }
@@ -417,6 +436,25 @@ internal static class PathSafety
         bool isDriveLetter = device.Length >= 2 && char.IsAsciiLetter(device[0]) && device[1] == ':';
         bool isVolumeGuid = device.StartsWith("Volume{", StringComparison.OrdinalIgnoreCase);
         return !isDriveLetter && !isVolumeGuid;
+    }
+
+    /// <summary>
+    /// A junction stored as <c>\??\Global\C:\x</c> reads back from
+    /// <see cref="System.IO.FileSystemInfo.LinkTarget"/> as <c>Global\C:\x</c>, and Windows follows it
+    /// exactly like <c>C:\x</c>. Strips that prefix when what follows is a drive path or a device form
+    /// <see cref="IsDeviceOrNtNamespaceTarget"/> refuses; anything else is left as written.
+    /// </summary>
+    internal static string StripGlobalNamespace(string target)
+    {
+        const string GlobalPrefix = @"Global\";
+        if (!target.StartsWith(GlobalPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return target;
+        }
+
+        string rest = target[GlobalPrefix.Length..];
+        bool isDrivePath = rest.Length >= 3 && char.IsAsciiLetter(rest[0]) && rest[1] == ':' && rest[2] is '\\' or '/';
+        return isDrivePath || IsDeviceOrNtNamespaceTarget(rest) ? rest : target;
     }
 
     /// <summary>
