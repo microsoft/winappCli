@@ -10,15 +10,20 @@
     an empty package cache so packages already on this machine can't hide a missing one.
 
 .PARAMETER Token
-    An Azure DevOps access token for the feed. Leave empty to rely on an installed
-    Azure Artifacts credential provider.
+    An Azure DevOps access token for the feed. Leave empty in Azure Pipelines, where the
+    NuGetAuthenticate task already provides credentials.
+
+.PARAMETER ConfigFile
+    The NuGet config that lists only the internal feed. The ADO build-env template moves
+    .pipelines\release-nuget.config to the repo-root nuget.config, so pipelines pass that.
 
 .EXAMPLE
     .\scripts\test-internal-feed-restore.ps1 -Token $token
 #>
 [CmdletBinding()]
 param(
-    [string]$Token = $env:INTERNAL_FEED_TOKEN
+    [string]$Token,
+    [string]$ConfigFile = (Join-Path $PSScriptRoot '..\.pipelines\release-nuget.config')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,7 +33,7 @@ New-Item -ItemType Directory -Path $work -Force | Out-Null
 
 try {
     $config = Join-Path $work 'nuget.config'
-    Copy-Item (Join-Path $repoRoot '.pipelines\release-nuget.config') $config
+    Copy-Item $ConfigFile $config
     if ($Token) {
         dotnet nuget update source pde-oss_Internal --configfile $config --username token --password $Token --store-password-in-clear-text | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Failed to add the feed credentials.' }
@@ -66,7 +71,7 @@ try {
         $message = 'A package is missing from the pde-oss_Internal feed, so the ADO build will fail to restore. ' +
             'For NU1102 on a version that nuget.org already has, the feed has not saved that version yet; ' +
             'it usually does a few days after nuget.org publishes it. Keep the previous version until then.'
-        if ($env:GITHUB_ACTIONS) { Write-Host "::error title=Internal feed restore::$message" } else { Write-Error $message -ErrorAction Continue }
+        if ($env:TF_BUILD) { Write-Host "##vso[task.logissue type=error]$message" } else { Write-Error $message -ErrorAction Continue }
         exit 1
     }
     Write-Host 'All packages restore from pde-oss_Internal.' -ForegroundColor Green

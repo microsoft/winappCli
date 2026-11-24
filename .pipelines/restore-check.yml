@@ -1,0 +1,72 @@
+# Restores every project from pde-oss_Internal, the only NuGet feed the ADO builds use.
+# GitHub Actions restores from nuget.org, and the internal feed saves new nuget.org versions days
+# later, so a version bump can pass GitHub CI and then fail the ADO build on main with NU1102.
+# This runs restore only: no build, tests, artifacts or SDL tools.
+
+# GitHub's merge queue waits for every required check on its temporary gh-readonly-queue branch.
+# Azure Pipelines has no merge-group event, so it builds those pushes. No path filter here: a
+# skipped run posts no status, and the merge queue would wait for it until it times out.
+trigger:
+  batch: false
+  branches:
+    include:
+      - gh-readonly-queue/main/*
+
+# Azure Pipelines posts a neutral status, which GitHub accepts, when a path filter skips a PR.
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - '**/*.csproj'
+      - '**/*.props'
+      - '**/*.targets'
+      - '**/nuget.config'
+      - global.json
+      - .pipelines/release-nuget.config
+      - .pipelines/restore-check.yml
+      - .pipelines/templates/build-env.yaml
+      - scripts/test-internal-feed-restore.ps1
+
+resources:
+  repositories:
+  - repository: 1esPipelines
+    type: git
+    name: 1ESPipelineTemplates/1ESPipelineTemplates
+    ref: refs/tags/release
+
+extends:
+  template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
+  parameters:
+    settings:
+      networkIsolationPolicy: Permissive,CFSClean
+      skipBuildTagsForGitHubPullRequests: true
+    sdl:
+      # The main CI pipeline runs the SDL tools on every merge; this check only restores.
+      enableAllTools: false
+      sourceAnalysisPool:
+        name: Azure-Pipelines-1ESPT-ExDShared
+        image: windows-latest
+        os: windows
+    stages:
+    - stage: Restore
+      jobs:
+      - job: Restore
+        timeoutInMinutes: 20
+        pool:
+          name: Azure-Pipelines-1ESPT-ExDShared
+          image: windows-2025
+          os: windows
+          hostArchitecture: amd64
+        steps:
+          - checkout: self
+            fetchDepth: 1
+          # Same feed and credentials (the pde-oss Build Service) as the main CI build.
+          - template: ./.pipelines/templates/build-env.yaml@self
+          - task: PowerShell@2
+            displayName: Restore from pde-oss_Internal
+            inputs:
+              pwsh: true
+              filePath: $(Build.SourcesDirectory)\scripts\test-internal-feed-restore.ps1
+              arguments: -ConfigFile $(Build.SourcesDirectory)\nuget.config

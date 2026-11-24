@@ -47,7 +47,7 @@ BeforeAll {
     $script:buildGate = [scriptblock]::Create((Get-RunScript (Get-JobText $buildWorkflow 'build-and-package') 'Require all build and validation jobs'))
     $script:sampleGate = [scriptblock]::Create((Get-RunScript (Get-JobText $sampleWorkflow 'test-samples-result') 'Check results'))
     $script:sampleWrapperGate = [scriptblock]::Create((Get-RunScript (Get-JobText $buildWorkflow 'test-samples-result') 'Check results'))
-    $script:environmentNames = @('NEEDS_JSON', 'PRE_MERGE', 'SAMPLE_RESULT', 'BUILD_RESULT', 'REUSE_ARTIFACTS', 'CHANGES_RESULT', 'CODE', 'NO_FEED_TOKEN')
+    $script:environmentNames = @('NEEDS_JSON', 'PRE_MERGE', 'SAMPLE_RESULT', 'BUILD_RESULT', 'REUSE_ARTIFACTS', 'CHANGES_RESULT', 'CODE')
     $script:savedEnvironment = @{}
     foreach ($name in $environmentNames) {
         $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
@@ -75,7 +75,7 @@ Describe 'Artifact-first workflow dependencies' {
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
         # metrics only reports results, so the required check does not wait for it.
-        $gate | Should -Match 'needs: \[changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples, internal-feed-restore\]'
+        $gate | Should -Match 'needs: \[changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples\]'
     }
 
     It 'builds each CLI and engine part on its own runner and packages them once' {
@@ -300,10 +300,10 @@ Describe 'Failed validation reports without promoting the main baseline' {
 Describe 'Required build check outcomes' {
     BeforeEach {
         $script:results = @{}
-        foreach ($job in @('build-parts', 'build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples', 'internal-feed-restore')) {
+        foreach ($job in @('build-parts', 'build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples')) {
             $results[$job] = @{ result = 'success' }
         }
-        $results['changes'] = @{ result = 'success'; outputs = @{ code = 'true'; restore = 'true' } }
+        $results['changes'] = @{ result = 'success'; outputs = @{ code = 'true' } }
         $results['docs-tests'] = @{ result = 'skipped' }
         $env:PRE_MERGE = 'true'
     }
@@ -335,18 +335,9 @@ Describe 'Required build check outcomes' {
         { & $buildGate } | Should -Throw
     }
 
-    It 'expects the internal feed restore exactly when restore inputs changed' {
-        $results.changes.outputs.restore = 'false'
-        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
-        { & $buildGate } | Should -Throw -ExpectedMessage '*internal-feed-restore did not meet*'
-        $results.'internal-feed-restore'.result = 'skipped'
-        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
-        { & $buildGate } | Should -Not -Throw
-    }
-
     It 'passes a docs-only change only when every lane is skipped and the docs tests pass' {
         foreach ($job in @($results.Keys)) { $results[$job].result = 'skipped' }
-        $results.changes = @{ result = 'success'; outputs = @{ code = 'false'; restore = 'false' } }
+        $results.changes = @{ result = 'success'; outputs = @{ code = 'false' } }
         $results.'docs-tests'.result = 'success'
         $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
         { & $buildGate } | Should -Not -Throw
@@ -386,30 +377,15 @@ Describe 'Docs-only change classification' {
         $runner = [scriptblock]::Create("param(`$files, `$output) function git { if (`$args -notcontains '--no-renames') { throw 'Renames into docs/ would hide the moved file''s old path' }; `$global:LASTEXITCODE = 0; `$files }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'pull_request'; `$env:PR_BASE = 'a'; `$env:PR_HEAD = 'b'
 " + $classify)
         & $runner $Files $output | Out-Null
-        (Get-Content $output)[0] | Should -Be "code=$Code"
-    }
-
-    It 'classifies <Case> as restore=<Restore>' -ForEach @(
-        @{ Case = 'a central package version bump'; Files = @('src/winapp-CLI/Directory.Packages.props'); Restore = 'true' }
-        @{ Case = 'a project file'; Files = @('src/winapp-CLI/WinApp.Cli/WinApp.Cli.csproj'); Restore = 'true' }
-        @{ Case = 'the release feed config'; Files = @('.pipelines/release-nuget.config'); Restore = 'true' }
-        @{ Case = 'the SDK pin'; Files = @('global.json'); Restore = 'true' }
-        @{ Case = 'source code only'; Files = @('src/winapp-CLI/WinApp.Cli/Program.cs', 'docs/usage.md'); Restore = 'false' }
-        @{ Case = 'a version bump from a fork'; Files = @('src/winapp-CLI/Directory.Packages.props'); Restore = 'false'; NoToken = 'true' }
-    ) {
-        $output = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
-        $runner = [scriptblock]::Create("param(`$files, `$output, `$noToken) function git { `$global:LASTEXITCODE = 0; `$files }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'pull_request'; `$env:PR_BASE = 'a'; `$env:PR_HEAD = 'b'; `$env:NO_FEED_TOKEN = `$noToken
-" + $classify)
-        & $runner $Files $output ($NoToken ?? 'false') | Out-Null
-        (Get-Content $output)[1] | Should -Be "restore=$Restore"
+        (Get-Content $output) | Should -Be "code=$Code"
     }
 
     It 'always builds push and manual runs' {
         $output = Join-Path $TestDrive 'push-output'
-        $runner = [scriptblock]::Create("param(`$output) function git { throw 'no diff on push' }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'push'; `$env:NO_FEED_TOKEN = 'false'
+        $runner = [scriptblock]::Create("param(`$output) function git { throw 'no diff on push' }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'push'
 " + $classify)
         & $runner $output | Out-Null
-        (Get-Content $output) | Should -Be @('code=true', 'restore=true')
+        (Get-Content $output) | Should -Be 'code=true'
     }
 }
 

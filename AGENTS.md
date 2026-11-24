@@ -403,15 +403,6 @@ every build and test lane and run only the docs port tests (`docs-tests`).
 `docs\npm-usage.md` is checked by npm tests, and other files in `docs\` (such as
 `winui-sample-index.schema.json`) are read by CLI tests, so changing them runs everything.
 
-GitHub Actions restores packages from nuget.org, but the ADO pipelines restore only from
-`pde-oss_Internal`, which saves new nuget.org versions days later. When a change touches restore
-inputs (`*.csproj`, `*.props`, `*.targets`, `nuget.config`, `global.json`), the
-`internal-feed-restore` job restores every project from that feed, so a version it doesn't have
-yet fails the PR instead of the ADO build on main. Fork and Dependabot PRs get no feed
-credentials, so for them it runs in the merge queue. Run it locally with
-`.\scripts\test-internal-feed-restore.ps1 -Token $env:VSS_NUGET_ACCESSTOKEN` (see the feed token
-command above).
-
 CI runs `-TestSuite Cli -CliShard 1`, `-CliShard 2`, `-CliShard 4`,
 `-TestSuite Auxiliary`, and `-TestSuite UIAutomation` on separate runners, never
 concurrently in one workspace. Together with the native integration shard below,
@@ -499,6 +490,15 @@ duplicating inline script between the two.
 'refs/heads/rel/v')` — derived from the branch, not a parameter, because Azure DevOps compiles
 scheduled and triggered runs with parameter *defaults*. If you add a publishing step, gate it the
 same way, and write the condition as a positive test for `rel/v*` so it fails closed.
+
+GitHub Actions restores packages from nuget.org, but the ADO pipelines restore only from
+`pde-oss_Internal`, which saves new nuget.org versions days later. `.pipelines/restore-check.yml`
+restores every project from that feed on PRs that touch restore inputs and on every merge queue
+group, so a version the feed doesn't have yet fails before merge instead of breaking the ADO build
+on main. Run the same check locally with
+`.\scripts\test-internal-feed-restore.ps1 -Token $env:VSS_NUGET_ACCESSTOKEN` (see the feed token
+command above). It uses an empty package cache, so packages already on your machine can't hide a
+missing one.
 
 ## CLI command semantics
 
