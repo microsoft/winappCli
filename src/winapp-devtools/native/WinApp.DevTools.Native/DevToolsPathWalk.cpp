@@ -247,8 +247,15 @@ DevToolsPathWalkView DevToolsPathWalk_FromJson(const std::wstring& json, bool ag
 std::wstring DevToolsPathWalk_Verdict(const std::wstring& json, bool agentPresent, bool* resolves)
 {
     const DevToolsPathWalkView v = DevToolsPathWalk_FromJson(json, agentPresent);
-    if (resolves) *resolves = !v.show;
-    std::wstring verdict = !v.show ? std::wstring(L"Resolves. Not applied yet.")
+    // A null value at the end of the path still resolves: the binding shows whatever the property later holds.
+    DevToolsJson j;
+    const bool walked = DevToolsJsonParse(json, j) && j.IsObject() && j.GetString(L"state").empty();
+    const bool nullEnd = walked && v.show && !v.steps.empty() && v.steps.back().stop &&
+                         v.steps.back().outcome == DevToolsWalkOutcome::Null;
+    const bool ok = !v.show || nullEnd;
+    if (resolves) *resolves = ok;
+    std::wstring verdict = nullEnd ? std::wstring(L"Resolves; its value is null now. Not applied yet.")
+                         : ok ? std::wstring(L"Resolves. Not applied yet.")
                          : v.answer.empty() ? std::wstring(L"This path does not resolve.") : v.answer;
     if (!v.againstNote.empty()) verdict = v.againstNote + L" " + verdict;
     return verdict;

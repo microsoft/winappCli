@@ -160,25 +160,30 @@ inline std::wstring DevToolsEditUndoMembers(const std::wstring& handle, const st
         ? std::wstring(L"the previous value has no restore route") : prior.reason) + L"\"";
 }
 
-// A binding path reads every segment it names, so a secret anywhere on it would show in the bound property.
+// A binding path reads every segment it names, and every indexer key (`Credentials[Password]`), so a secret
+// anywhere on it would show in the bound property.
 inline bool DevToolsPathNamesSecret(const std::wstring& path)
 {
-    size_t start = 0;
-    while (start <= path.size()) {
-        const size_t dot = path.find(L'.', start);
-        std::wstring segment = path.substr(start, dot == std::wstring::npos ? std::wstring::npos : dot - start);
-        if (const size_t bracket = segment.find(L'['); bracket != std::wstring::npos) segment.resize(bracket);
-        if (DevToolsRead_IsSecretProperty(segment)) return true;
-        if (dot == std::wstring::npos) break;
-        start = dot + 1;
+    std::wstring name;
+    auto secret = [&name]() {
+        const size_t first = name.find_first_not_of(L" \t'\"");
+        const size_t last = name.find_last_not_of(L" \t'\"");
+        const bool found = first != std::wstring::npos && DevToolsRead_IsSecretProperty(name.substr(first, last - first + 1));
+        name.clear();
+        return found;
+    };
+    for (const wchar_t c : path) {
+        if (c == L'.' || c == L'[' || c == L']') { if (secret()) return true; continue; }
+        name += c;
     }
-    return false;
+    return secret();
 }
 
 // A source write has no exact undo: the binding can point at another object by the time it runs, and writing the
-// old value then changes that object instead. `sourceBefore` still reports the value the source held.
-inline std::wstring DevToolsWriteSourceUndoMembers()
+// old value then changes that object instead. `sourceBefore`, when present, reports the value the source held.
+inline std::wstring DevToolsWriteSourceUndoMembers(bool hasSourceBefore)
 {
-    return L"\"undo\":[],\"undoReason\":\"the binding's source can change before an undo runs, so DevTools does not "
-           L"write the previous value back for you; sourceBefore shows what it was\"";
+    return std::wstring(L"\"undo\":[],\"undoReason\":\"the binding's source can change before an undo runs, so DevTools "
+                        L"does not write the previous value back for you") +
+           (hasSourceBefore ? L"; sourceBefore shows what it was\"" : L"\"");
 }

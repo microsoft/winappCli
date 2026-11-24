@@ -343,17 +343,28 @@ winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 1
   the WinUI theme brushes. `partial: true` means some dictionaries couldn't be read.
 - `Resource.assign` sets a `{StaticResource}` key, or a `{ThemeResource}` key with
   `theme:=true`. An unknown key fails with `resource-not-found` and puts back the previous
-  value (`data.restored` says whether that worked).
+  value; the error message says whether that worked. Over a binding DevTools can't save
+  (for example in a C++ app, which has no managed agent), it only tries keys that
+  `Resource.list` offers. Any other key fails with `resource-unconfirmed` and changes
+  nothing; clear the property first to assign it anyway.
 - `Binding.walk handle=123 prop=Text path=Vm.Title` checks a path before you install it.
   `resolves` says whether it resolves against the DataContext, and `verdict` says why not.
+  A path whose last property exists but is null resolves.
 - `Binding.install` replaces the property's binding with a new `{Binding}` on the
-  DataContext. Use it to switch an `{x:Bind}` property to `{Binding}`. Converter, source
-  and other options are not kept; `warning` lists them. A path that reads a password is
-  refused.
+  DataContext. Use it to switch an `{x:Bind}` property to `{Binding}`; the app's compiled
+  bindings can still overwrite the property when they next update. Converter, source and
+  other options are not kept; `warning` lists them. A path that reads a password, or whose
+  value prints one (such as a record with a `Password` member), fails with
+  `refused-secret` and leaves the previous value in place.
 - `Binding.writeSource` writes through a TwoWay `{Binding}` to its source and keeps the
-  binding. It needs a .NET app launched with `winapp run --devtools on`. Its `undo` is
-  always empty: by the time you undo, the binding may point at another record. To put the
-  value back, call it again with `sourceBefore`.
+  binding. It needs the managed agent, which `winapp run --devtools on` and
+  `winapp devtools attach` load into a .NET app. Its `undo` is always empty: by the time
+  you undo, the binding may point at another record. To put the value back, call it again
+  with `sourceBefore`, which is missing when the old value has no text form (for example
+  null).
+
+When `Binding.install` or `Binding.writeSource` can't make the change, it fails with
+`binding-unavailable` and the error message says why.
 
 Each result has `before`, `after` and `undo`: the calls to run, in order, to put back what
 the edit replaced. For example, undoing `Binding.install` over the text `Hello` first

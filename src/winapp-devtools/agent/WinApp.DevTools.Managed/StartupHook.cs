@@ -121,7 +121,7 @@ internal sealed class StartupHook
                 string op = ReadString(reader);
                 string property = ReadString(reader);
                 string authored = ReadString(reader);
-                if (op is not ("diagnose" or "capture" or "captureoriginal" or "restore" or "restoreconfirmed" or "clear" or "writesource" or "reactor" or "reactorelement"
+                if (op is not ("diagnose" or "capture" or "captureoriginal" or "releaseoriginal" or "restore" or "restoreconfirmed" or "clear" or "writesource" or "reactor" or "reactorelement"
                     or "reactorcomponent" or "reactorsetstate" or "reactorrerender" or "reactorinvoke" or "resourceget" or "resourceset"
                     or "reactorreferences"))
                     throw new InvalidDataException("unsupported binding operation");

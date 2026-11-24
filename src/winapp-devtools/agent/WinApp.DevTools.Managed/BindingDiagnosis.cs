@@ -103,6 +103,8 @@ internal static class BindingDiagnosis
         "capture" => Capture(element, prop, authored, hold: false),
         // A protocol edit saves what it replaces this way, so a later capture of the edited state cannot overwrite it.
         "captureoriginal" => Capture(element, prop, authored, hold: true),
+        // The edit that held an original did not happen, so nothing is left for Binding.restore to put back.
+        "releaseoriginal" => ReleaseOriginal(element, prop),
         "restore" => Restore(element, prop, authored, false),
         "restoreconfirmed" => Restore(element, prop, authored, true),
         "clear" => Clear(element, prop),
@@ -380,6 +382,12 @@ internal static class BindingDiagnosis
         }
         sb.Append('}');
         return sb.ToString();
+    }
+
+    private static string ReleaseOriginal(FrameworkElement element, string prop)
+    {
+        Captured.Release(element, prop);
+        return "{\"state\":\"released\"}";
     }
 
     private static string Restore(FrameworkElement element, string prop, string authored, bool confirmOwnerRebind)

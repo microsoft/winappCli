@@ -12,6 +12,8 @@ struct DevToolsBindingReadBack
 };
 
 const wchar_t* DevToolsBindingInstall_ReplacementWarning();
+// The same warning without the window's note about managed captures; protocol edits capture for the caller.
+const wchar_t* DevToolsBindingInstall_ReplacementWarningCore();
 
 std::wstring DevToolsBindingInstall_Answer(const std::wstring& path, const std::wstring& mode,
                                       const DevToolsBindingReadBack& before, const DevToolsBindingReadBack& after,

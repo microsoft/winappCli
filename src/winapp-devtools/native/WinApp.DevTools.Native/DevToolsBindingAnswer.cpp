@@ -6,14 +6,21 @@
 #include "DevToolsRead.h"
 #include "DevToolsProtocol.h"
 
+#define WINAPP_DEVTOOLS_REPLACEMENT_WARNING \
+    L"Apply replaces the entire runtime binding with a new classic {Binding} using DataContext. " \
+    L"Only the entered path and mode are kept. Converter, ConverterParameter, ConverterLanguage, " \
+    L"UpdateSourceTrigger, FallbackValue, TargetNullValue, Source, ElementName and RelativeSource " \
+    L"are reset to defaults. This does not edit or recreate compiled x:Bind. Your .xaml is unchanged."
+
+const wchar_t* DevToolsBindingInstall_ReplacementWarningCore()
+{
+    return WINAPP_DEVTOOLS_REPLACEMENT_WARNING;
+}
+
 const wchar_t* DevToolsBindingInstall_ReplacementWarning()
 {
-    return L"Apply replaces the entire runtime binding with a new classic {Binding} using DataContext. "
-           L"Only the entered path and mode are kept. Converter, ConverterParameter, ConverterLanguage, "
-           L"UpdateSourceTrigger, FallbackValue, TargetNullValue, Source, ElementName and RelativeSource "
-           L"are reset to defaults. This does not edit or recreate compiled x:Bind. "
-           L"Your .xaml is unchanged. A prior managed capture can restore its saved classic binding; "
-           L"this editor does not capture one for you.";
+    return WINAPP_DEVTOOLS_REPLACEMENT_WARNING
+           L" A prior managed capture can restore its saved classic binding; this editor does not capture one for you.";
 }
 
 std::wstring DevToolsBindingInstall_Answer(const std::wstring& path, const std::wstring& mode,

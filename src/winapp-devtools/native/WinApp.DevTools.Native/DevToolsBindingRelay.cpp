@@ -222,7 +222,7 @@ bool DevToolsBindingRelay_IsAllowedOp(const std::wstring& op)
 {
     // Only managed binding operations and the Reactor element description cross this pipe.
     // Native DevToolsBindingInstall owns grafting.
-    return op == L"diagnose" || op == L"capture" || op == L"captureoriginal" || op == L"restore" || op == L"restoreconfirmed" || op == L"clear"
+    return op == L"diagnose" || op == L"capture" || op == L"captureoriginal" || op == L"releaseoriginal" || op == L"restore" || op == L"restoreconfirmed" || op == L"clear"
         || op == L"writesource" || op == L"reactor" || op == L"reactorelement" || op == L"reactorcomponent"
         || op == L"reactorsetstate" || op == L"reactorrerender" || op == L"reactorinvoke" || op == L"resourceget"
         || op == L"resourceset" || op == L"reactorreferences";

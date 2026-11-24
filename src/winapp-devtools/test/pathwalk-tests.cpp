@@ -81,6 +81,14 @@ static void Test_AProposedPathGetsTheInspectorsVerdict()
     const std::wstring missing = DevToolsPathWalk_Verdict(kMissing, false, &resolves);
     Check(!resolves && !missing.empty() && missing != L"Resolves. Not applied yet.",
           "a missing name does not resolve, and the verdict explains why");
+    const std::wstring nullEnd = DevToolsPathWalk_Verdict(
+        LR"({"path":"Vm.Title","against":"MainWindow","againstKind":"xbind","segments":[)"
+        LR"({"path":"Vm","found":true,"isNull":false,"hr":"0x0","type":"FixtureViewModel"},)"
+        LR"({"path":"Vm.Title","found":true,"isNull":true,"hr":"0x0"}]})", false, &resolves);
+    Check(resolves && nullEnd.find(L"null") != std::wstring::npos,
+          "a property that exists but is null now still resolves; the verdict says it is null");
+    DevToolsPathWalk_Verdict(kNullLink, false, &resolves);
+    Check(!resolves, "CONTROL: a null part way along the path stops it, so that path does not resolve");
 }
 static void Test_StatesThatMeanNothingToShow()
 {

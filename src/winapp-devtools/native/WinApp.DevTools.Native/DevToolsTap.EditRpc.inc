@@ -25,9 +25,30 @@ static void SessionEditNote(unsigned long long wire, const std::wstring& prop, D
     g_sessionEdits[{ wire, prop }] = std::move(edit);
 }
 
+// A parameter the schema types as a string: absent is fine, any other JSON type is refused. Empty on success.
+static std::wstring StringParam(const std::wstring& id, const DevToolsJson& p, const wchar_t* name, std::wstring* out)
+{
+    const DevToolsJson* value = p.Find(name);
+    if (!value) return L"";
+    if (value->type != DevToolsJsonType::String)
+        return DevToolsRpcError(id, DevToolsErr::InvalidParams, std::wstring(name) + L" must be a string.", L"bad-args");
+    if (out) *out = value->str;
+    return L"";
+}
+
+// OneWay, OneTime or TwoWay in any letter case, spelled the way the runtime and the undo steps spell it.
+static std::wstring CanonicalBindingMode(const std::wstring& mode)
+{
+    for (const wchar_t* known : { L"OneWay", L"OneTime", L"TwoWay" })
+        if (_wcsicmp(mode.c_str(), known) == 0) return known;
+    return L"";
+}
+
 // `handle` or `name`, addressed and scoped exactly like HotReload.setProperty. Empty on success.
 static std::wstring EditTargetFromParams(const std::wstring& id, const DevToolsJson& p, unsigned long long* wire)
 {
+    for (const wchar_t* key : { L"handle", L"name", L"prop" })
+        if (std::wstring refused = StringParam(id, p, key, nullptr); !refused.empty()) return refused;
     const std::wstring name = p.GetString(L"name"), handle = p.GetString(L"handle");
     unsigned long long parsed = 0;
     if (p.HasKey(L"handle") && !DevToolsParseWireHandle(handle, false, &parsed))
@@ -93,7 +114,7 @@ static std::wstring ReadEditPrior(const std::wstring& id, unsigned long long wir
     if (FAILED(hr)) return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher, L"The app's UI thread did not answer.", L"ui-thread",
                                             L"\"hresult\":\"" + HrStr(hr) + L"\"");
     if (st->secret) return DevToolsRpcError(id, DevToolsErr::RefusedUnsafe,
-        L"'" + prop + L"' holds a secret; DevTools does not read or write it.", L"refused-unsafe");
+        L"'" + prop + L"' holds a secret; DevTools does not read or write it.", L"refused-secret");
     if (!st->settable || !st->found) return DevToolsRpcError(id, DevToolsErr::InvalidParams,
         L"'" + prop + L"' is not a property this element can set", L"unknown-property");
     *row = std::move(st->row);
@@ -118,6 +139,94 @@ static void CapturePriorBinding(unsigned long long wire, const std::wstring& pro
         const std::wstring reason = parsed ? answer.GetString(L"reason") : std::wstring();
         prior->reason = L"the previous binding could not be captured" + (reason.empty() ? std::wstring() : L": " + reason);
     }
+}
+
+// An edit that did not happen leaves nothing for Binding.restore to undo, so let go of the original it saved.
+static void ReleaseHeldOriginal(unsigned long long wire, const std::wstring& prop, const DevToolsEditPrior& prior)
+{
+    if (prior.captured) CmdBindingOp(wire, L"releaseoriginal", prop);
+}
+
+// A value can print a secret its path does not name: a record's text lists every member. The managed agent redacts
+// such a value when it diagnoses the binding, so its answer says whether the installed binding would show one.
+static bool InstalledBindingShowsSecret(unsigned long long wire, const std::wstring& prop)
+{
+    DevToolsJson answer;
+    const std::wstring json = CmdBindingOp(wire, L"diagnose", prop);
+    return json.rfind(L"ERR ", 0) != 0 && DevToolsJsonParse(json, answer) && answer.IsObject() &&
+           answer.GetBool(L"redacted", false);
+}
+
+static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req);
+
+// Runs an edit's `undo` steps here, in order, the way a client would. True when there were steps and none failed.
+static bool RunUndoSteps(DevToolsConn* conn, const std::wstring& undoMembers)
+{
+    DevToolsJson parsed;
+    if (!DevToolsJsonParse(L"{" + undoMembers + L"}", parsed) || !parsed.IsObject()) return false;
+    const DevToolsJson* steps = parsed.Find(L"undo");
+    if (!steps || steps->type != DevToolsJsonType::Array || steps->arr.empty()) return false;
+    for (const DevToolsJson& step : steps->arr) {
+        DevToolsRpcRequest request;
+        request.parsed = request.valid = request.hasId = true;
+        request.idRaw = L"0";
+        request.method = step.GetString(L"method");
+        if (const DevToolsJson* params = step.Find(L"params")) request.params = *params;
+        DevToolsJson reply;
+        if (!DevToolsJsonParse(HandleRpc(conn, request), reply) || !reply.IsObject() || reply.Find(L"error")) return false;
+    }
+    return true;
+}
+
+// UI thread. The keys the inspector would suggest for `prop`, shared by Resource.list and Resource.assign.
+// False when the element has no such property.
+static bool CollectResourceKeys_ui(InstanceHandle ih, const std::wstring& prop, DevToolsResourceKeyList* list,
+                                   std::wstring* type)
+{
+    std::vector<DevToolsReadProp> props;
+    if (FAILED(ReadCuratedProps(ih, &props, nullptr))) return false;
+    bool found = false;
+    for (const auto& r : props) if (r.name == prop) { *type = r.type; found = true; break; }
+    if (!found) return false;
+    const std::wstring family = DevToolsResourceKeys_TypeFamily(*type);
+    if (family.empty()) return true;
+    try {
+        winrt::com_ptr<IInspectable> raw;
+        if (g_diag) g_diag->GetIInspectableFromHandle(ih, raw.put());
+        winrt::Windows::Foundation::IInspectable selected;
+        if (raw) winrt::copy_from_abi(selected, raw.get());
+        DevToolsResourceKeys_Collect(selected, family, *list);
+    } catch (const winrt::hresult_error& error) {
+        list->partial = true;
+        Log(L"resource.list enumeration failed hr=0x%08X", static_cast<unsigned>(error.code()));
+    }
+    for (const auto& r : props) {
+        if (r.authoredKind != L"themeResource" && r.authoredKind != L"staticResource") continue;
+        if (DevToolsResourceKeys_TypeFamily(r.type) == family) DevToolsResourceKeys_Add(r.authoredKey, *list);
+    }
+    DevToolsResourceKeys_AddDefaults(family, *list);
+    return true;
+}
+
+// UI thread. Records a key assigned to `prop` (by Resource.assign or the in-app inspector), so a later protocol edit
+// can undo back to the key rather than the value it produced.
+static void SessionEditNoteResource_ui(InstanceHandle ih, unsigned long long wire, const std::wstring& prop,
+                                       const std::wstring& key, bool theme, const std::wstring& after)
+{
+    DevToolsSessionEdit record;
+    record.resource = true; record.key = key; record.theme = theme; record.after = after;
+    record.elementTheme = ObserveEditTarget_ui(ih, prop).elementTheme;
+    SessionEditNote(wire, prop, record);
+}
+
+// UI thread. The text a property shows now, as Property.get reads it.
+static DevToolsReadProp ReadEditedRow_ui(InstanceHandle ih, const std::wstring& prop)
+{
+    std::vector<DevToolsReadProp> props;
+    const std::set<std::wstring> only{ prop };
+    ReadCuratedProps(ih, &props, nullptr, nullptr, &only, nullptr, nullptr);
+    for (auto& r : props) if (r.name == prop) return std::move(r);
+    return {};
 }
 
 // Same event HotReload.setProperty raises, with this connection as its origin so the writer can ignore the echo.
@@ -147,12 +256,14 @@ static std::wstring AppendMembers(const std::wstring& object, const std::wstring
 // callback staying quiet AND a local value being set. A failed lookup can clear the property, so put back what it held.
 static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id, const DevToolsJson& p)
 {
-    const std::wstring prop = p.GetString(L"prop"), key = p.GetString(L"key");
+    std::wstring prop, key;
+    if (std::wstring refused = StringParam(id, p, L"key", &key); !refused.empty()) return refused;
+    prop = p.GetString(L"prop");
     const DevToolsJson* themeParam = p.Find(L"theme");
     if (themeParam && themeParam->type != DevToolsJsonType::Bool)
-        return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"theme must be a boolean", L"bad-args");
+        return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"theme must be a boolean.", L"bad-args");
     const bool theme = themeParam && themeParam->b;
-    if (key.empty()) return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"key is required", L"bad-args");
+    if (key.empty()) return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"key is required.", L"bad-args");
     unsigned long long wire = 0;
     if (std::wstring refused = EditTargetFromParams(id, p, &wire); !refused.empty()) return refused;
     DevToolsReadProp before;
@@ -160,7 +271,26 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
     if (std::wstring refused = ReadEditPrior(id, wire, prop, &before, &prior); !refused.empty()) return refused;
     CapturePriorBinding(wire, prop, &prior);
 
-    struct Outcome { bool applied = false, restored = false, bindingLost = false; DevToolsReadProp after; int theme = -1; const wchar_t* error = nullptr; };
+    // A failed lookup clears the property. With no saved copy of the binding it could not be put back, so only try
+    // a key the inspector can see in scope (no managed agent, as in a C++ app, or a binding it could not capture).
+    if (prior.kind == DevToolsPriorKind::Binding && !prior.captured) {
+        struct Keys { DevToolsResourceKeyList list; std::wstring type; };
+        auto keys = std::make_shared<Keys>();
+        RunOnUiThread([wire, prop, keys]() -> HRESULT {
+            InstanceHandle ih = 0; const wchar_t* e = nullptr;
+            { CensusSharedLock lock; if (!ResolveWire_nolock(wire, &ih, &e)) return E_INVALIDARG; }
+            CollectResourceKeys_ui(ih, prop, &keys->list, &keys->type);
+            return S_OK;
+        });
+        if (std::find(keys->list.keys.begin(), keys->list.keys.end(), key) == keys->list.keys.end())
+            return DevToolsRpcError(id, DevToolsErr::NotFound,
+                L"DevTools cannot find resource '" + key + L"' for " + prop + L", and " + prior.reason +
+                L", so a failed lookup would remove the binding for good. Nothing was changed. To assign the key "
+                L"anyway, clear the property first with HotReload.clearProperty.",
+                L"resource-unconfirmed", L"\"key\":\"" + DevToolsJsonEscape(key) + L"\",\"prop\":\"" + DevToolsJsonEscape(prop) + L"\"");
+    }
+
+    struct Outcome { bool applied = false, restored = false, bindingLost = false; DevToolsReadProp after; const wchar_t* error = nullptr; };
     auto out = std::make_shared<Outcome>();
     bool completed = false;
     const HRESULT hr = RunOnUiThread([wire, prop, key, theme, prior, out]() -> HRESULT {
@@ -188,11 +318,8 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
         }
         out->applied = true;
         DevToolsBindingRow_ForgetLiveWrite(wire, prop);
-        std::vector<DevToolsReadProp> props;
-        const std::set<std::wstring> only{ prop };
-        ReadCuratedProps(ih, &props, nullptr, nullptr, &only, nullptr, nullptr);
-        for (auto& r : props) if (r.name == prop) { out->after = std::move(r); break; }
-        out->theme = ObserveEditTarget_ui(ih, prop).elementTheme;
+        out->after = ReadEditedRow_ui(ih, prop);
+        SessionEditNoteResource_ui(ih, wire, prop, key, theme, out->after.value);
         return S_OK;
     }, &completed);
     if (completed && out->error) return BridgeErrToRpc(id, std::wstring(L"ERR ") + out->error);
@@ -217,16 +344,14 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
         return DevToolsRpcError(id, DevToolsErr::NotFound,
             L"Resource '" + key + L"' was not found or could not be assigned to " + prop + L". " +
             (restored ? std::wstring(L"The previous value was restored. Check the key and resource type.")
-                      : std::wstring(L"The previous value could not be restored; set the property again.")),
+                      : L"The previous value could not be restored" +
+                        (before.value.empty() ? std::wstring(L".") : L"; it was '" + before.value + L"'.") +
+                        L" Set the property again."),
             L"resource-not-found",
             L"\"key\":\"" + DevToolsJsonEscape(key) + L"\",\"prop\":\"" + DevToolsJsonEscape(prop) +
             L"\",\"restored\":" + (restored ? L"true" : L"false"));
     }
 
-    DevToolsSessionEdit record;
-    record.resource = true; record.key = key; record.theme = theme; record.after = out->after.value;
-    record.elementTheme = out->theme;
-    SessionEditNote(wire, prop, record);
     BroadcastEditedProperty(conn, wire, prop, out->after.value);
     return DevToolsRpcResult(id, L"{\"prop\":\"" + DevToolsJsonEscape(prop) + L"\",\"key\":\"" + DevToolsJsonEscape(key) +
         L"\",\"kind\":\"" + (theme ? L"themeResource" : L"staticResource") +
@@ -236,18 +361,30 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
         L"," + DevToolsEditUndoMembers(std::to_wstring(wire), prop, prior) + L"}");
 }
 
+// A binding edit that could not happen is an error, like a failed Resource.assign; `reason` says why.
+static std::wstring BindingEditUnavailable(const std::wstring& id, const std::wstring& lead, const std::wstring& reason)
+{
+    std::wstring sentence = reason.empty() ? std::wstring(L"the app gave no reason") : reason;
+    if (sentence.back() == L'.') sentence.pop_back();
+    return DevToolsRpcError(id, DevToolsErr::CapabilityUnsupported, lead + sentence + L". Nothing was changed.",
+                            L"binding-unavailable", L"\"reason\":\"" + DevToolsJsonEscape(reason) + L"\"");
+}
+
 // The in-process window's "Replace entire binding", which is also how an {x:Bind} property is switched to {Binding}.
 static std::wstring RpcBindingInstall(DevToolsConn* conn, const std::wstring& id, const DevToolsJson& p)
 {
-    const std::wstring prop = p.GetString(L"prop"), path = p.GetString(L"path"), mode = p.GetString(L"mode", L"OneWay");
-    if (path.empty()) return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"path is required", L"bad-args");
+    std::wstring path, modeText = L"OneWay";
+    if (std::wstring refused = StringParam(id, p, L"path", &path); !refused.empty()) return refused;
+    if (std::wstring refused = StringParam(id, p, L"mode", &modeText); !refused.empty()) return refused;
+    const std::wstring prop = p.GetString(L"prop"), mode = CanonicalBindingMode(modeText);
+    if (path.empty()) return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"path is required.", L"bad-args");
     if (const std::wstring why = DevToolsPathSyntax_Reason(path); !why.empty())
         return DevToolsRpcError(id, DevToolsErr::InvalidParams, why, L"bad-path");
-    if (DevToolsBindingInstall_ModeOrdinal(mode) < 0)
-        return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"mode must be OneWay, OneTime or TwoWay", L"bad-args");
+    if (mode.empty())
+        return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"mode must be OneWay, OneTime or TwoWay.", L"bad-args");
     if (DevToolsPathNamesSecret(path))
         return DevToolsRpcError(id, DevToolsErr::RefusedUnsafe,
-            L"'" + path + L"' reads a secret; DevTools does not bind a property to it.", L"refused-unsafe");
+            L"'" + path + L"' reads a secret; DevTools does not bind a property to it.", L"refused-secret");
     unsigned long long wire = 0;
     if (std::wstring refused = EditTargetFromParams(id, p, &wire); !refused.empty()) return refused;
     DevToolsReadProp before;
@@ -256,13 +393,27 @@ static std::wstring RpcBindingInstall(DevToolsConn* conn, const std::wstring& id
     CapturePriorBinding(wire, prop, &prior);
 
     const std::wstring json = CmdBindingInstall(wire, prop, path, mode);
-    if (json.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, json);
     DevToolsJson answer;
-    if (!DevToolsJsonParse(json, answer) || !answer.IsObject())
-        return DevToolsRpcError(id, DevToolsErr::InternalError, L"the binding install returned no answer", L"internal");
-    if (answer.GetString(L"state") != L"bound") return DevToolsRpcResult(id, json);
-    if (answer.GetString(L"bound") != L"True")
-        return DevToolsRpcResult(id, L"{\"state\":\"unavailable\",\"reason\":\"the binding did not install\"}");
+    const bool parsed = json.rfind(L"ERR ", 0) != 0 && DevToolsJsonParse(json, answer) && answer.IsObject();
+    if (!parsed || answer.GetString(L"state") != L"bound" || answer.GetString(L"bound") != L"True") {
+        ReleaseHeldOriginal(wire, prop, prior);
+        if (json.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, json);
+        if (!parsed) return DevToolsRpcError(id, DevToolsErr::InternalError, L"The binding install returned no answer.", L"internal");
+        return BindingEditUnavailable(id, L"The binding was not installed: ", answer.GetString(L"reason", L"the binding did not install"));
+    }
+    const std::wstring undo = DevToolsEditUndoMembers(std::to_wstring(wire), prop, prior, /*editLeftBinding*/ true);
+
+    // Checked before anything reports the new value, so a refused binding never leaves the app.
+    if (InstalledBindingShowsSecret(wire, prop)) {
+        bool restored = RunUndoSteps(conn, undo);
+        if (!restored) RunUndoSteps(conn, L"\"undo\":[" + DevToolsUndoStep(L"HotReload.clearProperty",
+                                                                         DevToolsUndoTarget(std::to_wstring(wire), prop)) + L"]");
+        return DevToolsRpcError(id, DevToolsErr::RefusedUnsafe,
+            L"'" + path + L"' shows a secret: its value prints a member whose name ends in Password. " +
+            (restored ? std::wstring(L"DevTools put the previous value back.")
+                      : std::wstring(L"DevTools could not put the previous value back, so it cleared the property.")),
+            L"refused-secret", L"\"restored\":" + std::wstring(restored ? L"true" : L"false"));
+    }
 
     // The install's own read-back reports a binding as its expression handle, so read the value it produces instead.
     // A timed-out UI turn can still be writing, so read nothing from it unless it finished.
@@ -272,18 +423,13 @@ static std::wstring RpcBindingInstall(DevToolsConn* conn, const std::wstring& id
         DevToolsBindingRow_ForgetLiveWrite(wire, prop);
         InstanceHandle ih = 0; const wchar_t* e = nullptr;
         { CensusSharedLock lock; if (!ResolveWire_nolock(wire, &ih, &e)) return E_INVALIDARG; }
-        std::vector<DevToolsReadProp> props;
-        const std::set<std::wstring> only{ prop };
-        ReadCuratedProps(ih, &props, nullptr, nullptr, &only, nullptr, nullptr);
-        for (const auto& r : props) if (r.name == prop) { read->value = r.value; break; }
+        read->value = ReadEditedRow_ui(ih, prop).value;
         return S_OK;
     });
     if (FAILED(readHr)) return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher,
         L"The binding was installed, but the app's UI thread did not answer the read-back.", L"ui-thread",
         L"\"hresult\":\"" + HrStr(readHr) + L"\"");
     const std::wstring after = read->value;
-    std::wstring warning = DevToolsBindingInstall_ReplacementWarning();
-    if (const size_t cut = warning.find(L" A prior managed capture"); cut != std::wstring::npos) warning.resize(cut);
     DevToolsSessionEdit record;
     record.path = path; record.mode = mode; record.bindingId = answer.GetString(L"after");
     SessionEditNote(wire, prop, record);
@@ -292,8 +438,7 @@ static std::wstring RpcBindingInstall(DevToolsConn* conn, const std::wstring& id
         L"\",\"mode\":\"" + DevToolsJsonEscape(mode) + L"\",\"before\":\"" + DevToolsJsonEscape(before.value) +
         L"\",\"after\":\"" + DevToolsJsonEscape(after) + L"\",\"bound\":\"True\",\"previousKind\":\"" +
         DevToolsPriorKindToken(prior) + L"\",\"captured\":" + (prior.captured ? L"true" : L"false") +
-        L",\"warning\":\"" + DevToolsJsonEscape(warning) + L"\"," +
-        DevToolsEditUndoMembers(std::to_wstring(wire), prop, prior, /*editLeftBinding*/ true) + L"}");
+        L",\"warning\":\"" + DevToolsJsonEscape(DevToolsBindingInstall_ReplacementWarningCore()) + L"\"," + undo + L"}");
 }
 
 // The window's "Write a test value": changes the TwoWay binding's source and keeps the binding installed.
@@ -302,16 +447,18 @@ static std::wstring RpcBindingWriteSource(DevToolsConn* conn, const std::wstring
     const std::wstring prop = p.GetString(L"prop");
     const DevToolsJson* value = p.Find(L"value");
     if (!value || value->type != DevToolsJsonType::String)
-        return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"value must be a string", L"bad-args");
+        return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"value must be a string.", L"bad-args");
     unsigned long long wire = 0;
     if (std::wstring refused = EditTargetFromParams(id, p, &wire); !refused.empty()) return refused;
     const std::wstring json = CmdBindingOp(wire, L"writesource", prop, value->str);
     if (json.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, json);
     DevToolsJson answer;
-    if (!DevToolsJsonParse(json, answer) || !answer.IsObject() || answer.GetString(L"state") != L"wroteSource")
-        return DevToolsRpcResult(id, json);
+    if (!DevToolsJsonParse(json, answer) || !answer.IsObject())
+        return DevToolsRpcError(id, DevToolsErr::InternalError, L"The source write returned no answer.", L"internal");
+    if (answer.GetString(L"state") != L"wroteSource")
+        return BindingEditUnavailable(id, L"The source was not written: ", answer.GetString(L"reason"));
     BroadcastEditedProperty(conn, wire, prop, answer.GetString(L"after"));
-    return DevToolsRpcResult(id, AppendMembers(json, DevToolsWriteSourceUndoMembers()));
+    return DevToolsRpcResult(id, AppendMembers(json, DevToolsWriteSourceUndoMembers(answer.Find(L"sourceBefore") != nullptr)));
 }
 
 // The in-app inspector's key suggestions: keys whose values fit the property, from the element's dictionaries up to
@@ -321,34 +468,13 @@ static std::wstring RpcResourceList(const std::wstring& id, const DevToolsJson& 
     const std::wstring prop = p.GetString(L"prop");
     unsigned long long wire = 0;
     if (std::wstring refused = EditTargetFromParams(id, p, &wire); !refused.empty()) return refused;
-    struct State { DevToolsResourceKeyList list; std::wstring type, family; bool found = false; const wchar_t* error = nullptr; };
+    struct State { DevToolsResourceKeyList list; std::wstring type; bool found = false; const wchar_t* error = nullptr; };
     auto st = std::make_shared<State>();
     bool completed = false;
     const HRESULT hr = RunOnUiThread([wire, prop, st]() -> HRESULT {
         InstanceHandle ih = 0;
         { CensusSharedLock lock; if (!ResolveWire_nolock(wire, &ih, &st->error)) return E_INVALIDARG; }
-        std::vector<DevToolsReadProp> props;
-        const HRESULT read = ReadCuratedProps(ih, &props, nullptr);
-        if (FAILED(read)) return read;
-        for (const auto& r : props) if (r.name == prop) { st->type = r.type; st->found = true; break; }
-        if (!st->found) return S_OK;
-        st->family = DevToolsResourceKeys_TypeFamily(st->type);
-        if (st->family.empty()) return S_OK;
-        try {
-            winrt::com_ptr<IInspectable> raw;
-            if (g_diag) g_diag->GetIInspectableFromHandle(ih, raw.put());
-            winrt::Windows::Foundation::IInspectable selected;
-            if (raw) winrt::copy_from_abi(selected, raw.get());
-            DevToolsResourceKeys_Collect(selected, st->family, st->list);
-        } catch (const winrt::hresult_error& error) {
-            st->list.partial = true;
-            Log(L"resource.list enumeration failed hr=0x%08X", static_cast<unsigned>(error.code()));
-        }
-        for (const auto& r : props) {
-            if (r.authoredKind != L"themeResource" && r.authoredKind != L"staticResource") continue;
-            if (DevToolsResourceKeys_TypeFamily(r.type) == st->family) DevToolsResourceKeys_Add(r.authoredKey, st->list);
-        }
-        DevToolsResourceKeys_AddDefaults(st->family, st->list);
+        st->found = CollectResourceKeys_ui(ih, prop, &st->list, &st->type);
         return S_OK;
     }, &completed);
     if (completed && st->error) return BridgeErrToRpc(id, std::wstring(L"ERR ") + st->error);

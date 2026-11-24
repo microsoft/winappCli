@@ -84,6 +84,12 @@ static std::wstring CmdBindingOp(unsigned long long wire, const std::wstring& op
     return json;
 }
 
+#ifdef WINAPP_DEVTOOLS_NATIVE_RUNTIME_TESTS
+// Stands in for the runtime Binding install, which a headless test cannot activate.
+static std::wstring (*g_testBindingInstall)(InstanceHandle, const std::wstring&, const std::wstring&,
+                                            const std::wstring&) = nullptr;
+#endif
+
 // The caller already has both -- the pane's editor collects them as separate fields -- so carrying "{Binding
 // Vm.Title, Mode=OneWay}" across this boundary would mean writing a native parser to take it apart again, and a
 // second parser that can disagree with the C# one about what "{Binding Path=A, Converter={StaticResource B}}" means.
@@ -125,6 +131,9 @@ static std::wstring CmdBindingInstall(unsigned long long wire, const std::wstrin
             return rb;
         };
 
+#ifdef WINAPP_DEVTOOLS_NATIVE_RUNTIME_TESTS
+        if (g_testBindingInstall) { *json = g_testBindingInstall(ih, prop, path, mode); return S_OK; }
+#endif
         DevToolsBindingInstall_Apply(g_diag, g_vts3, ih, idx, path, mode, readBack, json.get());
         return S_OK;
     });

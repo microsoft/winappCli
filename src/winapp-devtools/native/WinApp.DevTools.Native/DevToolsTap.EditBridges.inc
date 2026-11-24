@@ -571,6 +571,10 @@ static bool Route1Resolve(InstanceHandle wire, const std::wstring& prop, const s
     HRESULT hr = ResolveResourceApply(ih, prop, resourceName, asTheme);
     if (FAILED(hr)) { Log(L"route1.resolve '%s' <- %s hr=0x%08X", prop.c_str(), resourceName.c_str(), hr); return false; }
     Log(L"route1.resolve '%s' <- %s OK", prop.c_str(), resourceName.c_str());
+    // Recorded like Resource.assign, so a protocol edit after this one can undo back to the key.
+    const unsigned int idx = FindPropIndex(ih, prop);
+    if (idx != 0xFFFFFFFF && ReadPriorLocalValue(ih, idx).had)
+        SessionEditNoteResource_ui(ih, (unsigned long long)wire, prop, resourceName, asTheme, ReadEditedRow_ui(ih, prop).value);
     return true;
 }
 
@@ -591,6 +595,13 @@ static bool Route1Bind(InstanceHandle wire, const std::wstring& op, const std::w
         if (outJson->rfind(L"ERR ", 0) == 0) {
             *outJson = DevToolsBindingRelay_UnavailableJson(L"this element is no longer in the visual tree");
             return false;
+        }
+        // Recorded like Binding.install, so a protocol edit after this one can undo back to this binding.
+        DevToolsJson answer;
+        if (DevToolsJsonParse(*outJson, answer) && answer.IsObject() && answer.GetString(L"bound") == L"True") {
+            DevToolsSessionEdit record;
+            record.path = payload; record.mode = CanonicalBindingMode(mode); record.bindingId = answer.GetString(L"after");
+            SessionEditNote((unsigned long long)wire, prop, record);
         }
         // TRUE means "an answer was produced", not "it worked". The caller decides success from the answer's
         // own read-back (`bound`), which is the same discipline it already applies to the agent ops --

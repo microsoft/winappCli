@@ -159,11 +159,16 @@ static void Test_AnEditAnswersWithTheCallsThatUndoIt()
     Check(DevToolsPathNamesSecret(L"Password") && DevToolsPathNamesSecret(L"Vm.Login.UserPassword") &&
           DevToolsPathNamesSecret(L"Accounts[0].Password") && DevToolsPathNamesSecret(L"Vm.Password.Length"),
           "a binding path that reads a secret anywhere along it is recognised");
-    Check(!DevToolsPathNamesSecret(L"Vm.Title") && !DevToolsPathNamesSecret(L"Items[Password].Name"),
-          "CONTROL: ordinary paths, and an indexer argument that only mentions the word, are not");
-    Check(BContains(DevToolsWriteSourceUndoMembers(), L"\"undo\":[]") &&
-          BContains(DevToolsWriteSourceUndoMembers(), L"undoReason"),
-          "a source write offers no undo, because the binding can point at another object by the time it runs");
+    Check(DevToolsPathNamesSecret(L"Credentials[Password]") && DevToolsPathNamesSecret(L"Vm.Settings['DbPassword']") &&
+          DevToolsPathNamesSecret(L"Items[Password].Name"),
+          "and so is an indexer key that names a secret, which reads that entry");
+    Check(!DevToolsPathNamesSecret(L"Vm.Title") && !DevToolsPathNamesSecret(L"Items[0].Name") &&
+          !DevToolsPathNamesSecret(L"Items[PasswordHint]"),
+          "CONTROL: ordinary paths and keys are not");
+    Check(BContains(DevToolsWriteSourceUndoMembers(true), L"\"undo\":[]") &&
+          BContains(DevToolsWriteSourceUndoMembers(true), L"sourceBefore") &&
+          !BContains(DevToolsWriteSourceUndoMembers(false), L"sourceBefore"),
+          "a source write offers no undo, and points at sourceBefore only when there is one");
 
     auto halfRed = Row(L"Local", L"#FFFF0000");
     DevToolsReadProp color; color.name = L"Color"; color.value = L"Red";
