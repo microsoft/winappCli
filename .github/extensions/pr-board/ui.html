@@ -1748,7 +1748,7 @@ function reviewTabHtml(c) {
       const d = decisionOf(c, f.id);
       const ex = expl[f.id];
       return `<article class="finding d-${d}" id="finding-${esc(f.id)}">
-        <div class="fh"><span class="sev s-${esc(f.severity)}">${esc(f.severity)}</span><span class="hint">${esc(f.category)}${f.confidence ? ` · ${esc(f.confidence)} confidence` : ""}</span><b>${esc(f.title)}</b></div>
+        <div class="fh"><span class="sev s-${esc(f.severity)}">${esc(f.severity)}</span><span class="hint">${esc(f.category)}${f.confidence ? ` · ${esc(f.confidence)} confidence` : ""}</span><b>${esc(f.title)}</b>${f.status === "fixed" ? `<span class="gh-tag ok">Fixed</span>` : f.status === "declined" ? `<span class="gh-tag">Declined</span>` : ""}</div>
         ${f.files.length ? `<div class="flist" style="flex-direction:row;flex-wrap:wrap;gap:var(--s2)">${f.files.map(fileLink).join("")}</div>` : ""}
         ${f.description ? `<div class="md">${md(f.description)}</div>` : ""}
         ${f.recommendation ? `<div class="md"><b>Suggestion:</b> ${mdInline(f.recommendation)}</div>` : ""}
@@ -2204,18 +2204,21 @@ function lifecycleBall(c, skipYou, running) {
   if (r?.ready && c.reviewDecision === "APPROVED") return skipYou ? null : { st: "ready", ask: "Approved: merge it", ship: true, since: r.fetchedAt };
   if (r && watched(c)) {
     const g = Object.fromEntries(r.gates.map((x) => [x.id, x]));
-    const fb = g.discussion?.state === "fail" ? `New feedback: agent addressing it (${g.discussion.reason})`
-      : g.copilot?.state === "fail" && /unresolved/.test(g.copilot.reason) ? `New Copilot comments: agent addressing them`
-      : g.ci?.state === "fail" ? `CI failing: agent fixing it (${g.ci.reason})`
-      : g.uptodate?.state === "fail" ? `Conflicts: agent resolving them` : null;
-    if (fb) return { st: "agent", ask: fb, watch: true, since: r.fetchedAt };
+    // Agent merge being on isn't work in progress: say "addressing" only while the session is busy.
+    const doing = running ? "agent addressing it" : "Agent merge picks it up";
+    const fb = g.discussion?.state === "fail" ? `New feedback: ${doing} (${g.discussion.reason})`
+      : g.copilot?.state === "fail" && /unresolved/.test(g.copilot.reason) ? `New Copilot comments: ${doing}`
+      : g.ci?.state === "fail" ? `CI failing: ${running ? "agent fixing it" : "Agent merge picks it up"} (${g.ci.reason})`
+      : g.uptodate?.state === "fail" ? `Conflicts: ${running ? "agent resolving them" : "Agent merge picks them up"}` : null;
+    if (fb) return { st: "agent", idle: !running, ask: fb, watch: true, since: r.fetchedAt };
   }
   if (label === "agent-blocked" && !skipYou) return { st: "blocked", ask: `Agent blocked: ${(l.next?.owner === "you" && l.next.action) || l.agent?.outcome || "it needs your help"}`, fix: true, since: l.agent?.updatedAt || c.updatedAt };
   // Blocking pr-review findings: the agent fixes them while it's preparing the PR; otherwise you decide.
   const fx = [...(r?.gates || []), ...(r?.extras || [])].find((x) => x.id === "review" && x.items?.length);
   if (fx) {
     const n = fx.items.length, s = n === 1 ? "" : "s";
-    if (watched(c) || label === "agent-preparing" || running) return { st: "agent", idle: !running, ask: `Addressing ${n} pr-review finding${s}${meter}`, since: l.reviewSetAt || r.fetchedAt };
+    // Agent merge doesn't act on pr-review findings, so a watched PR whose session is idle isn't "addressing" them.
+    if (label === "agent-preparing" || running) return { st: "agent", idle: !running, ask: `Addressing ${n} pr-review finding${s}${meter}`, since: l.reviewSetAt || r.fetchedAt };
     if (!skipYou) return { st: "decide", ask: `Decide on ${n} pr-review finding${s}: fix or not needed`, findings: true, since: l.reviewSetAt || r.fetchedAt };
   }
   // Not ready for human review yet: a reviewer or readiness step for you waits until the core gates pass.
@@ -2277,7 +2280,7 @@ function deriveBall(c, skipYou) {
   if (rp && !skipYou) {
     const what = rp.kind === "push" ? `${rp.who} pushed new commits${issue ? "" : ": re-review"}` : rp.kind === "review" ? `${rp.who} ${rp.state === "APPROVED" ? "approved" : rp.state === "CHANGES_REQUESTED" ? "requested changes" : "reviewed"}` : `${rp.who} replied${rp.count > 1 ? ` (${rp.count} comments)` : ""}`;
     const quote = rp.preview && rp.kind !== "push" ? `: “${rp.preview.length > 110 ? rp.preview.slice(0, 109) + "…" : rp.preview}”` : "";
-    if (!issue && c.keepReady && rp.role === "reviewer") return { st: "agent", ask: `${what}; the agent is addressing it`, since: rp.at, replied: rp };
+    if (!issue && c.keepReady && rp.role === "reviewer" && running) return { st: "agent", ask: `${what}; the agent is addressing it`, since: rp.at, replied: rp };
     return { st: "replied", ask: what + quote, replied: rp, since: rp.at };
   }
   // Private branch review: unsent comments, or new commits after you sent some, are your move.

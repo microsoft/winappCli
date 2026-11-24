@@ -1131,7 +1131,7 @@ function storeReview(repo, pr, review, { replace }) {
     const head = board(repo).card(pr)?.headSha || null;
     updatePr(repo, pr, (s) => {
         // Findings may use top-level file/line/endLine (or "path:12-20") instead of files[]; convert them.
-        if (Array.isArray(review.findings)) review.findings = review.findings.map((f) => adaptFinding(f)).filter(Boolean);
+        if (Array.isArray(review.findings)) review.findings = review.findings.map((f) => adaptFinding(f, "", { partial: !replace })).filter(Boolean);
         const next = replace ? review : mergeReview(s.review || {}, review);
         warnings = normalizeReview(next);
         next.headSha = next.headSha || head;

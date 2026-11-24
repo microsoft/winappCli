@@ -1151,13 +1151,14 @@ export function computeReadiness(raw, local = {}, ctx = {}) {
         for (const f of rv?.findings || []) {
             const t = local.triage?.[f.id] || {};
             if (!isBlockingFinding(f) || t.decision === "ignore" || t.decision === "post") { findings.other++; continue; }
+            if (f.status === "fixed") { findings.fixed = (findings.fixed || 0) + 1; continue; }
             if (t.fixRequestedAt) { findings.fixing++; continue; }
             findings.blocking.push({ id: f.id, title: f.title, severity: f.severity, category: f.category });
         }
         const n = rv?.findings?.length || 0;
         rvItem = findings.blocking.length
             ? { state: keepReady ? "fail" : "decide", reason: `${findings.blocking.length} finding${findings.blocking.length === 1 ? "" : "s"} to fix or mark not needed`, items: findings.blocking }
-            : { state: "pass", reason: n ? `Ran on ${short(rvHead || reviewHead)}; ${findings.fixing ? `${findings.fixing} being fixed, ` : ""}nothing blocking among ${n} finding${n === 1 ? "" : "s"}` : `Ran on ${short(rvHead || reviewHead)}${rv ? "; no findings" : ""}` };
+            : { state: "pass", reason: n ? `Ran on ${short(rvHead || reviewHead)}; ${findings.fixing ? `${findings.fixing} being fixed, ` : ""}${findings.fixed ? `${findings.fixed} fixed, ` : ""}nothing blocking among ${n} finding${n === 1 ? "" : "s"}` : `Ran on ${short(rvHead || reviewHead)}${rv ? "; no findings" : ""}` };
     }
     if (keepReady) gates.splice(1, 0, { id: "review", label: "pr-review", url: null, ...rvItem });
     else extras.push({ id: "review", label: "pr-review", ...rvItem });

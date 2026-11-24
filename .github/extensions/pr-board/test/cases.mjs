@@ -1050,6 +1050,31 @@ export function register(test) {
         await page.waitFor(`/DevTools engine/.test(document.getElementById('wsScroll').innerText)`, 4000, "the converted diagram");
         await assert.rejects(ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 101, review: { status: "ok" } }), /Nothing the board can show: expected at least one of summary, verdict, findings \(or rounds\[\]\.findings\).*Got keys: status/);
     });
+    test("regression (#1393): Agent merge being on isn't 'addressing'; fixed findings don't count as open", async (ctx) => {
+        const { page } = ctx;
+        const ball = () => page.eval(`(() => { const t = document.querySelector('#overview .ov-title[data-pr="101"]'); return (t.closest('.ov-row, .ym-card').innerText || '').replace(/\\s+/g, ' '); })()`);
+        await ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 101, review: { headSha: HEAD[101], verdict: "request-changes", summary: "Two things.", findings: [
+            { id: "f1", title: "Retry forever", category: "blocker", severity: "high", files: [{ path: "src/upload.js", line: 12 }] },
+            { id: "f2", title: "Swallowed error", category: "risk", severity: "high", files: [{ path: "src/upload.js", line: 20 }] }] } });
+        // Agent merge is on (#101 is kept ready) but its session is idle: nobody is addressing anything.
+        await page.waitFor(`/pr-review finding/.test(document.querySelector('#overview .ov-title[data-pr="101"]').closest('.ov-row, .ym-card').innerText)`, 4000, "the findings on the row");
+        assert.doesNotMatch(await ball(), /Addressing/, "an idle Agent merge shows as addressing");
+        assert.match(await ball(), /Decide on 2 pr-review findings/);
+        // While its session is busy, it is.
+        await ctx.board.tool("pr_board_sync_sessions", { repo: REPO, sessions: [{ pr: 101, sessionId: "s-101", name: "Uploader retries", role: "author", activity: "busy", agentMerge: { enabled: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"] } }] });
+        await page.waitFor(`/Addressing 2 pr-review findings/.test(document.querySelector('#overview .ov-title[data-pr="101"]').closest('.ov-row, .ym-card').innerText)`, 4000, "Addressing while busy");
+        // The session fixes them and says so: nothing is left open.
+        const r = await ctx.board.tool("pr_board_update_review", { repo: REPO, pr: 101, patch: { findings: [{ id: "f1", status: "fixed" }, { id: "f2", state: "resolved" }] } });
+        await ctx.board.tool("pr_board_sync_sessions", { repo: REPO, sessions: [{ pr: 101, sessionId: "s-101", name: "Uploader retries", role: "author", activity: "idle", agentMerge: { enabled: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"] } }] });
+        await page.waitFor(`!/pr-review finding/.test(document.querySelector('#overview .ov-title[data-pr="101"]').closest('.ov-row, .ym-card').innerText)`, 4000, "the findings to clear: " + JSON.stringify(r.warnings));
+        await openRow(page, 101);
+        await tabTo(page, "review");
+        assert.equal(await page.eval(`document.querySelectorAll('#wsScroll .finding .gh-tag.ok').length`), 2, "the findings aren't tagged Fixed");
+        const f1 = state(ctx).prs["101"].review.findings.find((f) => f.id === "f1");
+        assert.deepEqual([f1.title, f1.category, f1.files[0].line], ["Retry forever", "blocker", 12], "the status patch overwrote the finding");
+        await tabTo(page, "overview");
+        assert.match(await text(page, '#wsScroll .gates li[data-gate="review"]'), /2 fixed, nothing blocking among 2 findings/);
+    });
     // ---- Branch review (issue with no PR yet) ------------------------------------------------------
     test("changes tab: comment on a line, then send it to the agent", async (ctx) => {
         const { page } = ctx;

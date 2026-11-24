@@ -77,6 +77,7 @@ const finding = {
         confidence: { type: "string", enum: ["high", "medium", "low"] },
         files: { type: "array", items: fileRef },
         diagramRefs: { type: "array", items: diagramRef },
+        status: { type: "string", enum: ["open", "fixed", "declined"], description: "fixed = already fixed in the PR head (kept for the record; it doesn't block). declined = the session disagrees; the user decides. Default open." },
     },
     required: ["category", "title"],
 };
@@ -128,6 +129,9 @@ product manager first: plain words, what changes for the person using the produc
      \`node.component\` and list their files.
    - findings: category, severity, plain title, description (what and why it matters), recommendation
      (smallest fix), files with line numbers on the PR head (so it can be posted inline), diagramRefs.
+     On your own PR, when you fix a finding, set its \`status: "fixed"\` (pr_board_update_review with the
+     same id), or \`status: "declined"\` with the reason when you disagree, so fixed findings don't
+     show as still open.
 4. Push it: \`pr_board_set_review({ pr, review })\`, or for big PRs \`pr_board_update_review\` /
    \`pr_board_add_findings\` in steps. If you can't call pr_board_* tools (another session), write the
    review as JSON to a file and report its absolute path; the coordinator calls
@@ -184,18 +188,25 @@ function locOf(s) {
     const line = num(m[2] || m[4]), end = num(m[3] || m[5]);
     return { path: m[1], ...(line ? { line } : {}), ...(end && end !== line ? { endLine: end } : {}) };
 }
-export function adaptFinding(f, extra = "") {
+// partial: a patch for an existing finding (merged by id), so only fields it actually carries are set.
+export function adaptFinding(f, extra = "", { partial = false } = {}) {
     if (typeof f === "string") f = { title: f };
     if (!f || typeof f !== "object") return null;
     const sev = severityOf(f.severity || f.priority || f.level);
     const files = Array.isArray(f.files) && f.files.length ? f.files
         : [f.file || f.path || f.location].filter(Boolean).map((p) => { const l = locOf(p); if (!l) return null; const line = num(f.line ?? f.startLine ?? f.start_line) ?? l.line, end = num(f.endLine ?? f.end_line) ?? l.endLine; return { path: l.path, ...(line ? { line } : {}), ...(end && end !== line ? { endLine: end } : {}) }; }).filter(Boolean);
     const desc = text(f.description, f.what, f.body, f.details, f.detail, f.message, f.why, f.rationale);
-    const title = text(f.title, f.summary, f.name, desc.split("\n")[0]).slice(0, 140) || "Finding";
-    let category = CATEGORIES.includes(f.category) ? f.category : /block/i.test(String(f.severity || "")) ? "blocker" : /nit/i.test(String(f.severity || f.category || "")) ? "nit" : "risk";
-    const { file, path, location, startLine, start_line, end_line, priority, level, ...rest } = f;
-    return { ...rest, ...(f.id ? { id: String(f.id) } : {}), title, category, ...(sev ? { severity: sev } : {}), description: [desc && desc !== title ? desc : "", extra].filter(Boolean).join("\n\n"),
-        recommendation: text(f.recommendation, f.fix, f.suggestion, f.smallestFix, f.smallest_fix, f.proposedFix), files, ...(Array.isArray(f.diagramRefs) ? { diagramRefs: f.diagramRefs } : {}) };
+    const title = text(f.title, f.summary, f.name, desc.split("\n")[0]).slice(0, 140) || (partial ? "" : "Finding");
+    const category = CATEGORIES.includes(f.category) ? f.category : /block/i.test(String(f.severity || "")) ? "blocker" : /nit/i.test(String(f.severity || f.category || "")) ? "nit" : partial ? "" : "risk";
+    const { file, path, location, startLine, start_line, end_line, priority, level, fixed, resolved, ...rest } = f;
+    const st = String(f.status || f.state || "").toLowerCase();
+    const status = fixed === true || resolved === true || /^(fixed|resolved|addressed|done|closed)$/.test(st) ? "fixed" : /^(declined|wont.?fix|won't fix|rejected|not.?needed|disagree)/.test(st) ? "declined" : st === "open" ? "open" : undefined;
+    const description = [desc && desc !== title ? desc : "", extra].filter(Boolean).join("\n\n");
+    const recommendation = text(f.recommendation, f.fix, f.suggestion, f.smallestFix, f.smallest_fix, f.proposedFix);
+    const { state, ...kept } = rest;
+    const keep = (k, v) => (v || !partial ? { [k]: v } : {});
+    return { ...kept, ...(status ? { status } : state !== undefined ? { state } : {}), ...(f.id ? { id: String(f.id) } : {}), ...keep("title", title), ...keep("category", category), ...(sev ? { severity: sev } : {}),
+        ...keep("description", description), ...keep("recommendation", recommendation), ...(files.length || !partial ? { files } : {}), ...(Array.isArray(f.diagramRefs) ? { diagramRefs: f.diagramRefs } : {}) };
 }
 /**
  * Accept the structured review, or the shapes pr-review sessions often write (rounds of findings and declined
@@ -226,7 +237,7 @@ export function adaptReview(raw) {
         }
         notes.push(`converted pr-review rounds: ${Array.isArray(last.findings) ? last.findings.length : 0} finding(s) from round ${rounds.length}, ${declined.length} declined`);
     }
-    if (findings) out.findings = findings.map((f) => (f?._declined ? adaptFinding({ ...f, _declined: undefined }, `_Declined by the session:_ ${f._declined}`) : adaptFinding(f))).filter(Boolean);
+    if (findings) out.findings = findings.map((f) => (f?._declined ? adaptFinding({ ...f, _declined: undefined, status: "declined" }, `_Declined by the session:_ ${f._declined}`) : adaptFinding(f))).filter(Boolean);
     if (findings?.some((f) => f && typeof f === "object" && (["file", "path", "location", "body", "message", "fix", "suggestion"].some((k) => k in f) || (f.severity && !SEVERITIES.includes(f.severity))))) notes.push("mapped finding fields (file:line, severity, body/fix) to the board's shape");
     const v = verdictOf(r.verdict ?? r.recommendation ?? r.decision ?? r.outcome ?? last.verdict ?? last.decision);
     if (v) { if (v !== r.verdict) notes.push(`verdict "${r.verdict ?? r.recommendation ?? r.decision ?? r.outcome ?? last.verdict ?? last.decision}" → ${v}`); out.verdict = v; } else delete out.verdict;

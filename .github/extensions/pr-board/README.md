@@ -48,7 +48,7 @@ The ball is one of these states, checked top to bottom:
 | State | Glyph | When |
 |---|---|---|
 | **Needs your decision** | orange `?` | A session is waiting on a question, the agent asked you something, or set a next step with choices |
-| **Agent working** | spinner (sparkle when no session is busy right now) | A session is busy, the agent is answering you, Agent merge is addressing new feedback on a watched PR, or your PR is labeled `agent-preparing` or isn't ready for human review yet |
+| **Agent working** | spinner (sparkle when no session is busy right now) | A session is busy, the agent is answering you, a watched PR has new feedback, failing CI or conflicts for Agent merge to pick up, or your PR is labeled `agent-preparing` or isn't ready for human review yet. Agent merge being on by itself isn't work: an idle watched PR just shows **Watching**, and it says "addressing" only while its session is busy |
 | **Blocked** | red `!` | On your PR: CI failing, merge conflicts, the `agent-blocked` label, or the agent failed |
 | **Ready for you** | orange `→` | Your review or re-review is wanted, a drafted review is ready to post, you have unsent branch comments, the agent pushed after your branch comments, or the agent handed you a step |
 | **Next: open a PR** | blue PR | An issue's fix is on a branch, the session is idle, and there's no PR yet |
@@ -721,7 +721,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ thread column: an anchor chip switches the tab on the left while the thread stays put (893ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-94 passed, 0 failed, 94 total (355s)
+95 passed, 0 failed, 95 total (356s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set
