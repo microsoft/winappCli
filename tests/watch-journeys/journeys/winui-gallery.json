@@ -22,7 +22,7 @@
     {
       "id": "g01-text", "row": 1, "title": "Text on the page",
       "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": ">Filter by...</TextBlock>", "text": ">Filter by (hr1)...</TextBlock>",
-      "expect": { "v1": "live+note", "today": "restart" },
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "property-equals", "target": "HrFilterLabel", "value": "Text=Filter by (hr1)..." }, { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ]
     },
     {
@@ -31,50 +31,50 @@
         { "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml.cs", "op": "insert-before", "find": "    private void AddItemToEnd()", "text": "    private int hrClicks;\n\n    private void HrCount_Click(object sender, RoutedEventArgs e)\n    {\n        HrCountText.Text = $\"clicks {++hrClicks}\";\n    }\n" },
         { "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "insert-after", "find": ">Filter by (hr1)...</TextBlock>", "text": "                    <Button x:Name=\"HrCountButton\" Margin=\"8\" Content=\"hr count\" Click=\"HrCount_Click\" />\n                    <TextBlock x:Name=\"HrCountText\" Margin=\"8\" Text=\"not clicked\" />" }
       ],
-      "expect": { "v1": "live+note", "today": "restart" },
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "invoke", "target": "HrCountButton" }, { "assert": "property-equals", "target": "HrCountText", "value": "Text=clicks 1" }, { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ]
     },
     {
       "id": "g04-xbind-add", "row": 2, "title": "x:Bind to an element on the page",
       "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "insert-after", "find": "<TextBlock x:Name=\"HrCountText\" Margin=\"8\" Text=\"not clicked\" />", "text": "                    <TextBlock x:Name=\"HrBind\" Margin=\"8\" Text=\"{x:Bind Control2.SelectionMode, Mode=OneWay}\" />",
-      "expect": { "v1": "live+note", "today": "restart" },
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "property-equals", "target": "HrBind", "value": "Text=Single" } ]
     },
     {
       "id": "g05-new-template-after-csharp", "row": 10, "title": "A new list with an x:DataType template, after a C# change (g03)",
       "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "insert-after", "find": "<TextBlock x:Name=\"HrBind\" Margin=\"8\" Text=\"{x:Bind Control2.SelectionMode, Mode=OneWay}\" />", "text": "                    <ListView x:Name=\"HrTemplateList\" Height=\"80\" ItemsSource=\"{x:Bind contacts2}\">\n                        <ListView.ItemTemplate>\n                            <DataTemplate x:DataType=\"local:Contact\">\n                                <TextBlock Text=\"{x:Bind Company}\" />\n                            </DataTemplate>\n                        </ListView.ItemTemplate>\n                    </ListView>",
-      "expect": { "v1": "live+note", "today": "restart" },
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "exists", "target": "HrTemplateList" }, { "assert": "xaml-text", "target": "XYZ Refrigerators" } ],
       "note": "the XAML compiler service must read the template's type from the app image by name (tracker: types matched by position)"
     },
     {
       "id": "g06-datatemplate", "row": 10, "title": "The list's DataTemplate",
       "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": "x:Phase=\"2\"\n                    Style=\"{ThemeResource BodyTextBlockStyle}\"\n                    Text=\"{x:Bind Company}\" />", "text": "x:Phase=\"2\"\n                    Style=\"{ThemeResource BodyTextBlockStyle}\"\n                    Text=\"{x:Bind Company}\" />\n                <TextBlock Grid.Row=\"1\" Grid.Column=\"1\" Margin=\"200,0,0,6\" FontSize=\"10\" Text=\"tpl hr6\" />",
-      "expect": { "v1": "live+note", "today": "restart" },
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "xaml-text", "target": "tpl hr6" } ]
     },
     {
       "id": "g13-page-not-shown", "row": 13, "title": "A page that isn't shown",
       "file": "WinUIGallery/Samples/Button/ButtonPage.xaml", "op": "replace", "find": "Text=\"Another option is to explicitly wrap the Button's content\"", "text": "Text=\"Another option is to explicitly wrap the Button's content (hr13)\"",
-      "expect": { "v1": "live+note", "today": "restart" }
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" }
     },
     {
       "id": "g14-broken-save", "row": 9, "title": "A value only the runtime rejects",
       "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"HrCountText\" Margin=\"8\"", "text": "<TextBlock x:Name=\"HrCountText\" Margin=\"1,2,3,4,5\"",
-      "expect": { "v1": "error", "today": "restart", "reason": "Thickness|1,2,3,4,5" },
-      "checks": [ { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" }, { "assert": "exists", "target": "tpl hr6" } ]
+      "expect": { "v1": "error", "today": "error", "stock": "not-applied", "reason": "Thickness|1,2,3,4,5" },
+      "checks": [ { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" }, { "assert": "xaml-text", "target": "tpl hr6" } ]
     },
     {
       "id": "g15-fixed", "row": 9, "title": "The value is fixed",
       "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"HrCountText\" Margin=\"1,2,3,4,5\"", "text": "<TextBlock x:Name=\"HrCountText\" Margin=\"8\"",
-      "expect": { "v1": "live+note", "today": "restart" },
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "property-equals", "target": "HrCountText", "value": "Margin=8,8,8,8" }, { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ]
     },
     {
       "id": "g08-app-resource", "row": 24, "title": "App.xaml: a brush the page uses",
       "file": "WinUIGallery/App.xaml", "op": "replace", "find": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FF808080\" />", "text": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FFFF8C00\" />",
-      "note": "known open bug: reloading Gallery's App.xaml makes WinUI end the app on its next tick (E_INVALIDARG, fail-fast 0xC000027B); the runtime side is investigating. Last on purpose, so its crash doesn't hide the steps before it. The journey app's App.xaml saves apply (controls-resources r24, r26)",
-      "expect": { "v1": "live+note", "today": "restart" },
+      "note": "needs the fork's fix for re-applied templates (d4fed9595): Gallery's OpacityMaskView binds a Border's Child, and the old Border kept it",
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "property-equals", "target": "HrFilterLabel", "value": "Foreground=#FFFF8C00" }, { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ]
     }
   ]
