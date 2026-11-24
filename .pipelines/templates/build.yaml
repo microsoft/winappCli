@@ -32,7 +32,8 @@ steps:
   inputs:
     pwsh: true
     filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
-    arguments: "-Stable:$${{ parameters.stable }} -SkipMsix"
+    # The tests run in parallel jobs from templates/test-jobs.yaml, not in this job.
+    arguments: "-Stable:$${{ parameters.stable }} -SkipMsix -SkipTests"
 - ${{ if eq(parameters['DoEsrp'], 'true') }}:
   - task: EsrpCodeSigning@6
     displayName: Code Sign ESRP - CLI
@@ -243,17 +244,6 @@ steps:
       errorActionPreference: stop
       filePath: $(System.DefaultWorkingDirectory)\scripts\verify-signatures.ps1
       arguments: '-Path "$(System.DefaultWorkingDirectory)/artifacts/cli","$(System.DefaultWorkingDirectory)/artifacts/msix-packages","$(System.DefaultWorkingDirectory)/artifacts/nuget","$(System.DefaultWorkingDirectory)/artifacts/*.tgz"'
-- task: CopyFiles@2
-  displayName: Copy Artifacts - Test Results
-  inputs:
-    sourceFolder: '$(System.DefaultWorkingDirectory)/artifacts/'
-    contents: '**/*.trx'
-    targetFolder: '$(Build.ArtifactStagingDirectory)/TestResults'
-- task: 1ES.PublishPipelineArtifact@1
-  displayName: Upload Artifact - Test Results
-  inputs:
-    path: '$(Build.ArtifactStagingDirectory)/TestResults'
-    artifactName: test-results
 - task: CopyFiles@2
   displayName: Copy Artifacts - CLI Binaries
   inputs:

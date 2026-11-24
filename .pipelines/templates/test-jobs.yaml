@@ -1,0 +1,178 @@
+# Test jobs shared by ci.yml and release.yml.
+#
+# The test suites run here, on separate agents, instead of inside the job that builds (and on a
+# release, signs) the shipped packages. Each lane runs the same build-cli.ps1 suite or shard that
+# GitHub Actions runs, so together they cover the same tests the single Build CLI step used to run
+# one after another.
+#
+# Every lane is a job in the calling stage, so any later stage that depends on that stage waits
+# for every lane. A test failure still blocks publishing.
+
+parameters:
+  # The job that publishes the CLI binaries and NuGet packages the lanes validate.
+  - name: artifactsJob
+    type: string
+  - name: cliArtifact
+    type: string
+    default: cli-binaries
+  - name: nugetArtifact
+    type: string
+    default: nuget-packages
+  # Release builds unstub telemetry before building, so the tests build the same sources.
+  - name: unstub
+    type: boolean
+    default: false
+  # The Official template traces every job with CodeQL when its cadence is due. These jobs only
+  # rebuild sources the shipped Build job already traces, and tracing the test processes makes
+  # timing-sensitive tests fail, so they opt out.
+  - name: disableCodeQL
+    type: boolean
+    default: false
+  - name: lanes
+    type: object
+    default:
+      - name: Cli1
+        displayName: CLI tests (shard 1)
+        suite: Cli
+        shard: 1
+      - name: Cli2
+        displayName: CLI tests (shard 2)
+        suite: Cli
+        shard: 2
+      - name: Cli4
+        displayName: CLI tests (shard 4)
+        suite: Cli
+        shard: 4
+      - name: UIAutomation
+        displayName: UI Automation tests
+        suite: UIAutomation
+        shard: 0
+      - name: Auxiliary
+        displayName: Node, analyzer and Pester tests
+        suite: Auxiliary
+        shard: 0
+
+jobs:
+- ${{ each lane in parameters.lanes }}:
+  - job: Test_${{ lane.name }}
+    displayName: ${{ lane.displayName }}
+    dependsOn: ${{ parameters.artifactsJob }}
+    timeoutInMinutes: 90
+    pool:
+      name: Azure-Pipelines-1ESPT-ExDShared
+      image: windows-2025
+      os: windows
+      hostArchitecture: amd64
+    templateContext:
+      ${{ if parameters.disableCodeQL }}:
+        sdl:
+          codeql:
+            compiled:
+              enabled: false
+              justificationForDisabling: Test-only job. It rebuilds sources the Build job already traces; tracing the test processes makes timing-sensitive tests fail.
+      inputs:
+      - input: pipelineArtifact
+        artifactName: ${{ parameters.cliArtifact }}
+        targetPath: $(Pipeline.Workspace)\test-inputs\cli
+      - input: pipelineArtifact
+        artifactName: ${{ parameters.nugetArtifact }}
+        targetPath: $(Pipeline.Workspace)\test-inputs\nuget
+    steps:
+    - checkout: self
+    - template: build-env.yaml
+    - ${{ if parameters.unstub }}:
+      - task: PowerShell@2
+        displayName: Replace Stubbed Files
+        inputs:
+          filePath: '.pipelines/Unstub.ps1'
+          arguments: '-TelemetryProviderGuid "$(TelemetryProviderGuid)"'
+    - task: PowerShell@2
+      displayName: Stage the artifacts under test
+      inputs:
+        pwsh: true
+        targetType: inline
+        errorActionPreference: stop
+        script: |
+          $artifacts = "$(System.DefaultWorkingDirectory)\artifacts"
+          New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
+          Copy-Item "$(Pipeline.Workspace)\test-inputs\cli" "$artifacts\cli" -Recurse -Force
+          Copy-Item "$(Pipeline.Workspace)\test-inputs\nuget" "$artifacts\nuget" -Recurse -Force
+    - task: PowerShell@2
+      displayName: Run ${{ lane.displayName }}
+      env:
+        NPM_CONFIG_USERCONFIG: $(System.DefaultWorkingDirectory)\.npmrc
+        WINAPP_TEST_NUGET_SOURCE: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/index.json
+      inputs:
+        pwsh: true
+        filePath: $(System.DefaultWorkingDirectory)\scripts\build-cli.ps1
+        ${{ if eq(lane.suite, 'Cli') }}:
+          arguments: -OnlyTests -UseExistingArtifacts -TestSuite Cli -CliShard ${{ lane.shard }}
+        ${{ else }}:
+          arguments: -OnlyTests -UseExistingArtifacts -TestSuite ${{ lane.suite }}
+    - task: 1ES.PublishPipelineArtifact@1
+      displayName: Upload test results
+      condition: succeededOrFailed()
+      inputs:
+        path: $(System.DefaultWorkingDirectory)\artifacts\TestResults
+        # The attempt keeps the name unique, so "Rerun failed jobs" can upload again.
+        artifactName: test-results-${{ lane.name }}-$(System.JobAttempt)
+
+# The DevTools engine's native tests and the CLI tests that drive its native dispatcher. They
+# build their own x64 engine, so this lane starts with the build instead of after it.
+- job: Test_DevToolsNative
+  displayName: DevTools native tests
+  dependsOn: []
+  timeoutInMinutes: 90
+  pool:
+    name: Azure-Pipelines-1ESPT-ExDShared
+    image: windows-2025
+    os: windows
+    hostArchitecture: amd64
+  ${{ if parameters.disableCodeQL }}:
+    templateContext:
+      sdl:
+        codeql:
+          compiled:
+            enabled: false
+            justificationForDisabling: Test-only job. It rebuilds sources the Build job already traces; tracing the test processes makes timing-sensitive tests fail.
+  steps:
+  - checkout: self
+  - template: build-env.yaml
+  - ${{ if parameters.unstub }}:
+    - task: PowerShell@2
+      displayName: Replace Stubbed Files
+      inputs:
+        filePath: '.pipelines/Unstub.ps1'
+        arguments: '-TelemetryProviderGuid "$(TelemetryProviderGuid)"'
+  - task: PowerShell@2
+    displayName: Build the engine and run native tests
+    inputs:
+      pwsh: true
+      targetType: inline
+      errorActionPreference: stop
+      script: |
+        .\src\winapp-devtools\build-devtools.ps1 -Configuration Release -Arch x64 -EngineOut "$(Agent.TempDirectory)\validation-devtools\win-x64"
+        if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Native DevTools validation failed' }
+  - task: PowerShell@2
+    displayName: Run CLI native integration tests
+    env:
+      WINAPP_TEST_NUGET_SOURCE: https://pkgs.dev.azure.com/microsoft/pde-oss/_packaging/pde-oss_Internal/nuget/v3/index.json
+    inputs:
+      pwsh: true
+      targetType: inline
+      errorActionPreference: stop
+      script: |
+        $env:WINAPP_NATIVE_TEST_FIXTURE = (Resolve-Path .\src\winapp-devtools\test\bin\native-runtime-tests.exe).Path
+        $project = '.\src\winapp-CLI\WinApp.Cli.Tests\WinApp.Cli.Tests.csproj'
+        dotnet build $project -c Debug -p:TreatWarningsAsErrors=true
+        if ($LASTEXITCODE -ne 0) { throw 'CLI native integration build failed' }
+        .\scripts\test-cli-shard.ps1 -Shard 3 -TestProjectPath $project `
+          -ResultsDirectory .\artifacts\TestResults\devtools `
+          -CoverageSettings .\src\winapp-CLI\coverage.runsettings
+        if (-not $? -or $LASTEXITCODE -ne 0) { throw 'CLI native integration tests failed' }
+  - task: 1ES.PublishPipelineArtifact@1
+    displayName: Upload test results
+    condition: succeededOrFailed()
+    inputs:
+      path: $(System.DefaultWorkingDirectory)\artifacts\TestResults\devtools
+      artifactName: test-results-DevToolsNative-$(System.JobAttempt)
