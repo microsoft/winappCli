@@ -219,11 +219,11 @@ internal static class PathSafety
                     }
                     string normalized = NormalizeLinkTarget(target);
                     if (!string.Equals(normalized, target, StringComparison.Ordinal)
-                        && RelativeReadingExists(Path.GetDirectoryName(current)!, target))
+                        && (HasDotSegment(target) || RelativeReadingExists(Path.GetDirectoryName(current)!, target)))
                     {
                         // A relative symlink stores the same text, and Windows resolves it
-                        // beside the link. With an entry there, this walk can't tell which
-                        // one Windows follows.
+                        // beside the link. With an entry there, or a dot segment that skips
+                        // past one, this walk can't tell which path Windows follows.
                         return true;
                     }
                     target = normalized;
@@ -488,6 +488,11 @@ internal static class PathSafety
             return false;
         }
     }
+
+    // Windows trims trailing dots and spaces from a segment, so ". ." and ".. " also act as . and ..
+    private static bool HasDotSegment(string target) =>
+        target.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
+            .Any(segment => segment.Length > 0 && segment.TrimEnd('.', ' ').Length == 0);
 
     /// <summary>
     /// True when a reparse-point <em>link target</em> names an NT device or namespace path rather than an

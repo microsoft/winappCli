@@ -405,6 +405,33 @@ public class PathSafetyTests
     }
 
     [TestMethod]
+    [DataRow(@"Volume{00000000-0000-0000-0000-000000000000}\..")]
+    [DataRow(@"Global\Volume{00000000-0000-0000-0000-000000000000}\.\..")]
+    [DataRow(@"Volume{00000000-0000-0000-0000-000000000000}\.. ")]
+    public void RedirectsToNetwork_RewrittenTargetWithDotSegments_IsRefused(string linkText)
+    {
+        // Read as a relative symlink, Volume{fake}\.. resolves back beside the link without
+        // needing a Volume{fake} entry, so Windows could open evil\cert.pfx through a sibling
+        // link that the walk never checks.
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string link = Path.Combine(_tempDir.FullName, "link");
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsTrue(PathSafety.RedirectsToNetwork(Path.Combine(link, "evil", "cert.pfx"), _ => linkText));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
     public void RedirectsToNetwork_VolumeTargetWithSameNamedSibling_IsRefused()
     {
         // A relative symlink to a sibling named Volume{GUID} reads back exactly like a
