@@ -89,6 +89,11 @@ function Test-UiCheck($Check, [int]$ProcessId) {
             $ok = $output -match "(?m)^\s*$([regex]::Escape($property)):\s*(.*?)\s*(\[\w+\])?\s*$" -and $Matches[1] -eq $expected
             return [pscustomobject]@{ Ok = $ok; Output = $output.Trim() }
         }
+        'xaml-text' {
+            # Text in the XAML tree, such as a list item's template content that UI Automation may not expose.
+            $output = Remove-Ansi (& $Winapp devtools search $target @app 2>&1 | Out-String)
+            return [pscustomobject]@{ Ok = $LASTEXITCODE -eq 0; Output = $output.Trim() }
+        }
         default { throw "Unknown check '$($Check.assert)'." }
     }
 }

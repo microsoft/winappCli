@@ -77,8 +77,9 @@ to make the scoreboard green: change its expectation instead, and say why.
   in `edits`; `delayMs` spaces them out, the way an agent or a rename writes them.
 - `"op": "key", "key": "ctrl+r"` presses Ctrl+R instead of saving a file.
 - Checks: `invoke`, `set-value`, `exists`, `absent`, `text-equals`, `text-contains`, `text-changes` (the text moves on
-  within 2 s, so the UI thread is alive), all through UI Automation by `x:Name` or visible text, and `property-equals`
-  (`"Property=Value"`, read through DevTools). Checks run after every outcome but a crash: after a save that reached the
+  within 2 s, so the UI thread is alive), all through UI Automation by `x:Name` or visible text, `property-equals`
+  (`"Property=Value"`, read through DevTools), and `xaml-text` (text anywhere in the XAML tree, through DevTools, for
+  template content UI Automation may not expose). Checks run after every outcome but a crash: after a save that reached the
   app they show the change is on screen; after an `error` or `waiting`, that the app is as it was.
 - `parity: true` compares the app with a clean build after the step. The journey's `parity` object sets the `root` to
   read, `navigate` steps for the clean build, `probes` run on both apps, and `ignore` patterns.

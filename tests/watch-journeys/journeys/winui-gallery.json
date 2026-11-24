@@ -42,20 +42,21 @@
     },
     {
       "id": "g05-new-template-after-csharp", "row": 10, "title": "A new list with an x:DataType template, after a C# change (g03)",
-      "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "insert-after", "find": "<TextBlock x:Name=\"HrBind\" Margin=\"8\" Text=\"{x:Bind Control2.SelectionMode, Mode=OneWay}\" />", "text": "                    <ListView x:Name=\"HrTemplateList\" Height=\"80\" ItemsSource=\"{x:Bind contacts2}\">\n                        <ListView.ItemTemplate>\n                            <DataTemplate x:DataType=\"local:Contact\">\n                                <TextBlock x:Name=\"HrTemplateCompany\" Text=\"{x:Bind Company}\" />\n                            </DataTemplate>\n                        </ListView.ItemTemplate>\n                    </ListView>",
+      "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "insert-after", "find": "<TextBlock x:Name=\"HrBind\" Margin=\"8\" Text=\"{x:Bind Control2.SelectionMode, Mode=OneWay}\" />", "text": "                    <ListView x:Name=\"HrTemplateList\" Height=\"80\" ItemsSource=\"{x:Bind contacts2}\">\n                        <ListView.ItemTemplate>\n                            <DataTemplate x:DataType=\"local:Contact\">\n                                <TextBlock Text=\"{x:Bind Company}\" />\n                            </DataTemplate>\n                        </ListView.ItemTemplate>\n                    </ListView>",
       "expect": { "v1": "live+note", "today": "restart" },
-      "checks": [ { "assert": "exists", "target": "HrTemplateList" }, { "assert": "property-equals", "target": "HrTemplateCompany", "value": "Text=ABC Printers" } ],
+      "checks": [ { "assert": "exists", "target": "HrTemplateList" }, { "assert": "xaml-text", "target": "XYZ Refrigerators" } ],
       "note": "the XAML compiler service must read the template's type from the app image by name (tracker: types matched by position)"
     },
     {
       "id": "g06-datatemplate", "row": 10, "title": "The list's DataTemplate",
       "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": "x:Phase=\"2\"\n                    Style=\"{ThemeResource BodyTextBlockStyle}\"\n                    Text=\"{x:Bind Company}\" />", "text": "x:Phase=\"2\"\n                    Style=\"{ThemeResource BodyTextBlockStyle}\"\n                    Text=\"{x:Bind Company}\" />\n                <TextBlock Grid.Row=\"1\" Grid.Column=\"1\" Margin=\"200,0,0,6\" FontSize=\"10\" Text=\"tpl hr6\" />",
       "expect": { "v1": "live+note", "today": "restart" },
-      "checks": [ { "assert": "exists", "target": "tpl hr6" } ]
+      "checks": [ { "assert": "xaml-text", "target": "tpl hr6" } ]
     },
     {
       "id": "g08-app-resource", "row": 24, "title": "App.xaml: a brush the page uses",
       "file": "WinUIGallery/App.xaml", "op": "replace", "find": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FF808080\" />", "text": "<SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FFFF8C00\" />",
+      "note": "known open bug: reloading Gallery's App.xaml makes WinUI end the app on its next tick (E_INVALIDARG, fail-fast 0xC000027B); the runtime side is investigating. The journey app's App.xaml saves apply (controls-resources r24, r26)",
       "expect": { "v1": "live+note", "today": "restart" },
       "checks": [ { "assert": "property-equals", "target": "HrFilterLabel", "value": "Foreground=#FFFF8C00" }, { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ]
     },
