@@ -110,7 +110,7 @@ public class FrameworkUdkSecurityTests
         using (FrameworkUdkSnapshot.OpenSource(source))
         {
         }
-        var link = Path.Combine(Path.GetDirectoryName(root)!, Path.GetFileName(root) + "-link");
+        var link = root + "-link";
         if (!TryCreateJunction(link, root))
         {
             Assert.Inconclusive("Could not create a junction on this host.");
@@ -118,7 +118,7 @@ public class FrameworkUdkSecurityTests
         try
         {
             Assert.ThrowsExactly<System.ComponentModel.Win32Exception>(() =>
-                FrameworkUdkSnapshot.OpenSource(Path.Combine(link, FrameworkUdkSnapshot.FileName)));
+                FrameworkUdkSnapshot.OpenSource(Path.Join(link, FrameworkUdkSnapshot.FileName)));
         }
         finally
         {
@@ -145,10 +145,9 @@ public class FrameworkUdkSecurityTests
             {
                 return false;
             }
-            p.WaitForExit(5000);
-            return p.ExitCode == 0 && Directory.Exists(link);
+            return p.WaitForExit(5000) && p.ExitCode == 0 && Directory.Exists(link);
         }
-        catch
+        catch (System.ComponentModel.Win32Exception)
         {
             return false;
         }
