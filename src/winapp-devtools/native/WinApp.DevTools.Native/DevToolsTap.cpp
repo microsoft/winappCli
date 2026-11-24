@@ -173,7 +173,7 @@ static std::atomic<int> g_elemCount{0};
 static std::atomic<bool> g_adviseFailed{false};
 
 // IXamlHotReloadService (xamlom.winui.h): QI'd from the diagnostics site in SetSite; null on a WinUI without it.
-static const IID IID_DevToolsXamlHotReloadService = { 0x73A07052, 0x1BFE, 0x40CD, { 0x8D, 0xC4, 0xFB, 0x3D, 0x7A, 0x5B, 0xCE, 0xCF } };
+static const IID IID_DevToolsXamlHotReloadService = { 0x1DB88325, 0xCDAB, 0x4BB7, { 0x89, 0x64, 0x38, 0xD9, 0xD2, 0x9F, 0x80, 0xDB } };
 static std::atomic<IUnknown*> g_hotReloadService{nullptr};
 static std::atomic<bool> g_hotReloadQueried{false};
 

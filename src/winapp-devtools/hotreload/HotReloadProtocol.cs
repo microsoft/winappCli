@@ -29,6 +29,8 @@ internal sealed class MarkupPayload
     public string Kind { get; set; } = "";
     public string? ClassName { get; set; }
     public byte[] Xbf { get; set; } = [];
+    /// <summary>The .xbf the app had for this URI before the save: it goes back to it when the save's doesn't load.</summary>
+    public byte[] Previous { get; set; } = [];
     /// <summary>application and dictionary: the x:Key values this save removed from the markup.</summary>
     public List<string> DroppedKeys { get; set; } = [];
 }

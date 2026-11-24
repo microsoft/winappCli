@@ -57,12 +57,16 @@ internal sealed class HotReloadCapture : IDisposable
     /// <summary>Whether the last build recorded the app's compiler arguments.</summary>
     public bool Captured => File.Exists(Path.Combine(Directory, "csc.rsp"));
 
-    /// <summary>The build properties that import the targets for the app project.</summary>
+    /// <summary>
+    /// The build properties that import the targets for the app project, and turn on the XAML compiler's hot reload
+    /// code (a WinUI without it ignores the property; with it, the code each save compiles fits the running app).
+    /// </summary>
     public IReadOnlyList<string> BuildProperties =>
     [
         $"CustomAfterMicrosoftCommonTargets={Commands.RunCommand.Handler.EscapeMSBuildProperty(TargetsPath)}",
         $"WinAppHotReloadProject={Commands.RunCommand.Handler.EscapeMSBuildProperty(Project.FullName)}",
         $"WinAppHotReloadOut={Commands.RunCommand.Handler.EscapeMSBuildProperty(Directory)}",
+        "EnableXamlHotReloadCodegen=true",
     ];
 
     public static HotReloadCapture Create(FileInfo project)

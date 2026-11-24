@@ -150,6 +150,7 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         {
             return new SaveResult(Outcome.Error, LoadError(response.ErrorUri, loadError));
         }
+        xaml?.Applied(compiled.Markup);
         foreach (var payload in compiled.Markup)
         {
             if (FileOf(payload.Uri) is { } file && documents.TryGetValue(file, out var document))

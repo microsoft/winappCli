@@ -25,8 +25,6 @@ namespace WinApp.DevTools.Managed.HotReload;
 internal static class Rebuild
 {
     private static readonly HashSet<Type> s_landed = [];
-    /// <summary>Per markup URI, the last .xbf that loaded (null: the build's), to go back to when a save's markup doesn't load.</summary>
-    private static readonly Dictionary<string, byte[]?> s_good = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>When each component type last changed, and when each live page or UserControl was built (save counts).</summary>
     private static readonly Dictionary<Type, int> s_changedAt = [];
     private static readonly ConditionalWeakTable<object, StrongBox<int>> s_builtAt = new();
@@ -97,8 +95,11 @@ internal static class Rebuild
             s_landed.Clear();
         }
         s_generation++;
-        // Markup that uses a member an update just added finds it.
-        service.InvalidateTypes(landed);
+        if (landed.Count > 0)
+        {
+            // Markup that uses a member an update just added finds it.
+            _ = service.InvalidateTypeCaches();
+        }
         var changed = landed.Select(Outermost).Where(IsComponent).ToHashSet();
         foreach (var payload in markup.Where(m => m.Kind == "component"))
         {
@@ -115,7 +116,7 @@ internal static class Rebuild
         }
         foreach (var payload in markup)
         {
-            Marshal.ThrowExceptionForHR(service.SetComponentMarkup(payload.Uri, payload.Xbf));
+            Marshal.ThrowExceptionForHR(service.SetComponentXbf(payload.Uri, payload.Xbf));
         }
         var notes = new List<string>();
         MarkupPayload? loading = null;
@@ -144,7 +145,7 @@ internal static class Rebuild
             // Back to the markup that loaded: the next time the app loads it (another navigation), it still works.
             foreach (var payload in markup)
             {
-                _ = s_good.TryGetValue(payload.Uri, out var good) && good is not null ? service.SetComponentMarkup(payload.Uri, good) : service.RemoveComponentMarkup(payload.Uri);
+                _ = service.SetComponentXbf(payload.Uri, payload.Previous);
             }
             // A page that failed after it replaced the old one (markup that fails as the page lays out, in a template):
             // built again from that markup, with what the user had.
@@ -165,10 +166,6 @@ internal static class Rebuild
             return ex is XamlParseException
                 ? new HotReloadResponse { Ok = true, Error = LoadError(ex), ErrorUri = loading?.Uri }
                 : new HotReloadResponse { Ok = true, Error = $"{ex.GetType().Name}: {ex.Message}" };
-        }
-        foreach (var payload in markup)
-        {
-            s_good[payload.Uri] = payload.Xbf;
         }
         foreach (var type in changed)
         {

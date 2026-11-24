@@ -132,19 +132,12 @@ internal sealed class XamlService
     /// <summary>E_XAMLHOTRELOAD_NOTENABLED: the app isn't stamped for hot reload (not a Debug build).</summary>
     private const int NotEnabled = unchecked((int)0x802B0029);
     private const int NotReady = unchecked((int)0x80070015);
-    private static readonly Guid Service3Iid = new("85B7546C-46F3-49C0-8AAD-D866BC9E86FC");
-    private static readonly Guid CallbackIid = new("BF866A3C-A025-4CA8-AB23-AFC59DA45B11");
+    private static readonly Guid CallbackIid = new("7AF94B54-7C75-42C3-B717-44F25C491A27");
     private static Task<XamlService?>? s_acquire;
 
     private readonly IntPtr _service;
-    private readonly IntPtr _service3;
 
-    private XamlService(IntPtr service)
-    {
-        _service = service;
-        var iid = Service3Iid;
-        _service3 = Marshal.QueryInterface(service, ref iid, out var v3) >= 0 ? v3 : IntPtr.Zero;
-    }
+    private XamlService(IntPtr service) => _service = service;
 
     /// <summary>The service once DevTools has attached (up to 30 s), or null on a WinUI without it or an app not enabled for it.</summary>
     public static Task<XamlService?> AcquireAsync() => s_acquire ??= Task.Run(async () =>
@@ -199,55 +192,17 @@ internal sealed class XamlService
     private unsafe void** Vtbl => *(void***)_service;
 
     /// <summary>The app loads <paramref name="xbf"/> for <paramref name="uri"/> from now on (the runtime copies it).</summary>
-    public unsafe int SetComponentMarkup(string uri, byte[] xbf)
+    public unsafe int SetComponentXbf(string uri, byte[] xbf)
     {
         fixed (char* u = uri)
         fixed (byte* content = xbf)
         {
-            return ((delegate* unmanaged[Stdcall]<IntPtr, char*, int, uint, byte*, int>)Vtbl[3])(_service, u, 1, (uint)xbf.Length, content);
+            return ((delegate* unmanaged[Stdcall]<IntPtr, char*, uint, byte*, int>)Vtbl[3])(_service, u, (uint)xbf.Length, content);
         }
     }
 
-    /// <summary>The app loads the markup it was built with for <paramref name="uri"/> again.</summary>
-    public unsafe int RemoveComponentMarkup(string uri)
-    {
-        fixed (char* u = uri)
-        {
-            return ((delegate* unmanaged[Stdcall]<IntPtr, char*, int>)Vtbl[4])(_service, u);
-        }
-    }
-
-    public unsafe int InvalidateTypeCaches() => ((delegate* unmanaged[Stdcall]<IntPtr, int>)Vtbl[8])(_service);
-
-    /// <summary>The runtime reads these types again the next time markup uses them, so members an update added are found.</summary>
-    public unsafe void InvalidateTypes(IReadOnlyCollection<Type> types)
-    {
-        if (types.Count == 0)
-        {
-            return;
-        }
-        if (_service3 == IntPtr.Zero)
-        {
-            _ = InvalidateTypeCaches();
-            return;
-        }
-        var names = types.Select(t => Marshal.StringToHGlobalUni(t.FullName)).ToArray();
-        try
-        {
-            fixed (IntPtr* list = names)
-            {
-                uint marked;
-                _ = ((delegate* unmanaged[Stdcall]<IntPtr, uint, IntPtr*, uint*, int>)(*(void***)_service3)[11])(_service3, (uint)names.Length, list, &marked);
-            }
-        }
-        finally
-        {
-            foreach (var name in names)
-            {
-                Marshal.FreeHGlobal(name);
-            }
-        }
-    }
+    /// <summary>The app's types changed: the runtime reads them again the next time markup uses them, so new members are found.</summary>
+    public unsafe int InvalidateTypeCaches() => ((delegate* unmanaged[Stdcall]<IntPtr, int>)Vtbl[6])(_service);
 
     private static Action<object>? s_loaded;
 
@@ -256,7 +211,7 @@ internal sealed class XamlService
     {
         s_loaded = loaded;
         uint cookie;
-        Marshal.ThrowExceptionForHR(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, uint*, int>)Vtbl[5])(_service, Callback, &cookie));
+        Marshal.ThrowExceptionForHR(((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, uint*, int>)Vtbl[4])(_service, Callback, &cookie));
     }
 
     /// <summary>An IXamlComponentLoadedCallback that lives as long as the process (its reference count is ignored).</summary>

@@ -20,9 +20,10 @@ internal sealed record XamlResult(string? Error, IReadOnlyDictionary<string, str
 /// <summary>
 /// WinUI's own XAML compiler, kept warm in its own process (XamlCompiler.exe --serve, in WinUI packages with hot
 /// reload support): the compiler the build runs, compiling only the files a save changed. It reads the inputs the
-/// app's build gave it (input.json, next to XamlTypeInfo.g.cs) and writes where the build does, which is also where it
-/// keeps what makes each save's code fit the running app (stable connection IDs, removed names kept). Its errors point
-/// at the XAML line, and C# errors in its generated code are mapped back to the XAML line that caused them.
+/// app's build gave it (input.json, next to XamlTypeInfo.g.cs) and what that build recorded so each save's code fits
+/// the running app (stable connection IDs, kept members), and returns its output without writing the build's folders.
+/// Its errors point at the XAML line, and C# errors in its generated code are mapped back to the XAML line that caused
+/// them. The app's build turns this code on with EnableXamlHotReloadCodegen=true.
 /// </summary>
 internal sealed class XamlCompiler : IDisposable
 {
@@ -48,6 +49,18 @@ internal sealed class XamlCompiler : IDisposable
 
     /// <summary>The app's XAML files, by full path, with the path the app loads them by (relative, '/').</summary>
     public IReadOnlyDictionary<string, string> Files => _files;
+
+    /// <summary>The .xbf the app runs for each URI it was given since its build (by default, the build's in obj).</summary>
+    private readonly Dictionary<string, byte[]> _applied = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Records markup the app took, to go back to if a later save's doesn't load.</summary>
+    public void Applied(IEnumerable<MarkupPayload> markup)
+    {
+        foreach (var payload in markup)
+        {
+            _applied[payload.Uri] = payload.Xbf;
+        }
+    }
 
     /// <summary>A XAML file the build didn't compile (new since): the service compiles it like the others.</summary>
     public void Add(string file) => _files.TryAdd(file, Path.GetRelativePath(_projectDirectory, file).Replace('\\', '/'));
@@ -83,24 +96,25 @@ internal sealed class XamlCompiler : IDisposable
     public string Intermediate { get; }
 
     /// <summary>
-    /// The compiler of the app's WinUI package when it can run as a service, started and warming up; null when it
-    /// can't (a WinUI without hot reload support), with the reason when it should have.
+    /// The compiler of the app's WinUI package, started and warming up, when the app's build made code for it to
+    /// update (EnableXamlHotReloadCodegen, which only a WinUI with hot reload support honors: it leaves its state in
+    /// obj\...\XamlHotReload); null otherwise, with the reason when it should have worked.
     /// </summary>
     public static XamlCompiler? Start(string[] compilerArguments, string projectDirectory, out string? unavailable)
     {
         unavailable = null;
-        var exe = FindServiceCompiler(compilerArguments);
-        if (exe is null)
-        {
-            return null;
-        }
         // A source file argument, not an option naming it (/embed:...\XamlTypeInfo.g.cs).
         var typeInfo = compilerArguments.Select(a => a.Trim('"')).FirstOrDefault(a => !a.StartsWith('/') && !a.StartsWith('-') &&
             a.EndsWith("XamlTypeInfo.g.cs", StringComparison.OrdinalIgnoreCase));
-        var inputs = typeInfo is null ? "" : Path.Combine(Path.GetDirectoryName(Path.GetFullPath(Path.Combine(projectDirectory, typeInfo)))!, "input.json");
-        if (!File.Exists(inputs))
+        var intermediate = typeInfo is null ? null : Path.GetDirectoryName(Path.GetFullPath(Path.Combine(projectDirectory, typeInfo)))!;
+        if (intermediate is null || !File.Exists(Path.Combine(intermediate, "XamlHotReload", "typeinfo.txt")))
         {
-            unavailable = "the XAML compiler's inputs from the app's build (input.json next to XamlTypeInfo.g.cs) weren't found";
+            return null;
+        }
+        var inputs = Path.Combine(intermediate, "input.json");
+        if (FindCompiler(compilerArguments) is not { } exe || !File.Exists(inputs))
+        {
+            unavailable = "the XAML compiler or its inputs from the app's build (input.json next to XamlTypeInfo.g.cs) weren't found";
             return null;
         }
         var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -124,50 +138,32 @@ internal sealed class XamlCompiler : IDisposable
         return compiler;
     }
 
-    /// <summary>
-    /// From the app's compiler references: the package with Microsoft.WinUI.dll ships its XAML compiler in
-    /// tools\net472. Only one that runs as a service counts (asked for --serve without arguments, it prints its usage).
-    /// </summary>
-    private static string? FindServiceCompiler(IEnumerable<string> compilerArguments)
-    {
-        foreach (var reference in compilerArguments.Where(a => a.StartsWith("/reference:", StringComparison.OrdinalIgnoreCase) &&
-            a.Trim('"').EndsWith("Microsoft.WinUI.dll", StringComparison.OrdinalIgnoreCase)))
-        {
-            for (var directory = Path.GetDirectoryName(reference["/reference:".Length..].Trim('"')); directory is not null; directory = Path.GetDirectoryName(directory))
+    /// <summary>From the app's compiler references: the package with Microsoft.WinUI.dll ships its XAML compiler in tools\net472.</summary>
+    private static string? FindCompiler(IEnumerable<string> compilerArguments) =>
+        compilerArguments.Where(a => a.StartsWith("/reference:", StringComparison.OrdinalIgnoreCase) && a.Trim('"').EndsWith("Microsoft.WinUI.dll", StringComparison.OrdinalIgnoreCase))
+            .Select(reference =>
             {
-                var exe = Path.Combine(directory, "tools", "net472", "XamlCompiler.exe");
-                if (File.Exists(exe))
+                for (var directory = Path.GetDirectoryName(reference["/reference:".Length..].Trim('"')); directory is not null; directory = Path.GetDirectoryName(directory))
                 {
-                    return Serves(exe) ? exe : null;
+                    if (Path.Combine(directory, "tools", "net472", "XamlCompiler.exe") is var exe && File.Exists(exe))
+                    {
+                        return exe;
+                    }
                 }
-            }
-        }
-        return null;
-
-        static bool Serves(string exe)
-        {
-            try
-            {
-                using var process = Process.Start(new ProcessStartInfo(exe, "--serve") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true })!;
-                var output = process.StandardOutput.ReadToEndAsync();
-                var error = process.StandardError.ReadToEnd();
-                process.WaitForExit(10_000);
-                return (output.Result + error).Contains("--serve", StringComparison.Ordinal);
-            }
-            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-            {
-                return false;
-            }
-        }
-    }
-
-    /// <summary>A full compile, as the build ran it, while nobody waits: it loads the compiler's references once.</summary>
+                return null;
+            })
+            .FirstOrDefault(exe => exe is not null);
+    /// <summary>
+    /// The service's first pass 2 compiles every page, as a build does (it loads the references, and records the types
+    /// XamlTypeInfo has): done while nobody waits, on the first page, its output unused.
+    /// </summary>
     private Task WarmUpAsync() => Task.Run(async () =>
     {
         try
         {
-            await SendAsync(new ServeRequest { Pass = 1 }, CancellationToken.None).ConfigureAwait(false);
-            await SendAsync(new ServeRequest { Pass = 2, RegenerateTypeInfo = true }, CancellationToken.None).ConfigureAwait(false);
+            var first = _files.Keys.Take(1).ToList();
+            await SendAsync(new ServeRequest { Pass = 1, Files = first }, CancellationToken.None).ConfigureAwait(false);
+            await SendAsync(new ServeRequest { Pass = 2, Files = first }, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
@@ -179,7 +175,7 @@ internal sealed class XamlCompiler : IDisposable
     /// <summary>
     /// Compiles <paramref name="xaml"/> (full paths) as a build would: pass 1 (the fields and InitializeComponent the
     /// app's code compiles against), then pass 2 (.g.cs and .xbf) against <paramref name="appImage"/>, the app's types
-    /// now, and XamlTypeInfo again when the pages use a type or member it doesn't describe yet.
+    /// now; pass 2 also returns XamlTypeInfo.g.cs when the pages use a type or member it didn't describe.
     /// </summary>
     public async Task<XamlResult> CompileAsync(IReadOnlyList<string> xaml, byte[]? appImage, CancellationToken cancellationToken)
     {
@@ -196,21 +192,14 @@ internal sealed class XamlCompiler : IDisposable
         {
             return XamlResult.Failed(error2);
         }
-        var typeInfo = pass2.XamlTypeInfoMayBeStale
-            ? await SendAsync(new ServeRequest { Pass = 2, Files = files, LocalAssemblyImage = image, RegenerateTypeInfo = true }, cancellationToken).ConfigureAwait(false)
-            : null;
-        if (typeInfo is not null && Failed(typeInfo) is { } error3)
-        {
-            return XamlResult.Failed(error3);
-        }
         var stems = files.Select(f => Path.ChangeExtension(Path.GetRelativePath(_projectDirectory, f), null)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var generated = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (path, text) in new[] { pass1, pass2, typeInfo }.OfType<ServeResponse>().SelectMany(r => r.GeneratedText ?? []))
+        foreach (var (path, text) in new[] { pass1, pass2 }.SelectMany(r => r.Files ?? []))
         {
             var relative = Path.GetRelativePath(Intermediate, path);
             var isTypeInfo = Path.GetFileName(relative).Equals("XamlTypeInfo.g.cs", StringComparison.OrdinalIgnoreCase);
             // The service may return every page's code; the other pages' is what the app already runs.
-            if (isTypeInfo ? typeInfo is not null : relative.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase) && stems.Contains(Stem(relative)))
+            if (isTypeInfo || (relative.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase) && stems.Contains(Stem(relative))))
             {
                 generated[path] = text.TrimStart('\uFEFF');
             }
@@ -219,22 +208,24 @@ internal sealed class XamlCompiler : IDisposable
         foreach (var file in files)
         {
             var xbfPath = Path.ChangeExtension(Path.Combine(Intermediate, Path.GetRelativePath(_projectDirectory, file)), ".xbf");
-            var xbf = (pass2.GeneratedXbf ?? []).FirstOrDefault(p => string.Equals(p.Key, xbfPath, StringComparison.OrdinalIgnoreCase)).Value;
+            var xbf = (pass2.Xbf ?? []).FirstOrDefault(p => string.Equals(p.Key, xbfPath, StringComparison.OrdinalIgnoreCase)).Value;
             if (xbf is null)
             {
                 return XamlResult.Failed($"{Relative(file)}: the XAML compiler produced no .xbf for it");
             }
             var root = XDocument.Parse(await RoslynEngine.ReadSharedAsync(file, cancellationToken).ConfigureAwait(false)).Root!;
             var className = root.Attribute(XName.Get("Class", XamlNamespace))?.Value;
+            var uri = "ms-appx:///" + Files[file];
             markup.Add(new MarkupPayload
             {
-                Uri = "ms-appx:///" + Files[file],
+                Uri = uri,
                 Kind = root.Name.LocalName == "Application" ? "application"
                     : className is not null ? "component"
                     : Files[file].EndsWith("Themes/Generic.xaml", StringComparison.OrdinalIgnoreCase) ? "generic"
                     : "dictionary",
                 ClassName = className,
                 Xbf = Convert.FromBase64String(xbf),
+                Previous = _applied.GetValueOrDefault(uri) ?? (File.Exists(xbfPath) ? await File.ReadAllBytesAsync(xbfPath, cancellationToken).ConfigureAwait(false) : []),
             });
         }
         return new XamlResult(null, generated, markup);
@@ -301,14 +292,16 @@ internal sealed class XamlCompiler : IDisposable
     }
 
     private string? Failed(ServeResponse response) =>
-        response.Success && !(response.Diagnostics ?? []).Any(d => d.IsError) ? null
-            : (response.Diagnostics ?? []).Any(d => d.IsError)
-                ? string.Join(Environment.NewLine + "  ", response.Diagnostics!.Where(d => d.IsError).Take(3).Select(Format))
+        response.Success && !(response.Diagnostics ?? []).Any(IsError) ? null
+            : (response.Diagnostics ?? []).Any(IsError)
+                ? string.Join(Environment.NewLine + "  ", response.Diagnostics!.Where(IsError).Take(3).Select(Format))
                 : "the XAML compiler failed without saying why";
+
+    private static bool IsError(ServeDiagnostic d) => string.Equals(d.Type, "Error", StringComparison.OrdinalIgnoreCase);
 
     private string Format(ServeDiagnostic d) =>
         $"{(d.File is { Length: > 0 } file ? Relative(Path.GetFullPath(Path.Combine(_projectDirectory, file))) : "XAML")}" +
-        $"{(d.Line > 0 ? $"({d.Line},{d.Column})" : "")}: {d.Code}: {d.Message}";
+        $"{(d.LineNumber > 0 ? $"({d.LineNumber},{d.ColumnNumber})" : "")}: {d.ErrorCode}: {d.Message}";
 
     private string Relative(string path) => Path.GetRelativePath(_projectDirectory, path);
 
@@ -397,18 +390,18 @@ internal sealed class XamlCompiler : IDisposable
         public int Pass { get; set; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<string>? Files { get; set; }
-        public bool RegenerateTypeInfo { get; set; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? LocalAssemblyImage { get; set; }
     }
 
     private sealed class ServeDiagnostic
     {
-        public bool IsError { get; set; }
-        public string? Code { get; set; }
+        /// <summary>"Error" or "Warning".</summary>
+        public string? Type { get; set; }
+        public string? ErrorCode { get; set; }
         public string? File { get; set; }
-        public int Line { get; set; }
-        public int Column { get; set; }
+        public int LineNumber { get; set; }
+        public int ColumnNumber { get; set; }
         public string? Message { get; set; }
     }
 
@@ -416,9 +409,10 @@ internal sealed class XamlCompiler : IDisposable
     {
         public int Id { get; set; }
         public bool Success { get; set; }
-        public bool XamlTypeInfoMayBeStale { get; set; }
-        public Dictionary<string, string>? GeneratedText { get; set; }
-        public Dictionary<string, string>? GeneratedXbf { get; set; }
+        /// <summary>The generated files, by the path a build writes them to.</summary>
+        public Dictionary<string, string>? Files { get; set; }
+        /// <summary>The .xbf files (base64), by the path a build writes them to.</summary>
+        public Dictionary<string, string>? Xbf { get; set; }
         public List<ServeDiagnostic>? Diagnostics { get; set; }
     }
 }
