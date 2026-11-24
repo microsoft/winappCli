@@ -30,7 +30,6 @@ static bool CanRereadSelection(bool* filterFocused)
     return true;
 }
 
-static void WireAddComment(void* frameworkElement);
 static void UpdateDetailsHeader(const std::wstring& type, const std::wstring& name,
                                 const std::wstring& label, const std::wstring& breadcrumb);
 
@@ -48,30 +47,346 @@ static void OnReactorElementFacts(unsigned long long raw, const DevToolsReactorE
     if (rebuild) DevToolsWindow_RereadSelection(wire);
 }
 
+static void WireCommentBox(void* frameworkElement);
+static void ShowSelectionComment();
+static void ReleaseCommentBoxUi();
+
+// The pane's fixed parts, found once when the pane is built.
+struct PaneShell
+{
+    DevToolsX::FrameworkElement root{ nullptr };
+    DevToolsX::UIElement noProps{ nullptr }, unavailable{ nullptr }, layoutSection{ nullptr }, toolbar{ nullptr },
+                         repeater{ nullptr }, showAll{ nullptr }, reactorSection{ nullptr }, reactorReading{ nullptr };
+    DevToolsXC::Panel pendingReferences{ nullptr }, reactorBody{ nullptr };
+};
+static PaneShell g_paneShell;
+
+// Wire the pane's controls once: the property rows, the Size & spacing disclosure, the Computed|Set selector, the
+// filter and the comment box. Their handlers read the selected element from the window's state.
+static void WirePaneShell(void* fe)
+{
+        auto findByName = [&](const std::wstring& n) -> IInspectable* {
+            HSTRING nm = MakeStr(n); IInspectable* f = nullptr;
+            DevToolsFindName(fe, nm, &f); WindowsDeleteString(nm); return f;
+        };
+        WirePropRepeater(fe);
+        if (IInspectable* lb = findByName(L"LayoutSectionBody")) {
+            lb->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_layoutBody);
+            g_layoutSlot.host = TreeObject<DevToolsXC::Panel>(lb);
+            lb->Release();
+        }
+        if (IInspectable* lt = findByName(L"LayoutSectionToggle")) {
+            void* ex = nullptr;
+            if (SUCCEEDED(lt->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
+                for (bool open : {true, false}) {
+                    auto* sink = NewPaneSink<LayoutSectionSink>(); sink->Init(open);
+                    __int64 tok = 0;
+                    const HRESULT hr = open
+                        ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
+                        : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
+                    if (FAILED(hr)) DevToolsOverlayLog(L"route1.props layout disclosure wiring failed hr=0x%08X", hr);
+                }
+                reinterpret_cast<IUnknown*>(ex)->Release();
+            }
+            lt->Release();
+        }
+        if (IInspectable* pv = findByName(L"PropViewSelector")) {
+            try {
+                winrt::Windows::Foundation::IInspectable object{ nullptr };
+                winrt::copy_from_abi(object, pv);
+                if (auto selector = object.try_as<DevToolsXC::SelectorBar>()) {
+                    selector.SelectionChanged([gen = g_route1Gen](DevToolsXC::SelectorBar const& sender, auto&&) {
+                        if (gen == g_route1Gen) ApplyPropViewSelection(sender);
+                    });
+                }
+            } catch (const winrt::hresult_error& e) {
+                DevToolsOverlayLog(L"route1.props view selector wiring failed hr=0x%08X -- Computed|Set will not switch",
+                              e.code().value);
+            }
+            pv->Release();
+        }
+        {
+            if (IInspectable* sl = findByName(L"PropShowAllLbl")) {
+                sl->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_propShowAllLbl);
+                sl->Release();
+            }
+            if (IInspectable* sa = findByName(L"PropShowAll")) {
+                void* bb = nullptr;
+                if (SUCCEEDED(sa->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+                    PropShowAllSink* ps = NewPaneSink<PropShowAllSink>(); ps->Init();
+                    __int64 tok = 0;
+                    const HRESULT hrS = DevToolsAddClick(bb, ps, &tok);
+                    if (FAILED(hrS)) DevToolsOverlayLog(L"route1.wire PropShowAll add_Click FAILED hr=0x%08X -- the full list is unreachable", hrS);
+                    reinterpret_cast<IUnknown*>(bb)->Release();
+                }
+                sa->Release();
+            }
+            if (IInspectable* pf = findByName(L"PropFilter")) {
+                void* tbx = nullptr;
+                if (SUCCEEDED(pf->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tbx)) && tbx) {
+                    g_propFilterTextBox = tbx;
+                    PropFilterSink* fs = NewPaneSink<PropFilterSink>(); fs->Init();
+                    __int64 tok = 0;
+                    HRESULT hrF = DevToolsAddTextChanged(tbx, fs, &tok);
+                    if (FAILED(hrF)) DevToolsOverlayLog(L"route1.wire propfilter add_TextChanged FAILED hr=0x%08X -- the filter will do nothing", hrF);
+                }
+                pf->Release();
+            }
+            if (IInspectable* nm = findByName(L"PropNoMatch")) {
+                nm->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &g_propEmptyUi);
+                nm->Release();
+            }
+            if (IInspectable* nl = findByName(L"PropNoMatchLbl")) {
+                nl->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_propEmptyLbl);
+                nl->Release();
+            }
+            if (IInspectable* cf = findByName(L"PropClearFilter")) {
+                cf->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &g_propEmptyClearUi);
+                void* bb = nullptr;
+                if (SUCCEEDED(cf->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
+                    PropClearFilterSink* cs = NewPaneSink<PropClearFilterSink>(); cs->Init();
+                    __int64 tok = 0;
+                    const HRESULT hrC = DevToolsAddClick(bb, cs, &tok);
+                    if (FAILED(hrC)) DevToolsOverlayLog(L"route1.wire PropClearFilter add_Click FAILED hr=0x%08X -- the empty pane has no way back", hrC);
+                    reinterpret_cast<IUnknown*>(bb)->Release();
+                }
+                cf->Release();
+            }
+            if (!g_propEmptyUi)
+                DevToolsOverlayLog(L"route1.wire PropNoMatch MISS -- an empty pane will render blank and say nothing");
+        }
+
+        WireCommentBox(fe);
+}
+
+// The source line's actions read the selected element's file when clicked, so each tree is wired once.
+static void WireSourceTree(DevToolsX::UIElement const& tree, PaneSlot::Tree& slotTree)
+{
+    try {
+        const auto root = tree.as<DevToolsX::FrameworkElement>();
+        if (const auto status = root.FindName(L"SourceStatus").try_as<DevToolsXC::TextBlock>()) {
+            slotTree.held.push_back(status);
+            for (const auto& [button, action] : {
+                    std::pair{ L"OpenSource", SourceAction::Open },
+                    std::pair{ L"RevealSource", SourceAction::Reveal },
+                    std::pair{ L"CopySourcePath", SourceAction::Copy } }) {
+                const auto control = root.FindName(button).try_as<DevToolsXCP::ButtonBase>();
+                if (!control) continue;
+                auto* sink = NewPaneSink<SourceActionSink>();
+                sink->Init(action, status);
+                __int64 token = 0;
+                const HRESULT hr = DevToolsAddClick(winrt::get_abi(control), sink, &token);
+                if (FAILED(hr)) DevToolsOverlayLog(L"route1.source %s add_Click failed hr=0x%08X", button, hr);
+            }
+        }
+        if (const auto toggle = root.FindName(L"AxmlToggle").try_as<DevToolsXC::Expander>()) {
+            void* ex = winrt::get_abi(toggle);
+            for (bool open : {true, false}) {
+                auto* sink = NewPaneSink<AxmlToggleSink>(); sink->Init(open);
+                __int64 tok = 0;
+                const HRESULT hr = open
+                    ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
+                    : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
+                if (FAILED(hr)) DevToolsOverlayLog(L"route1.props XAML disclosure wiring failed hr=0x%08X", hr);
+            }
+        }
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"route1.source wiring failed hr=0x%08X", e.code().value);
+    }
+}
+
+// Build the pane the first time a window shows an element, and make it the only child of the properties host
+// (a notice may have been shown after it).
+static bool EnsurePaneShell()
+{
+    try {
+        if (!g_paneShell.root) {
+            // The parse pays per resource REFERENCE, and that price rises for the life of the process. Resolve them
+            // to literals here, once per key per theme, so the parse asks for none.
+            IInspectable* frag = nullptr;
+            if (FAILED(LoadMarkupWin(InlineResourceLiterals(BuildPaneShell(), nullptr, nullptr), &frag)) || !frag) {
+                DevToolsOverlayLog(L"route1.props pane load failed");
+                return false;
+            }
+            winrt::Windows::Foundation::IInspectable object{ nullptr };
+            winrt::attach_abi(object, frag);
+            PaneShell shell;
+            shell.root = object.as<DevToolsX::FrameworkElement>();
+            const auto find = [&](const wchar_t* name) { return shell.root.FindName(name).try_as<DevToolsX::UIElement>(); };
+            shell.noProps = find(L"NoProps");
+            shell.unavailable = find(L"AuthoredUnavailable");
+            shell.layoutSection = find(L"LayoutSection");
+            shell.toolbar = find(L"PropToolbar");
+            shell.repeater = find(L"PropRepeater");
+            shell.showAll = find(L"PropShowAll");
+            shell.reactorSection = find(L"ReactorSection");
+            shell.reactorReading = find(L"ReactorReading");
+            shell.pendingReferences = shell.root.FindName(L"PendingReferences").try_as<DevToolsXC::Panel>();
+            shell.reactorBody = shell.root.FindName(L"ReactorSectionBody").try_as<DevToolsXC::Panel>();
+            g_sourceSlot.host = shell.root.FindName(L"SourceSlot").try_as<DevToolsXC::Panel>();
+            g_referencesSlot.host = shell.root.FindName(L"ReferencesSlot").try_as<DevToolsXC::Panel>();
+            g_paneShell = shell;
+            WirePaneShell(winrt::get_abi(shell.root));
+        }
+        auto children = TreeObject<DevToolsUIElementVector>(g_ctx.propsHostChildren);
+        const auto root = g_paneShell.root.as<DevToolsX::UIElement>();
+        if (children.Size() != 1 || children.GetAt(0) != root) {
+            children.Clear();
+            children.Append(root);
+        }
+        return true;
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"route1.props pane setup failed hr=0x%08X", e.code().value);
+        return false;
+    }
+}
+
+// Each time the pane asks the agent for pending references. The panel is reused, so only the latest request's answer
+// may fill it: an earlier one for the same element (a refresh) would add its rows again.
+static unsigned long long g_pendingReferencesRequest = 0;
+static unsigned long long NextPendingReferencesRequest() { return ++g_pendingReferencesRequest; }
+static bool PendingReferencesCurrent(unsigned long long request, unsigned long long gen, InstanceHandle selected)
+{
+    return request == g_pendingReferencesRequest && gen == g_route1Gen && selected == g_selWire;
+}
+
+// The References section (LabeledBy, XYFocus*, ...) and, for a Reactor element, the component that renders it.
+// References the agent knows only later, and the component, arrive after the pane is shown.
+static void UpdateReferencesAndReactor(const std::vector<DevToolsCardRow>& rows, const std::wstring& authoredState)
+{
+    const auto shown = [](bool v) { return v ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed; };
+    const InstanceHandle wire = g_selWire;
+    DevToolsX::UIElement references{ nullptr };
+    if (!g_selReferencesMarkup.empty())
+        references = ShowInPaneSlot(g_referencesSlot, kPaneSectionOpen + g_selReferencesMarkup + L"</StackPanel>", nullptr);
+    else
+        HidePaneSlot(g_referencesSlot);
+    if (g_referencesSlot.host) g_referencesSlot.host.Visibility(shown(references != nullptr));
+
+    // Reactor targets that aren't shown yet: only the agent knows, and it can't be asked on the UI thread, so they
+    // are appended when the answer arrives, unless the selection has moved on or the pane asked again by then.
+    const unsigned long long request = NextPendingReferencesRequest();
+    if (const auto& pending = g_paneShell.pendingReferences) {
+        auto children = pending.Children();
+        if (children.Size()) children.Clear();
+        if (g_pendingReferencesFn && wire) {
+            winrt::weak_ref<DevToolsXC::Panel> weakHost = pending;
+            auto queue = DevToolsD::DispatcherQueue::GetForCurrentThread();
+            std::thread([fetch = g_pendingReferencesFn, selected = wire, withHeader = references == nullptr, queue, weakHost,
+                         gen = g_route1Gen, request]() {
+                const std::wstring markup = fetch(selected, withHeader);
+                if (markup.empty() || !queue) return;
+                queue.TryEnqueue([markup, weakHost, selected, gen, request]() {
+                    if (!PendingReferencesCurrent(request, gen, selected)) return;
+                    auto panel = weakHost.get();
+                    if (!panel) return;
+                    try { panel.Children().Append(DevToolsXMk::XamlReader::Load(markup).as<DevToolsX::UIElement>()); }
+                    catch (const winrt::hresult_error&) {}
+                });
+            }).detach();
+        }
+    }
+
+    g_reactorSection.Clear();
+    const bool reactor = !rows.empty() && (authoredState == L"csharp" || !g_selReactorLabel.empty());
+    if (const auto& section = g_paneShell.reactorSection) section.Visibility(shown(reactor));
+    const auto& body = g_paneShell.reactorBody;
+    if (!reactor || !body) return;
+    // Begin shows what it read before for the same element; otherwise the section reads "Reading the component".
+    if (const auto& reading = g_paneShell.reactorReading) {
+        auto children = body.Children();
+        if (children.Size() != 1 || children.GetAt(0) != reading) {
+            children.Clear();
+            children.Append(reading);
+        }
+    }
+    const auto ask = g_reactorAskFn;
+    g_reactorSection.Begin(body, static_cast<unsigned long long>(wire), !g_ctx.writeFn,
+        { L"{ThemeResource TextFillColorPrimaryBrush}", L"{ThemeResource TextFillColorSecondaryBrush}",
+          L"{ThemeResource AccentTextFillColorPrimaryBrush}", L"{ThemeResource SystemFillColorCautionBrush}" },
+        ask ? DevToolsComponentSection::AskFn([ask](unsigned long long w, const std::wstring& op, const std::wstring& arg,
+                                                   const std::wstring& value, std::wstring* out) {
+            return ask(static_cast<InstanceHandle>(w), op, arg, value, out);
+        }) : DevToolsComponentSection::AskFn(), OnReactorElementFacts);
+}
+
+// Show the selected element's sections and hide the ones it doesn't have.
+static void UpdatePaneSections(const std::vector<DevToolsCardRow>& rows, const std::wstring& authoredState,
+                               const std::wstring& authoredXaml, const DevToolsWindowLayout* layout)
+{
+    const auto shown = [](bool v) { return v ? DevToolsX::Visibility::Visible : DevToolsX::Visibility::Collapsed; };
+    try {
+        g_sourceStatus = nullptr;
+        const std::wstring source = BuildSourceSection(g_selSourceFile, g_selSourceLine, authoredState, authoredXaml);
+        DevToolsX::UIElement sourceTree{ nullptr };
+        if (!source.empty()) {
+            bool built = false;
+            sourceTree = ShowInPaneSlot(g_sourceSlot, kPaneSectionOpen + source + L"</StackPanel>", &built);
+            if (sourceTree && built) WireSourceTree(sourceTree, g_sourceSlot.trees.front());
+            if (sourceTree) {
+                const auto status = sourceTree.as<DevToolsX::FrameworkElement>().FindName(L"SourceStatus").try_as<DevToolsXC::TextBlock>();
+                g_sourceStatus = status;
+            }
+        } else {
+            HidePaneSlot(g_sourceSlot);
+        }
+        if (g_sourceSlot.host) g_sourceSlot.host.Visibility(shown(sourceTree != nullptr));
+
+        ShowSelectionComment();
+
+        if (const auto& noProps = g_paneShell.noProps) noProps.Visibility(shown(rows.empty()));
+        if (const auto& line = g_paneShell.unavailable) {
+            const std::wstring why = rows.empty() ? std::wstring() : AuthoredUnavailableReason(g_selSourceFile, authoredState);
+            line.Visibility(shown(!why.empty()));
+            DevToolsXC::ToolTipService::SetToolTip(line, why.empty() ? nullptr : winrt::box_value(why));
+            DevToolsXA::AutomationProperties::SetHelpText(line, why);
+        }
+
+        UpdateReferencesAndReactor(rows, authoredState);
+
+        bool layoutShown = false;
+        if (layout && (layout->haveDesired || layout->haveRender || layout->haveOffset))
+            layoutShown = ShowInPaneSlot(g_layoutSlot, kPaneSectionOpen + BuildLayoutSection(*layout, rows) + L"</StackPanel>",
+                                         nullptr) != nullptr;
+        else
+            HidePaneSlot(g_layoutSlot);
+        if (const auto& section = g_paneShell.layoutSection) section.Visibility(shown(layoutShown));
+
+        if (const auto& toolbar = g_paneShell.toolbar) toolbar.Visibility(shown(!rows.empty()));
+        if (const auto& repeater = g_paneShell.repeater) repeater.Visibility(shown(!rows.empty()));
+        if (const auto& showAll = g_paneShell.showAll) showAll.Visibility(shown(!rows.empty() && !ShowingSetView()));
+        if (g_propShowAllLbl) {
+            HSTRING hs = MakeStr(PropShowAllLabel(rows));
+            DevToolsPutText(g_propShowAllLbl, hs);
+            WindowsDeleteString(hs);
+        }
+    } catch (const winrt::hresult_error& e) {
+        DevToolsOverlayLog(L"route1.props section update failed hr=0x%08X", e.code().value);
+    }
+}
 static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, const std::wstring& breadcrumb,
                              bool force)
 {
     WINAPP_DEVTOOLS_PERF(DevToolsPerfSite::WinPropPane);
     if (!g_ctx.propsHostChildren || !g_ctx.rowsFn) return;
     if (!force && wire != 0 && wire == g_selWire) return;
-    // Save the focused editor before its pane goes away, while g_selWire still names the element it edits. Its
-    // focus-out would otherwise arrive after the selection moved.
+    // Save the pane's editors before the pane is reused, while g_selWire still names the element they edit. Their
+    // focus-out would otherwise arrive after the selection moved, with its handler already removed.
     std::wstring flushed;
     if (!g_flushingEditor) {
         const bool leaving = g_selWire != 0 && wire != g_selWire;
-        const std::wstring saved = FlushFocusedEditor(leaving);
+        const std::wstring saved = leaving ? FlushLeavingEditors() : FlushFocusedEditor();
         if (leaving) flushed = saved;
         ReleasePaneEditors(/*retire*/ !leaving);
     }
     // After the flush: saving the editor can rebuild this pane, which moves the stashed draft into a new box.
     RetireKindEditors();
     RetireRowExpandSinks();
+    RevokePaneEvents();
+    // Every expansion's handlers are gone, so each is filled in again before it is shown.
+    for (auto& entry : g_pooledRows) entry.second.expansionCurrent = false;
+    ReleasePaneSinks();
     StashCommentDraft();
-    ReleasePropFilterState();
-    ReleaseLayoutSectionRefs();
-    g_propViewSelector = nullptr;
-    g_sourceStatus = nullptr;
-    g_commentBoxParts.clear();
     // Selecting a DIFFERENT node resets the pane state that describes what happened to the selection's rows:
     // lost bindings and links, unconfirmed writes, staged kinds. Edit records are kept for the whole session, so
     // Restore still works after the user comes back to an element; only records for elements that are gone are dropped.
@@ -130,12 +445,11 @@ static void ShowPropsForNode(InstanceHandle wire, const std::wstring& label, con
     if (g_ctx.layoutFn && wire) haveLayout = g_ctx.layoutFn(wire, layout);
     g_paneLayout = layout; g_paneHaveLayout = haveLayout;
 
-    IInspectable* frag = nullptr;
-    LARGE_INTEGER freq{}, tAuthor0{}, tAuthor1{}, tParse1{}, tWire1{};
+    LARGE_INTEGER freq{}, tStart{}, tShown{};
     QueryPerformanceFrequency(&freq);
-    QueryPerformanceCounter(&tAuthor0);
-    // Set row model before authoring markup; WirePropRepeater consumes parsed controls against these indices.
-g_propRows = rows;
+    QueryPerformanceCounter(&tStart);
+    // The row model the repeater reads.
+    g_propRows = rows;
     g_paneEditMap = emap;
     g_propRowLabels.clear();
     g_propRowLabels.reserve(rows.size());
@@ -145,21 +459,10 @@ g_propRows = rows;
         g_propRowLabels.push_back(std::move(lab));
     }
     g_propRowTotal = rows.size();
-    BuildPaneItems(g_propRows);
 
-    const std::wstring authored = BuildPropsFragment(type, name, label, breadcrumb, g_selSourceFile,
-                                                     g_selSourceLine, rows, authoredState, authoredXaml,
-                                                     haveLayout ? &layout : nullptr);
-    // the parse pays per resource REFERENCE, and that price rises for the life of the process.
-    // Resolve them to literals here, once per key per theme, so the parse below asks for none.
-    size_t askedRefs = 0, leftRefs = 0;
-    const std::wstring markup = InlineResourceLiterals(authored, &askedRefs, &leftRefs);
-    QueryPerformanceCounter(&tAuthor1);
-    if (FAILED(LoadMarkupWin(markup, &frag)) || !frag) {
-        DevToolsOverlayLog(L"route1.props fragment load failed");
-        // Defense-in-depth: never leave a stale, half-wired pane (its Apply button would still be wired
-        // to now-released edit rows). Clear the pane and show a constant, value-free error line built from
-        // markup that cannot itself fail to parse.
+    if (!EnsurePaneShell()) {
+        // Never leave a stale, half-wired pane. Clear it and show a constant, value-free error line built from markup
+        // that cannot itself fail to parse.
         DevToolsVecClear(g_ctx.propsHostChildren);
         IInspectable* errFrag = nullptr;
         if (SUCCEEDED(LoadMarkupWin(
@@ -176,205 +479,15 @@ g_propRows = rows;
         }
         return;
     }
-
-    // Wire the fragment: the property rows, the disclosures, the Computed|Set selector, the filter, and the
-    // comment and source actions. Messages go to the window's footer, which outlives this fragment.
-    QueryPerformanceCounter(&tParse1);
-    void* fe = nullptr;
-    if (SUCCEEDED(frag->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
-        auto findByName = [&](const std::wstring& n) -> IInspectable* {
-            HSTRING nm = MakeStr(n); IInspectable* f = nullptr;
-            DevToolsFindName(fe, nm, &f); WindowsDeleteString(nm); return f;
-        };
-        const int repeaterItems = WirePropRepeater(fe);
-        DevToolsOverlayLog(L"route1.props repeater items=%d rows=%zu", repeaterItems, g_propRows.size());
-        g_reactorSection.Clear();
-        // Reactor targets that aren't shown yet: only the agent knows, and it can't be asked on the UI thread, so they
-        // are appended to the References section when the answer arrives.
-        if (g_pendingReferencesFn && wire) {
-            if (IInspectable* pr = findByName(L"PendingReferences")) {
-                try {
-                    winrt::Windows::Foundation::IInspectable host{ nullptr };
-                    winrt::copy_from_abi(host, pr);
-                    winrt::weak_ref<DevToolsXC::StackPanel> weakHost = host.as<DevToolsXC::StackPanel>();
-                    auto queue = DevToolsD::DispatcherQueue::GetForCurrentThread();
-                    std::thread([fetch = g_pendingReferencesFn, selected = wire, withHeader = g_selReferencesMarkup.empty(), queue, weakHost]() {
-                        const std::wstring markup = fetch(selected, withHeader);
-                        if (markup.empty() || !queue) return;
-                        queue.TryEnqueue([markup, weakHost]() {
-                            auto panel = weakHost.get();
-                            if (!panel) return;
-                            try { panel.Children().Append(DevToolsXMk::XamlReader::Load(markup).as<DevToolsX::UIElement>()); }
-                            catch (const winrt::hresult_error&) {}
-                        });
-                    }).detach();
-                } catch (const winrt::hresult_error&) {}
-                pr->Release();
-            }
-        }
-        if (IInspectable* rb = findByName(L"ReactorSectionBody")) {
-            try {
-                winrt::Windows::Foundation::IInspectable body{ nullptr };
-                winrt::copy_from_abi(body, rb);
-                const auto ask = g_reactorAskFn;
-                g_reactorSection.Begin(body.as<DevToolsXC::Panel>(), static_cast<unsigned long long>(wire), !g_ctx.writeFn,
-                    { L"{ThemeResource TextFillColorPrimaryBrush}", L"{ThemeResource TextFillColorSecondaryBrush}",
-                      L"{ThemeResource AccentTextFillColorPrimaryBrush}", L"{ThemeResource SystemFillColorCautionBrush}" },
-                    ask ? DevToolsComponentSection::AskFn([ask](unsigned long long w, const std::wstring& op, const std::wstring& arg,
-                                                               const std::wstring& value, std::wstring* out) {
-                        return ask(static_cast<InstanceHandle>(w), op, arg, value, out);
-                    }) : DevToolsComponentSection::AskFn(), OnReactorElementFacts);
-            } catch (const winrt::hresult_error&) {}
-            rb->Release();
-        }
-        if (IInspectable* lb = findByName(L"LayoutSectionBody")) {
-            lb->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), (void**)&g_layoutBody);
-            lb->Release();
-        }
-        if (IInspectable* lt = findByName(L"LayoutSectionToggle")) {
-            void* ex = nullptr;
-            if (SUCCEEDED(lt->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
-                for (bool open : {true, false}) {
-                    auto* sink = new LayoutSectionSink(); sink->Init(open);
-                    __int64 tok = 0;
-                    const HRESULT hr = open
-                        ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
-                        : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
-                    if (FAILED(hr)) DevToolsOverlayLog(L"route1.props layout disclosure wiring failed hr=0x%08X", hr);
-                }
-                reinterpret_cast<IUnknown*>(ex)->Release();
-            }
-            lt->Release();
-        }
-        if (IInspectable* at = findByName(L"AxmlToggle")) {
-            void* ex = nullptr;
-            if (SUCCEEDED(at->QueryInterface(DevToolsIid<DevToolsXC::IExpander>(), &ex)) && ex) {
-                for (bool open : {true, false}) {
-                    auto* sink = new AxmlToggleSink(); sink->Init(open);
-                    __int64 tok = 0;
-                    const HRESULT hr = open
-                        ? DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Expanding(sink, DevToolsAbiTok(&tok))
-                        : DevToolsAbi<DevToolsXC::IExpander>(ex)->add_Collapsed(sink, DevToolsAbiTok(&tok));
-                    if (FAILED(hr)) DevToolsOverlayLog(L"route1.props XAML disclosure wiring failed hr=0x%08X", hr);
-                }
-                reinterpret_cast<IUnknown*>(ex)->Release();
-            }
-            at->Release();
-        }
-        if (IInspectable* pv = findByName(L"PropViewSelector")) {
-            try {
-                winrt::Windows::Foundation::IInspectable object{ nullptr };
-                winrt::copy_from_abi(object, pv);
-                if (auto selector = object.try_as<DevToolsXC::SelectorBar>()) {
-                    g_propViewSelector = selector;
-                    selector.SelectionChanged([gen = g_route1Gen](DevToolsXC::SelectorBar const& sender, auto&&) {
-                        if (gen == g_route1Gen) ApplyPropViewSelection(sender);
-                    });
-                }
-            } catch (const winrt::hresult_error& e) {
-                DevToolsOverlayLog(L"route1.props view selector wiring failed hr=0x%08X -- Computed|Set will not switch",
-                              e.code().value);
-            }
-            pv->Release();
-        }
-        {
-            if (IInspectable* sl = findByName(L"PropShowAllLbl")) {
-                sl->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_propShowAllLbl);
-                sl->Release();
-            }
-            if (IInspectable* sa = findByName(L"PropShowAll")) {
-                void* bb = nullptr;
-                if (SUCCEEDED(sa->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    PropShowAllSink* ps = new PropShowAllSink(); ps->Init();
-                    __int64 tok = 0;
-                    const HRESULT hrS = DevToolsAddClick(bb, ps, &tok);
-                    if (FAILED(hrS)) DevToolsOverlayLog(L"route1.wire PropShowAll add_Click FAILED hr=0x%08X -- the full list is unreachable", hrS);
-                    reinterpret_cast<IUnknown*>(bb)->Release();
-                }
-                sa->Release();
-            }
-            if (IInspectable* pf = findByName(L"PropFilter")) {
-                void* tbx = nullptr;
-                if (SUCCEEDED(pf->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tbx)) && tbx) {
-                    g_propFilterTextBox = tbx;
-                    PropFilterSink* fs = new PropFilterSink(); fs->Init();
-                    __int64 tok = 0;
-                    HRESULT hrF = DevToolsAddTextChanged(tbx, fs, &tok);
-                    if (FAILED(hrF)) DevToolsOverlayLog(L"route1.wire propfilter add_TextChanged FAILED hr=0x%08X -- the filter will do nothing", hrF);
-                }
-                pf->Release();
-            }
-            if (IInspectable* nm = findByName(L"PropNoMatch")) {
-                nm->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &g_propEmptyUi);
-                nm->Release();
-            }
-            if (IInspectable* nl = findByName(L"PropNoMatchLbl")) {
-                nl->QueryInterface(DevToolsIid<DevToolsXC::ITextBlock>(), &g_propEmptyLbl);
-                nl->Release();
-            }
-            if (IInspectable* cf = findByName(L"PropClearFilter")) {
-                cf->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &g_propEmptyClearUi);
-                void* bb = nullptr;
-                if (SUCCEEDED(cf->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                    PropClearFilterSink* cs = new PropClearFilterSink(); cs->Init();
-                    __int64 tok = 0;
-                    const HRESULT hrC = DevToolsAddClick(bb, cs, &tok);
-                    if (FAILED(hrC)) DevToolsOverlayLog(L"route1.wire PropClearFilter add_Click FAILED hr=0x%08X -- the empty pane has no way back", hrC);
-                    reinterpret_cast<IUnknown*>(bb)->Release();
-                }
-                cf->Release();
-            }
-            if (!g_propEmptyUi)
-                DevToolsOverlayLog(L"route1.wire PropNoMatch MISS -- an empty pane will render blank and say nothing");
-            ApplyPropFilter(g_propFilterQuery);
-        }
-        WireAddComment(fe);
-        if (IInspectable* st = findByName(L"SourceStatus")) {
-            winrt::Windows::Foundation::IInspectable object{ nullptr };
-            winrt::copy_from_abi(object, st);
-            st->Release();
-            const auto status = object.as<DevToolsXC::TextBlock>();
-            g_sourceStatus = status;
-            for (const auto& [button, action] : {
-                    std::pair{ L"OpenSource", SourceAction::Open },
-                    std::pair{ L"RevealSource", SourceAction::Reveal },
-                    std::pair{ L"CopySourcePath", SourceAction::Copy } }) {
-                if (IInspectable* ob = findByName(button)) {
-                    void* bb = nullptr;
-                    if (SUCCEEDED(ob->QueryInterface(DevToolsIid<DevToolsXCP::IButtonBase>(), &bb)) && bb) {
-                        auto* sink = new SourceActionSink();
-                        sink->Init(action, status);
-                        __int64 token = 0;
-                        const HRESULT hr = DevToolsAddClick(bb, sink, &token);
-                        if (FAILED(hr)) DevToolsOverlayLog(L"route1.source %s add_Click failed hr=0x%08X", button, hr);
-                        reinterpret_cast<IUnknown*>(bb)->Release();
-                    }
-                    ob->Release();
-                }
-            }
-        }
-        reinterpret_cast<IUnknown*>(fe)->Release();
-    }
-
-    unsigned int oldCount = 0;
-    DevToolsVecGetSize(g_ctx.propsHostChildren, &oldCount);
-    void* ui = nullptr;
-    if (SUCCEEDED(frag->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui)) && ui) {
-        DevToolsVecAppend(g_ctx.propsHostChildren, reinterpret_cast<IInspectable*>(ui));
-        reinterpret_cast<IUnknown*>(ui)->Release();
-        for (unsigned int i = 0; i < oldCount; ++i) DevToolsVecRemoveAt(g_ctx.propsHostChildren, 0);
-    } else {
-        DevToolsVecClear(g_ctx.propsHostChildren);
-    }
-    frag->Release();
-    QueryPerformanceCounter(&tWire1);
+    UpdatePaneSections(rows, authoredState, authoredXaml, haveLayout ? &layout : nullptr);
+    // Fills the repeater with the rows the filter keeps.
+    ApplyPropFilter(g_propFilterQuery);
+    if (rows.empty() && g_propEmptyUi) DevToolsPutVisibility(g_propEmptyUi, 1);
+    QueryPerformanceCounter(&tShown);
     const double ms = freq.QuadPart ? 1000.0 / (double)freq.QuadPart : 0.0;
-    DevToolsOverlayLog(L"route1.props shown type=%s name=%s rows=%zu items=%zu markup=%zuB refsAsked=%zu refsLeft=%zu author=%.1fms parse=%.1fms wire=%.1fms",
-                  type.c_str(), name.c_str(), rows.size(), g_paneItems.size(), markup.size(),
-                  askedRefs, leftRefs,
-                  (double)(tAuthor1.QuadPart - tAuthor0.QuadPart) * ms,
-                  (double)(tParse1.QuadPart - tAuthor1.QuadPart) * ms,
-                  (double)(tWire1.QuadPart - tParse1.QuadPart) * ms);
+    DevToolsOverlayLog(L"route1.props shown type=%s name=%s rows=%zu items=%zu ms=%.1f",
+                  type.c_str(), name.c_str(), rows.size(), g_paneItems.size(),
+                  (double)(tShown.QuadPart - tStart.QuadPart) * ms);
     if (!flushed.empty()) {
         SetStatusText(flushed);
         if (g_statusTb) {
@@ -479,14 +592,21 @@ static void ResetRoute1State()
     if (g_ctx.highlightFn) g_ctx.highlightFn(0, true);
     // Release the editable inspector state (message footer + props-host children).
     g_sourceStatus = nullptr;
-    g_commentBoxParts.clear();
+    ReleaseCommentBoxUi();
+    g_paneShell = {};
+    ReleasePaneSlot(g_sourceSlot);
+    ReleasePaneSlot(g_layoutSlot);
+    ReleasePaneSlot(g_referencesSlot);
+    g_reactorSection.Clear();
+    RevokePaneEvents();
+    ReleaseRowPools();
     if (g_statusTb) { reinterpret_cast<IUnknown*>(g_statusTb)->Release(); g_statusTb = nullptr; }
     if (g_statusHostUi) { reinterpret_cast<IUnknown*>(g_statusHostUi)->Release(); g_statusHostUi = nullptr; }
     ReleaseLayoutSectionRefs(); ReleasePropFilterState();
-    g_propViewSelector = nullptr;
     g_axmlExpanded = false;
     g_propFilterQuery.clear(); g_propFilterRaw.clear();
     RetirePaneEditors();
+    ReleasePaneSinks();
     g_editRecords.clear(); g_appChanged.clear(); g_dirtyNode = 0; g_propView = DevToolsPropView::Computed; g_propShowAll = false;
     g_bindingLost.clear(); g_linkedRows.clear(); g_linkLost.clear();
     g_sessionAssign.clear(); g_pendingKind.clear(); g_pendingWrites.clear();

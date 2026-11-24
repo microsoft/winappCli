@@ -16,22 +16,9 @@ static void ResyncPaneEditor(const std::wstring& path)
     }
 }
 
-// Only expansion editors use this owning delegate. The shared/static sink base stays immortal.
+// Only expansion editors use this owning delegate. InitEditor makes it free itself on its last Release.
 struct KindEditorSink : DevToolsSinkBase
 {
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID r, void** p) override
-    {
-        const HRESULT hr = DevToolsSinkBase::QueryInterface(r, p);
-        if (SUCCEEDED(hr) && r != __uuidof(IMarshal)) AddRef();
-        return hr;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&refs); }
-    ULONG STDMETHODCALLTYPE Release() override
-    {
-        const ULONG left = InterlockedDecrement(&refs);
-        if (!left) delete this;
-        return left;
-    }
     virtual HRESULT STDMETHODCALLTYPE Invoke(void*, void* args)
     {
         if (!Active()) return S_OK;
@@ -43,7 +30,7 @@ struct KindEditorSink : DevToolsSinkBase
         active.retired = &retired;
         return Run(active, args);
     }
-    virtual ~KindEditorSink() { if (ftm) ftm->Release(); }
+    virtual ~KindEditorSink() = default;
     virtual HRESULT Run(const KindCtx& active, void* args) = 0;
     bool Active() const { return !retired && gen == g_route1Gen && ctx.wire == g_selWire; }
     void InitEditor(const KindCtx& c, const GUID& iid)
@@ -51,6 +38,7 @@ struct KindEditorSink : DevToolsSinkBase
         ctx = c;
         if (c.rowFe) rowRoot.copy_from(reinterpret_cast<IUnknown*>(c.rowFe));
         if (c.expFe) expansionRoot.copy_from(reinterpret_cast<IUnknown*>(c.expFe));
+        destroy = [](DevToolsSinkBase* base) { delete static_cast<KindEditorSink*>(base); };
         InitSink(iid, g_route1Gen);
     }
     void Retire()
@@ -69,7 +57,6 @@ struct KindEditorSink : DevToolsSinkBase
     }
     KindCtx ctx;
     bool retired = false;
-    long refs = 1;
     winrt::com_ptr<IUnknown> rowRoot, expansionRoot, publisher;
     __int64 token = 0;
     HRESULT (*remove)(void*, __int64) = nullptr;
@@ -260,6 +247,13 @@ struct XBindInfoRevealSink : KindEditorSink
 static bool ColorPickerApplies(bool escaped, const std::wstring& chosen, const std::wstring& shown)
 {
     return !escaped && _wcsicmp(chosen.c_str(), shown.c_str()) != 0;
+}
+
+// A picker closing after the selection moved must not touch its hex box: the row may have been reused for another
+// property, and the box now shows that property's value.
+static bool ColorPickerTargetLive(const LostFocusSink& commit)
+{
+    return !commit.retired && !commit.detached && commit.selWire == g_selWire;
 }
 
 struct KindKeySink : KindEditorSink
@@ -722,9 +716,10 @@ static void NameKindItems(IInspectable* combo, const std::wstring& path)
     reinterpret_cast<IUnknown*>(items)->Release();
 }
 
+// An empty text clears the placeholder: a reused editor may still show the previous property's.
 static void SetPlaceholderOn(IInspectable* el, const std::wstring& text)
 {
-    if (!el || text.empty()) return;
+    if (!el) return;
     void* tx = nullptr;
     if (SUCCEEDED(el->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &tx)) && tx) {
         HSTRING h = MakeStr(text);
@@ -760,7 +755,8 @@ static void NameTheEditor(void* fe, const std::wstring& path, const wchar_t* pri
                             DevToolsOverlayLog(L"route1.props resource input missing for '%s'", name.c_str());
                         }
                     };
-                    box.Loaded(nameInput);
+                    const auto loadedToken = box.Loaded(nameInput);
+                    TrackPaneEvent(path, [box, loadedToken] { box.Loaded(loadedToken); });
                     if (box.IsLoaded()) {
                         box.ApplyTemplate();
                         nameInput(box, nullptr);
@@ -905,12 +901,20 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                 DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->put_Text(DevToolsAbiStr(h));
                 WindowsDeleteString(h);
                 const auto changed = ResourceKeyChangedHandler(fe, path, std::move(candidates));
-                auto* chosen = new ResSuggestSink(); chosen->Init();
-                auto* submitted = new ResQuerySink(); submitted->Init(ctx);
-                __int64 tok = 0;
-                const HRESULT textHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_TextChanged(winrt::get_abi(changed), DevToolsAbiTok(&tok));
-                const HRESULT choiceHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_SuggestionChosen(chosen, DevToolsAbiTok(&tok));
-                const HRESULT queryHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_QuerySubmitted(submitted, DevToolsAbiTok(&tok));
+                auto* chosen = NewPaneSink<ResSuggestSink>(); chosen->Init();
+                auto* submitted = NewPaneSink<ResQuerySink>(); submitted->Init(ctx);
+                __int64 textTok = 0, choiceTok = 0, queryTok = 0;
+                const HRESULT textHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_TextChanged(winrt::get_abi(changed), DevToolsAbiTok(&textTok));
+                const HRESULT choiceHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_SuggestionChosen(chosen, DevToolsAbiTok(&choiceTok));
+                const HRESULT queryHr = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(box)->add_QuerySubmitted(submitted, DevToolsAbiTok(&queryTok));
+                winrt::com_ptr<IUnknown> held;
+                held.copy_from(reinterpret_cast<IUnknown*>(box));
+                TrackPaneEvent(path, [held, textHr, choiceHr, queryHr, textTok, choiceTok, queryTok]() mutable {
+                    auto* suggest = DevToolsAbi<DevToolsXC::IAutoSuggestBox>(held.get());
+                    if (SUCCEEDED(textHr)) suggest->remove_TextChanged(*DevToolsAbiTok(&textTok));
+                    if (SUCCEEDED(choiceHr)) suggest->remove_SuggestionChosen(*DevToolsAbiTok(&choiceTok));
+                    if (SUCCEEDED(queryHr)) suggest->remove_QuerySubmitted(*DevToolsAbiTok(&queryTok));
+                });
                 if (FAILED(textHr) || FAILED(choiceHr) || FAILED(queryHr))
                     DevToolsOverlayLog(L"route1.props resource wiring failed text=0x%08X choice=0x%08X query=0x%08X",
                         textHr, choiceHr, queryHr);
@@ -1032,10 +1036,9 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                 if (SUCCEEDED(t->QueryInterface(DevToolsIid<DevToolsXC::IToggleSwitch>(), &ts)) && ts) {
                     DevToolsTogglePutIsOn(ts, DevToolsBoolValueIsOn(r.value));
                     if (edit >= 0) {
-                        BoolToggleSink* bs = new BoolToggleSink();
+                        BoolToggleSink* bs = NewPaneSink<BoolToggleSink>();
                         bs->Init(g_selWire, path, r.type, DevToolsBoolLiteral(DevToolsBoolValueIsOn(seed)), ts);
-                        __int64 btok = 0;
-                        const HRESULT hrT = DevToolsAddToggled(ts, bs, &btok);
+                        const HRESULT hrT = WirePaneEvent(path, ts, bs, DevToolsAddToggled, DevToolsRemoveToggled);
                         if (FAILED(hrT))
                             DevToolsOverlayLog(L"route1.props bool row '%s' add_Toggled FAILED hr=0x%08X -- it will not commit",
                                           path.c_str(), hrT);
@@ -1056,10 +1059,9 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     if (edit >= 0) {
                         const int cur = EnumIndexOf(members, seed);
                         const std::wstring orig = cur >= 0 ? members[(size_t)cur] : seed;
-                        EnumSelectSink* es = new EnumSelectSink();
+                        EnumSelectSink* es = NewPaneSink<EnumSelectSink>();
                         es->Init(g_selWire, path, r.type, orig, members, sel);
-                        __int64 stok = 0;
-                        const HRESULT hrS = DevToolsAddSelectionChanged(sel, es, &stok);
+                        const HRESULT hrS = WirePaneEvent(path, sel, es, DevToolsAddSelectionChanged, DevToolsRemoveSelectionChanged);
                         if (FAILED(hrS))
                             DevToolsOverlayLog(L"route1.props enum row '%s' add_SelectionChanged FAILED hr=0x%08X -- it will not commit",
                                           path.c_str(), hrS);
@@ -1087,10 +1089,9 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     hx->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &ui);
                     hx->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &box);
                     if (ui && box) {
-                        LostFocusSink* commit = new LostFocusSink();
+                        LostFocusSink* commit = NewPaneSink<LostFocusSink>();
                         commit->Init(g_selWire, path, r.type, seed, reinterpret_cast<IInspectable*>(box));
-                        __int64 tok = 0;
-                        DevToolsAddLostFocus(ui, commit, &tok);
+                        WirePaneEvent(path, ui, commit, DevToolsAddLostFocus, DevToolsRemoveLostFocus);
                         RegisterPaneEditor(path, ui, &commit->retired, commit,
                                            [commit] { commit->Invoke(nullptr, nullptr); }, ctx.expFe);
                         hexCommit = commit;
@@ -1117,7 +1118,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                         const unsigned gen = g_route1Gen;
                         hexCommit->AddRef();
                         const std::shared_ptr<LostFocusSink> commit(hexCommit, [](LostFocusSink* s) { s->Release(); });
-                        button.Click([hex, commit, gen](auto&& sender, auto&&) {
+                        const auto swatchToken = button.Click([hex, commit, gen](auto&& sender, auto&&) {
                             if (gen != g_route1Gen) return;
                             DevToolsXC::ColorPicker picker;
                             picker.IsAlphaEnabled(true);
@@ -1142,7 +1143,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                                 if (GetKeyState(VK_ESCAPE) & 0x8000) *escaped = true;
                             });
                             flyout.Closed([picker, hex, commit, gen, escaped](auto&&, auto&&) {
-                                if (gen != g_route1Gen) return;
+                                if (gen != g_route1Gen || !ColorPickerTargetLive(*commit)) return;
                                 const auto c = picker.Color();
                                 wchar_t chosen[10];
                                 swprintf_s(chosen, L"#%02X%02X%02X%02X", c.A, c.R, c.G, c.B);
@@ -1152,6 +1153,7 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                             });
                             flyout.ShowAt(sender.template as<DevToolsX::FrameworkElement>());
                         });
+                        TrackPaneEvent(path, [button, swatchToken] { button.Click(swatchToken); });
                     }
                 } catch (...) {
                     DevToolsOverlayLog(L"route1.props color picker for '%s' could not be wired", path.c_str());
@@ -1167,11 +1169,11 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     void* psel = nullptr;
                     if (SUCCEEDED(pb->QueryInterface(DevToolsIid<DevToolsXCP::ISelector>(), &psel)) && psel) {
                         // Placeholder-only: nothing is pre-selected, so building the expansion cannot commit.
-                        EnumSelectSink* ps = new EnumSelectSink();
+                        EnumSelectSink* ps = NewPaneSink<EnumSelectSink>();
                         ps->Init(g_selWire, path, r.type, seed, presets, psel);
                         ps->textEditor = hexCommit;
-                        __int64 tok = 0;
-                        DevToolsAddSelectionChanged(psel, ps, &tok);
+                        if (hexCommit) hexCommit->AddRef();
+                        WirePaneEvent(path, psel, ps, DevToolsAddSelectionChanged, DevToolsRemoveSelectionChanged);
                         reinterpret_cast<IUnknown*>(psel)->Release();
                     }
                     SetAutomationTextOn(pb, path + L" colour preset", path + L" colour preset", L"");
@@ -1193,6 +1195,8 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                 if (SUCCEEDED(host->QueryInterface(DevToolsIid<DevToolsXC::IPanel>(), &pnl)) && pnl &&
                     SUCCEEDED(DevToolsPanelGetChildren(pnl, reinterpret_cast<IInspectable**>(&kids))) && kids)
                 {
+                    // A reused expansion still holds the boxes it made for another property.
+                    DevToolsVecClear(reinterpret_cast<IInspectable*>(kids));
                     for (size_t i = 0; i < r.fields.size(); ++i) {
                         IInspectable* col = DevToolsActivate(L"Microsoft.UI.Xaml.Controls.StackPanel");
                         IInspectable* cap = NewTextBlock(r.fields[i]);
@@ -1292,10 +1296,9 @@ static void PopulateKindEditor(void* fe, const DevToolsCardRow& r, const std::ws
                     ed->QueryInterface(DevToolsIid<DevToolsX::IUIElement>(), &edUi);
                     ed->QueryInterface(DevToolsIid<DevToolsXC::ITextBox>(), &box);
                     if (edUi && box) {
-                        LostFocusSink* commit = new LostFocusSink();
+                        LostFocusSink* commit = NewPaneSink<LostFocusSink>();
                         commit->Init(g_selWire, path, r.type, seed, reinterpret_cast<IInspectable*>(box));
-                        __int64 mtok = 0;
-                        const HRESULT hrM = DevToolsAddLostFocus(edUi, commit, &mtok);
+                        const HRESULT hrM = WirePaneEvent(path, edUi, commit, DevToolsAddLostFocus, DevToolsRemoveLostFocus);
                         if (FAILED(hrM))
                             DevToolsOverlayLog(L"route1.props row '%s' commit wiring FAILED hr=0x%08X -- it will not commit",
                                           path.c_str(), hrM);

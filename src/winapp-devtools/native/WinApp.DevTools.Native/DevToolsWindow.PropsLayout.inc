@@ -4,7 +4,7 @@
 
 // Group a curated property into one of four inspector sections so the pane reads by concern instead of one
 // long list. Unknown properties fall into "Other". Pure name lookup (0 ABI); the grouping is presentation-only
-// and never reorders the editable-index assignment (see BuildPropsFragment).
+// and never reorders the editable-index assignment (see BuildEditMap).
 static int PropGroupIndex(const std::wstring& n)
 {
     static const wchar_t* layout[] = { L"Width", L"Height", L"Margin", L"Padding", L"HorizontalAlignment",
@@ -573,11 +573,13 @@ static std::wstring BuildLayoutSection(const DevToolsWindowLayout& L, const std:
 }
 
 // Size & spacing: the box model and the offered/took explanation, after the header and collapsed unless opened
-// before. Named apart from the property grid's "Layout" category.
-static std::wstring BuildLayoutDisclosure(const DevToolsWindowLayout& L, const std::vector<DevToolsCardRow>& rows)
+// before. Named apart from the property grid's "Layout" category. ShowPropsForNode fills the body with
+// BuildLayoutSection and shows the section for elements that have a layout.
+static std::wstring BuildLayoutDisclosure()
 {
     const bool open = LayoutSectionOpen();
-    std::wstring m = L"<StackPanel Margin=\"0,8,0,0\" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacing\">";
+    std::wstring m = L"<StackPanel x:Name=\"LayoutSection\" Visibility=\"Collapsed\" Margin=\"0,8,0,0\""
+                     L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacing\">";
     m += L"<Expander x:Name=\"LayoutSectionToggle\" HorizontalAlignment=\"Stretch\""
          L" HorizontalContentAlignment=\"Stretch\" AutomationProperties.Name=\"Size and spacing\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingToggle\" IsExpanded=\"" +
@@ -587,7 +589,6 @@ static std::wstring BuildLayoutDisclosure(const DevToolsWindowLayout& L, const s
     m += L"</Expander.Header>";
     m += L"<StackPanel x:Name=\"LayoutSectionBody\" Margin=\"0,6,0,0\""
          L" AutomationProperties.AutomationId=\"WinAppDevToolsSizeSpacingBody\">";
-    m += BuildLayoutSection(L, rows);
     m += L"</StackPanel></Expander></StackPanel>";
     return m;
 }

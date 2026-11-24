@@ -177,8 +177,8 @@ static bool ApplyCommitOutcome(DevToolsWriteOutcome oc, InstanceHandle wire,
         NoteBindingLost(prop);
         RebaselineRecords(wire);
         // Rebuild so the row re-renders with its undo + reset affordances DISABLED and the reason attached.
-        // Safe from inside a commit/click handler for the same reason ResetSink's rebuild is (the sinks are
-        // process-lifetime and gen-guarded, not owned by the subtree being replaced).
+        // Safe from inside a commit/click handler for the same reason ResetSink's rebuild is (the replaced pane's
+        // sinks are gen-guarded and released only after the current event returns, see ReleasePaneSinks).
         ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
         SetStatusText(L"Replaced the binding on " + prop + L" with a literal. " +
                       (g_ctx.bindFn ? std::wstring(L"Use Restore binding to put it back")
@@ -313,7 +313,7 @@ struct PaneEditor
     std::wstring          path;
     IUnknown*             ident = nullptr;
     bool*                 retired = nullptr;
-    LostFocusSink*        text = nullptr;
+    LostFocusSink*        text = nullptr; // owned reference; `retired` and `commit` may point into it
     std::function<void()> commit;
     void*                 owner = nullptr;
 };
@@ -327,20 +327,21 @@ static void RegisterPaneEditor(const std::wstring& path, void* element, bool* re
     IUnknown* ident = nullptr;
     if (FAILED(reinterpret_cast<IUnknown*>(element)->QueryInterface(IID_IUnknown, reinterpret_cast<void**>(&ident))) || !ident)
         return;
+    if (text) text->AddRef();
     g_paneEditors.push_back({ path, ident, retired, text, std::move(commit), owner });
 }
 
 // Capture the departing text before releasing the box, so a delayed blur can save without reading old UI.
-static void ForgetPaneEditors(const std::wstring& path, void* owner = nullptr)
+static void ForgetPaneEditors(const std::wstring& path, void* owner = nullptr, bool anyPath = false)
 {
     std::vector<PaneEditor> departing;
     for (size_t i = g_paneEditors.size(); i-- > 0; ) {
-        if (g_paneEditors[i].path != path || (owner && g_paneEditors[i].owner != owner)) continue;
+        if ((!anyPath && g_paneEditors[i].path != path) || (owner && g_paneEditors[i].owner != owner)) continue;
         departing.push_back(std::move(g_paneEditors[i]));
         g_paneEditors.erase(g_paneEditors.begin() + i);
     }
     for (auto& e : departing) {
-        if (e.text) e.text->Detach();
+        if (e.text) { e.text->Detach(); e.text->Release(); }
         if (e.ident) e.ident->Release();
     }
 }
@@ -354,7 +355,7 @@ static void ReleasePaneEditors(bool retire)
     departing.swap(g_paneEditors);
     for (auto& e : departing) {
         if (retire && e.retired) *e.retired = true;
-        if (e.text) e.text->Detach();
+        if (e.text) { e.text->Detach(); e.text->Release(); }
         if (e.ident) e.ident->Release();
     }
 }
@@ -386,27 +387,72 @@ static std::wstring FlushPaneEditor(PaneEditor e, bool leaving)
     }
 }
 
-// Save the property editor that has keyboard focus, as leaving it would. Returns what happened, for the status
-// line, or an empty string when no editor was focused or its text was unchanged.
-static std::wstring FlushFocusedEditor(bool leaving = false)
+// The pane editor that has keyboard focus, or null. Not a counted reference: it is only compared with the registry.
+static IUnknown* FocusedPaneEditor()
 {
-    if (g_flushingEditor || g_paneEditors.empty() || !g_inspectorContent) return std::wstring();
-    // A copy: saving can rebuild the pane and change the registry.
-    PaneEditor picked;
+    if (g_paneEditors.empty() || !g_inspectorContent) return nullptr;
     try {
         winrt::Windows::Foundation::IInspectable object{ nullptr };
         winrt::copy_from_abi(object, g_inspectorContent);
         auto root = object.as<DevToolsX::FrameworkElement>();
         auto focused = DevToolsXI::FocusManager::GetFocusedElement(root.XamlRoot());
-        if (!focused) return std::wstring();
+        if (!focused) return nullptr;
         const auto ident = focused.as<winrt::Windows::Foundation::IUnknown>();
         for (const auto& e : g_paneEditors)
-            if (e.ident == static_cast<IUnknown*>(winrt::get_abi(ident))) { picked = e; break; }
-    } catch (const winrt::hresult_error&) {
-        return std::wstring();
-    }
+            if (e.ident == static_cast<IUnknown*>(winrt::get_abi(ident))) return e.ident;
+    } catch (const winrt::hresult_error&) {}
+    return nullptr;
+}
+
+// Save the property editor that has keyboard focus, as leaving it would. Returns what happened, for the status
+// line, or an empty string when no editor was focused or its text was unchanged.
+static std::wstring FlushFocusedEditor(bool leaving = false)
+{
+    if (g_flushingEditor) return std::wstring();
+    IUnknown* focused = FocusedPaneEditor();
+    if (!focused) return std::wstring();
+    // A copy: saving can rebuild the pane and change the registry.
+    PaneEditor picked;
+    for (const auto& e : g_paneEditors)
+        if (e.ident == focused) { picked = e; break; }
     picked.ident = nullptr;
     return FlushPaneEditor(picked, leaving);
+}
+
+// Save the pane's editors as the selection moves to another element. The pane's focus-out handlers are removed before
+// the move, so a focus-out WinUI delivers late (the user typed, then clicked another element) can no longer save the
+// edit. Returns what happened to the first editor that had an edit.
+// - A text or colour box saves only what was typed since it last showed or saved a value, so each one is saved.
+// - Field boxes (Margin's four) compare with the property's current value, not with what they showed, so only the
+//   focused one is saved, as before: an untouched group must not write stale boxes over the app's newer value.
+// - A staged kind change (Literal over a resource link, for example) waits for its own Apply or Replace button, so
+//   leaving discards it, and retires its box so a late focus-out can't apply it either.
+static std::wstring FlushLeavingEditors()
+{
+    if (g_flushingEditor || g_paneEditors.empty()) return std::wstring();
+    IUnknown* focused = FocusedPaneEditor();
+    // A copy: saving can rebuild the pane and change the registry.
+    std::vector<PaneEditor> editors = g_paneEditors;
+    std::vector<bool> isFocused;
+    for (auto& e : editors) {
+        isFocused.push_back(focused && e.ident == focused);
+        e.ident = nullptr;
+        if (e.text) e.text->AddRef();
+    }
+    std::wstring said;
+    for (size_t i = 0; i < editors.size(); ++i) {
+        const auto& e = editors[i];
+        if (PendingKindFind(e.path)) {
+            if (e.retired) *e.retired = true;
+            continue;
+        }
+        if (!e.text && !isFocused[i]) continue;
+        const std::wstring outcome = FlushPaneEditor(e, /*leaving*/ true);
+        if (said.empty()) said = outcome;
+    }
+    for (auto& e : editors)
+        if (e.text) e.text->Release();
+    return said;
 }
 
 // Defined once the row model is available (DevToolsWindow.KindModel.inc).
@@ -573,10 +619,8 @@ struct SplitterKeySink : DevToolsSinkBase
     void Init() { InitSink(IID_KeyEventHandler_Del, g_route1Gen); }
 };
 
-// The Computed | Set selector sits in the property toolbar, which a view change rebuilds. The rebuild runs after
-// the selection event returns, and keyboard focus moves to the new selector when the old one had it.
-static DevToolsXC::SelectorBar g_propViewSelector{nullptr};
-
+// The Computed | Set selector sits in the property toolbar. A view change refreshes the pane in place, so the selector
+// and its keyboard focus stay.
 static void ApplyPropViewSelection(DevToolsXC::ISelectorBar const& selector)
 {
     try {
@@ -590,48 +634,12 @@ static void ApplyPropViewSelection(DevToolsXC::ISelectorBar const& selector)
         const auto view = selected == items.GetAt(1) ? DevToolsPropView::Set : DevToolsPropView::Computed;
         if (g_propView == view) return;
         g_propView = view;
-        bool hadFocus = false;
-        DevToolsD::DispatcherQueue queue{nullptr};
-        if (const auto ui = selector.try_as<DevToolsX::UIElement>()) {
-            queue = ui.DispatcherQueue();
-            const auto self = ui.as<DevToolsX::DependencyObject>();
-            if (const auto root = ui.XamlRoot()) {
-                for (auto node = DevToolsXI::FocusManager::GetFocusedElement(root).try_as<DevToolsX::DependencyObject>();
-                     node && !hadFocus; node = DevToolsXM::VisualTreeHelper::GetParent(node))
-                    hadFocus = node == self;
-            }
-        }
-        const auto rebuild = [gen = g_route1Gen, hadFocus] {
-            if (gen != g_route1Gen) return;
-            ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
-            if (!hadFocus) return;
-            try {
-                if (const auto bar = g_propViewSelector) {
-                    const auto token = std::make_shared<winrt::event_token>();
-                    *token = bar.Loaded([gen, token](auto const& sender, auto const&) {
-                        try {
-                            const auto loaded = sender.template as<DevToolsXC::SelectorBar>();
-                            loaded.Loaded(*token);
-                            if (gen != g_route1Gen || loaded != g_propViewSelector) return;
-                            if (const auto item = loaded.SelectedItem())
-                                if (!item.Focus(DevToolsX::FocusState::Keyboard))
-                                    DevToolsOverlayLog(L"route1.props view focus refused");
-                        } catch (const winrt::hresult_error& e) {
-                            DevToolsOverlayLog(L"route1.props view focus failed hr=0x%08X", e.code().value);
-                        }
-                    });
-                }
-            } catch (const winrt::hresult_error& e) {
-                DevToolsOverlayLog(L"route1.props view focus failed hr=0x%08X", e.code().value);
-            }
-        };
-        if (!queue || !queue.TryEnqueue(rebuild)) rebuild();
+        ShowPropsForNode(g_selWire, g_selLabel, g_selBreadcrumb, /*force*/ true);
     } catch (const winrt::hresult_error& e) {
         DevToolsOverlayLog(L"route1.props view selection failed hr=0x%08X", e.code().value);
         SetStatusText(L"Could not update the property view. Refresh the inspector and retry.");
     }
 }
-
 // WinUI owns disclosure visibility and automation; callbacks only remember the user's choice.
 struct LayoutSectionSink : DevToolsSinkBase
 {

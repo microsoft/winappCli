@@ -877,6 +877,39 @@ if (-not $devPid) {
     } catch {
         Write-TestFail "native resource suggestions stage and explicitly apply a resource" $_.Exception.Message
     }
+    # Each selection updates the details pane in place (#1283). Rebuilding it left memory behind in WinUI for every
+    # selection, so the pane must be the same element afterwards and memory must level off.
+    try {
+        $paneHandles = foreach ($name in @("CounterButton", "InputTextBox", "FeatureCheckBox", "SubmitButton")) {
+            ((Invoke-Winapp @("devtools", "search", $name, "-a", "$devPid", "--json")).Output | ConvertFrom-Json).matches[0].handle
+        }
+        $selectAll = {
+            param([int]$Count)
+            for ($i = 0; $i -lt $Count; $i++) {
+                $null = Invoke-Winapp @("devtools", "call", "Selection.select", "handle=$($paneHandles[$i % $paneHandles.Count])", "-a", "$devPid")
+            }
+        }
+        $filterId = {
+            ((Invoke-Winapp @("ui", "get-property", "WinAppDevToolsPropFilter", "-w", $inspectorHwnd, "--json")).Output | ConvertFrom-Json).elementId
+        }
+        & $selectAll 1
+        $before = & $filterId
+        & $selectAll 2
+        $after = & $filterId
+        if ($before -and $before -eq $after) { Write-TestPass "selecting another element updates the same properties pane" $after }
+        else { Write-TestFail "selecting another element updates the same properties pane" "filter element $before became $after" }
+        & $selectAll 50
+        Start-Sleep -Milliseconds 1500
+        $warm = (Get-Process -Id $devPid).PrivateMemorySize64
+        & $selectAll 200
+        Start-Sleep -Milliseconds 1500
+        $perHundredMb = ((Get-Process -Id $devPid).PrivateMemorySize64 - $warm) / 1MB / 2
+        # About 1 MB per 100 selections in place; rebuilding the pane grew about 15 MB.
+        if ($perHundredMb -lt 4) { Write-TestPass "memory levels off across selections" ("{0:N1} MB per 100 selections" -f $perHundredMb) }
+        else { Write-TestFail "memory levels off across selections" ("{0:N1} MB per 100 selections" -f $perHundredMb) }
+    } catch {
+        Write-TestFail "selections reuse the properties pane" $_.Exception.Message
+    }
     for ($i = 0; $i -lt 10; $i++) {
         $null = Invoke-Winapp @("ui", "focus", "-w", $inspectorHwnd)
         $null = Invoke-Winapp @("ui", "focus", "-w", $mainHwnd)
