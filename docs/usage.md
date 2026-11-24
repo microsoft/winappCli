@@ -1854,7 +1854,7 @@ and are separate from a project's `winapp.yaml`.
 
 | Setting | Values | Default | What it does |
 |---|---|---|---|
-| `run.devtools` | `on`, `off`, `headless` | `on` | How `winapp run` starts [DevTools](guides/devtools.md) for a WinUI project when `--devtools` isn't given. The toolbar's **Launch preferences** menu changes the same setting. |
+| `run.devtools` | `on`, `off`, `headless` | `on` | How `winapp run` starts [DevTools](guides/devtools.md#turn-devtools-on-or-off) for a WinUI project when `--devtools` isn't given. The DevTools window's **Settings** page changes the same setting. |
 
 - `winapp config list` shows every setting with its value and whether it is your setting or the default.
 - `winapp config get <key>` shows one setting.

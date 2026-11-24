@@ -9,7 +9,7 @@
      parse time. Do NOT put raw non-ASCII bytes here.
 
      TOKENS (substituted by BuildWindowMarkup before the document is parsed):
-       $TREEHEADER$ -> "N nodes" (node count in the tree panel header)
+       $TREEHEADER$ -> "N nodes" (node count below the tree)
        $SUBTITLE$   -> "PID <process id>" (title bar subtitle)
      The data-driven rows are parsed into their own namescope and swapped through TreeRowsHost. That lets a
      Just-my-XAML toggle rebuild the capped population without tearing down PropsHost or an in-flight edit.
@@ -30,8 +30,8 @@
   <!-- The side rail switches the left panel between the visual tree and the comments list, and leaves room
        for more tools. NavigationView's content area is the one card: in LeftCompact mode the control draws
        its border, corner and fill, so the panes inside have none of their own. -->
-  <NavigationView x:Name="InspectorNav" Grid.Row="1" PaneDisplayMode="LeftCompact" Margin="0,16,0,0"
-                  IsPaneToggleButtonVisible="False" IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
+  <NavigationView x:Name="InspectorNav" Grid.Row="1" PaneDisplayMode="LeftCompact" Margin="0,8,0,0"
+                  IsPaneToggleButtonVisible="False" IsBackButtonVisible="Collapsed" IsSettingsVisible="True"
                   AlwaysShowHeader="False" IsTitleBarAutoPaddingEnabled="False" SelectionFollowsFocus="Enabled"
                   AutomationProperties.Name="Inspector view"
                   AutomationProperties.AutomationId="WinAppDevToolsInspectorView">
@@ -62,6 +62,7 @@
        The props column has no MinWidth: TreeWidth already keeps it at 300 or more. A MinWidth would make the
        card wider than the window when space is short, so the card would report that width and the tree would
        never shrink. The tree Width matches DevToolsInspector::kDefaultTreeWidth. -->
+  <Grid>
   <Grid x:Name="InspectorCard">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
@@ -72,37 +73,20 @@
       <ColumnDefinition Width="6"/>
       <ColumnDefinition Width="1*"/>
     </Grid.ColumnDefinitions>
-    <!-- Both headers share a content-sized row so their divider stays aligned as text grows. -->
-    <Border Grid.ColumnSpan="3" BorderThickness="0,0,0,1"
+    <Border Grid.Column="2" BorderThickness="0,0,0,1"
             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" IsHitTestVisible="False"/>
 
-      <!-- The rail item that is selected decides which panel header shows. -->
-      <Grid x:Name="TreePanelHeader" Grid.Row="0" ColumnSpacing="8" Padding="14,8" MinHeight="52"
-            Width="{Binding Width, ElementName=TreePane}" VerticalAlignment="Center">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="2*"/>
-          <ColumnDefinition Width="3*"/>
-        </Grid.ColumnDefinitions>
-        <TextBlock Text="Visual tree" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <TextBlock x:Name="TreeHeader" Grid.Column="1" Text="$TREEHEADER$" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
-                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-      </Grid>
-      <Grid x:Name="CommentsPanelHeader" Grid.Row="0" ColumnSpacing="8" Padding="14,8" MinHeight="52"
-            Width="{Binding Width, ElementName=TreePane}" VerticalAlignment="Center" Visibility="Collapsed">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="2*"/>
-          <ColumnDefinition Width="3*"/>
-        </Grid.ColumnDefinitions>
-        <TextBlock Text="Comments" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
-        <TextBlock x:Name="CommentsCountLbl" Grid.Column="1" Text="0 open" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
-                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-      </Grid>
-    <Grid Grid.Column="0" Grid.Row="1" x:Name="TreePane" Width="372">
+    <Grid x:Name="TreePane" Grid.Column="0" Grid.RowSpan="2" Width="372">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
       </Grid.RowDefinitions>
+      <Grid x:Name="CommentsPanelHeader" Grid.Row="0" Padding="14,8" MinHeight="40"
+            VerticalAlignment="Center" Visibility="Collapsed">
+        <TextBlock Text="Comments" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
+      </Grid>
       <Grid x:Name="TreeControls" Grid.Row="0" Margin="8,8,8,4" ColumnSpacing="8">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
@@ -110,12 +94,12 @@
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
-        <ToggleButton x:Name="PickBtn" Grid.Column="0" MinWidth="32" MinHeight="32" Padding="8"
-               VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+        <ToggleButton x:Name="PickBtn" Grid.Column="0" MinWidth="32" MinHeight="32"
+               VerticalAlignment="Center" VerticalContentAlignment="Center"
                ToolTipService.ToolTip="Pick element (Ctrl+Shift+P)"
                AutomationProperties.Name="Pick element (inspector)"
                AutomationProperties.AutomationId="PickElementToggle">
-          <Grid MinWidth="28" MinHeight="28">
+          <Grid>
             <PathIcon FlowDirection="LeftToRight" Width="16" Height="16"
                       HorizontalAlignment="Center" VerticalAlignment="Center"
                       Data="F1 M12.3867 3H13.25C13.7141 3 14.1591 3.18451 14.4873 3.5127C14.8155 3.84088 15 4.28588 15 4.75C15 4.75525 14.9982 4.76042 14.998 4.76562H15V9.5C15 9.58493 14.9787 9.6653 14.9414 9.73535L14 8.96484V4.76562H14.002C14.0018 4.76042 14 4.75525 14 4.75C14 4.5511 13.921 4.36038 13.7803 4.21973C13.6397 4.07908 13.4489 4 13.25 4H11.5C11.4967 4 11.4935 3.99909 11.4902 3.99902H9.50977C9.50651 3.99909 9.50327 4 9.5 4H6.5C6.49673 4 6.49349 3.99909 6.49023 3.99902H4.50977C4.50651 3.99909 4.50327 4 4.5 4H2.75C2.55109 4 2.36038 4.07908 2.21973 4.21973C2.07908 4.36038 2 4.55109 2 4.75V11.25C2 11.4489 2.07908 11.6397 2.21973 11.7803C2.36038 11.921 2.5511 12 2.75 12H4.5C4.51021 12 4.52022 12.0023 4.53027 12.0029H6.46973C6.47978 12.0023 6.48979 12 6.5 12H8.00098V13H6.78125V13.0029H2.95703V13H2.75C2.28588 13 1.84088 12.8155 1.5127 12.4873C1.19373 12.1683 1.012 11.739 1.00195 11.2891H1V4.73438H1.00098C1.00507 4.27589 1.18819 3.8372 1.5127 3.5127C1.84089 3.18451 2.28587 3 2.75 3H4.26562V2.99902H12.3867V3Z M15.723 11.6682C16.268 12.1142 15.953 12.9992 15.248 12.9992H12.262C12.105 12.9992 11.958 13.0722 11.863 13.1982L10.348 15.2032C9.914 15.7772 8.999 15.4702 9 14.7512L9.002 7.75125C9.002 7.11825 9.737 6.77025 10.227 7.17125L15.723 11.6682Z"/>
@@ -124,12 +108,12 @@
                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Visibility="Collapsed"/>
           </Grid>
         </ToggleButton>
-        <ToggleButton x:Name="FocusBtn" Grid.Column="1" MinWidth="32" MinHeight="32" Padding="8"
-               VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+        <ToggleButton x:Name="FocusBtn" Grid.Column="1" MinWidth="32" MinHeight="32"
+               VerticalAlignment="Center" VerticalContentAlignment="Center"
                ToolTipService.ToolTip="Track keyboard focus"
                AutomationProperties.Name="Track keyboard focus"
                AutomationProperties.AutomationId="FocusTrackingToggle">
-          <Grid MinWidth="28" MinHeight="28">
+          <Grid>
             <PathIcon FlowDirection="LeftToRight" Width="16" Height="16"
                       HorizontalAlignment="Center" VerticalAlignment="Center"
                       Data="F1 M2.75 4C2.55109 4 2.36032 4.07902 2.21967 4.21967C2.07902 4.36032 2 4.55109 2 4.75C2 5.02614 1.77614 5.25 1.5 5.25C1.22386 5.25 1 5.02614 1 4.75C1 4.28587 1.18437 3.84075 1.51256 3.51256C1.84075 3.18437 2.28587 3 2.75 3H4.5C4.77614 3 5 3.22386 5 3.5C5 3.77614 4.77614 4 4.5 4H2.75Z M1.5 10.75C1.77614 10.75 2 10.9739 2 11.25C2 11.4489 2.07902 11.6397 2.21967 11.7803C2.36032 11.921 2.55109 12 2.75 12H4.5C4.77614 12 5 12.2239 5 12.5C5 12.7761 4.77614 13 4.5 13H2.75C2.28587 13 1.84075 12.8156 1.51256 12.4874C1.18437 12.1592 1 11.7141 1 11.25C1 10.9739 1.22386 10.75 1.5 10.75Z M11 3.5C11 3.22386 11.2239 3 11.5 3H13.25C13.7141 3 14.1592 3.18437 14.4874 3.51256C14.8156 3.84075 15 4.28587 15 4.75C15 5.02614 14.7761 5.25 14.5 5.25C14.2239 5.25 14 5.02614 14 4.75C14 4.55109 13.921 4.36032 13.7803 4.21967C13.6397 4.07902 13.4489 4 13.25 4H11.5C11.2239 4 11 3.77614 11 3.5Z M13.8016 10.7685C14.1895 11.086 13.9653 11.716 13.4634 11.716H11.3378C11.226 11.716 11.1214 11.768 11.0537 11.8577L9.97523 13.285C9.66628 13.6936 9.01491 13.4751 9.01563 12.9632L9.01705 7.98011C9.01705 7.52949 9.54028 7.28176 9.8891 7.56722L13.8016 10.7685Z M9.43555 5.00586C9.45672 5.00312 9.47808 5 9.5 5H12.5C12.7368 5 12.9346 5.16472 12.9863 5.38574H13V8.52441C13 8.60927 12.9786 8.68976 12.9414 8.75977L12 7.98926V6H9.5C9.47804 6 9.45676 5.99591 9.43555 5.99316C9.41434 5.99591 9.39305 6 9.37109 6H4V10H8V11H3.5C3.22386 11 3 10.7761 3 10.5C3 10.4791 3.00336 10.4587 3.00586 10.4385C3.00336 10.4182 3 10.3979 3 10.377V5.5C3 5.22386 3.22386 5 3.5 5C3.5152 5 3.53007 5.00258 3.54492 5.00391C3.55977 5.00258 3.57465 5 3.58984 5H9.37109C9.39301 5 9.41438 5.00312 9.43555 5.00586Z"/>
@@ -138,15 +122,16 @@
                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Visibility="Collapsed"/>
           </Grid>
         </ToggleButton>
-        <TextBox x:Name="TreeFilter" Grid.Column="2" PlaceholderText="Filter tree: type or #name" AutomationProperties.Name="TreeFilter"/>
+        <TextBox x:Name="TreeFilter" Grid.Column="2" VerticalAlignment="Center"
+                 PlaceholderText="Filter tree: type or #name" AutomationProperties.Name="TreeFilter"/>
         <!-- The wrapper owns the tooltip so the unavailable reason remains discoverable even while the
              ToggleButton itself is disabled. JmxLbl is the single live text source: it is collapsed, so it is
              absent from the UIA tree by construction, and the toggle's AutomationProperties.Name is what
              carries the state and the unavailable reason to assistive tech. Do not drop that binding. -->
         <Grid Grid.Column="3" Background="Transparent"
               ToolTipService.ToolTip="{Binding Text, ElementName=JmxLbl}">
-          <ToggleButton x:Name="JmxBtn" MinWidth="32" MinHeight="32" Padding="8"
-                        VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+          <ToggleButton x:Name="JmxBtn" MinWidth="32" MinHeight="32"
+                        VerticalAlignment="Center" VerticalContentAlignment="Center"
                         AutomationProperties.Name="{Binding Text, ElementName=JmxLbl}"
                         AutomationProperties.AutomationId="JustMyXamlToggle">
             <FontIcon Glyph="&#xE943;" FontSize="14" IsTextScaleFactorEnabled="True"/>
@@ -162,7 +147,7 @@
                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                    AutomationProperties.AutomationId="FocusNotice"/>
       </Border>
-      <Grid x:Name="TreeScroll" Grid.Row="2" Margin="8,4,8,8">
+      <Grid x:Name="TreeScroll" Grid.Row="2" Margin="4,4,8,8">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="*"/>
@@ -176,7 +161,7 @@
           <Grid x:Name="TreeRowsHost" Grid.Row="1">
             <Grid.Resources>
               <x:Double x:Key="TreeViewItemMinHeight">24</x:Double>
-              <Thickness x:Key="TreeViewItemPresenterMargin">4,1</Thickness>
+              <Thickness x:Key="TreeViewItemPresenterMargin">2,1</Thickness>
               <Thickness x:Key="TreeViewItemPresenterPadding">0,0,0,2</Thickness>
             </Grid.Resources>
           </Grid>
@@ -192,8 +177,11 @@
           </StackPanel>
       </Grid>
       <ScrollViewer x:Name="CommentsScroll" Grid.Row="2" Visibility="Collapsed" ZoomMode="Disabled" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel x:Name="CommentsHost" Margin="8"/>
+        <StackPanel x:Name="CommentsHost" Margin="8,0,8,8"/>
       </ScrollViewer>
+      <TextBlock x:Name="TreeHeader" Grid.Row="3" Text="$TREEHEADER$" FontSize="12" TextWrapping="Wrap"
+                 Margin="14,4,14,8" TextAlignment="Right" Visibility="{Binding Visibility, ElementName=TreeScroll}"
+                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
     </Grid>
 
     <Grid Grid.Column="1" Grid.RowSpan="2">
@@ -570,17 +558,14 @@
             <TextBlock Text="Show in tree" VerticalAlignment="Center"/>
           </StackPanel>
         </Button>
-        <Button x:Name="AddCommentBtn" Grid.Column="2" MinHeight="28" Padding="10,4" FontSize="12"
-                VerticalAlignment="Center"
+        <Button x:Name="AddCommentBtn" Grid.Column="2" MinHeight="28" Padding="6" FontSize="12"
+                VerticalAlignment="Center" Style="{StaticResource SubtleButtonStyle}"
                 ToolTipService.ToolTip="Comment on this element"
                 AutomationProperties.Name="Add comment"
                 AutomationProperties.AutomationId="WinAppDevToolsAddComment">
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBlock Text="&#xE90A;" FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+          <TextBlock Text="&#xE90A;" FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
                        FontSize="14" IsTextScaleFactorEnabled="True" VerticalAlignment="Center"
                        AutomationProperties.AccessibilityView="Raw"/>
-            <TextBlock Text="Comment" VerticalAlignment="Center"/>
-          </StackPanel>
         </Button>
       </Grid>
     <Grid x:Name="DetailsPane" Grid.Column="2" Grid.Row="1">
@@ -614,6 +599,101 @@
         </Grid>
       </Border>
     </Grid>
+  </Grid>
+  <Grid x:Name="SettingsPage" Visibility="Collapsed" MaxWidth="1000">
+  <ScrollViewer ZoomMode="Disabled"
+                HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"
+                HorizontalContentAlignment="Stretch"
+                AutomationProperties.AutomationId="DevToolsSettingsPage">
+    <ScrollViewer.Resources>
+      <x:Double x:Key="ToggleSwitchPreContentMargin">8</x:Double>
+      <x:Double x:Key="ToggleSwitchPostContentMargin">8</x:Double>
+    </ScrollViewer.Resources>
+    <StackPanel Margin="24" Spacing="20">
+      <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}"
+                 AutomationProperties.HeadingLevel="Level1"/>
+      <StackPanel Spacing="4">
+        <TextBlock Text="Launch preferences" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="1,10,0,6"
+                   AutomationProperties.HeadingLevel="Level2"/>
+        <!-- Matches the Toolkit SettingsCard's non-clickable template without requiring its assembly in the target app. -->
+        <Grid x:Name="StartDevToolsCard" Padding="16" MinHeight="68" MinWidth="148"
+              BorderThickness="1" CornerRadius="{ThemeResource ControlCornerRadius}"
+              Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+              AutomationProperties.AutomationId="StartDevToolsCard">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <FontIcon Glyph="&#xE768;" FontSize="20" MinWidth="20" MinHeight="20" Margin="2,0,20,0"
+                    IsTextScaleFactorEnabled="True"
+                    AutomationProperties.AccessibilityView="Raw"/>
+          <StackPanel Grid.Column="1" Margin="0,0,24,0" VerticalAlignment="Center">
+            <TextBlock x:Name="StartDevToolsHeader" Text="Start DevTools by default" TextWrapping="Wrap"/>
+            <TextBlock x:Name="StartDevToolsDescription" Text="Connect DevTools when you run a WinUI app."
+                       FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
+                      HorizontalAlignment="Right">
+            <TextBlock x:Name="StartDevToolsState" Text="On" VerticalAlignment="Center"
+                       AutomationProperties.AccessibilityView="Raw"/>
+            <!-- Empty native toggle content still reserves a 12-DIP trailing column. -->
+            <ToggleSwitch x:Name="DevToolsStartEnabled" MinWidth="0" Height="36" Margin="0,0,-12,0" OnContent="{x:Null}" OffContent="{x:Null}"
+                          FocusVisualMargin="-7,-3,5,-3"
+                          IsOn="True" AutomationProperties.LabeledBy="{Binding ElementName=StartDevToolsHeader}"
+                          AutomationProperties.HelpText="{Binding Text, ElementName=StartDevToolsDescription}"
+                          AutomationProperties.AutomationId="DevToolsStartEnabled"/>
+          </StackPanel>
+        </Grid>
+        <Grid x:Name="StartToolbarPreference" Padding="16" MinHeight="68" MinWidth="148"
+              BorderThickness="1" CornerRadius="{ThemeResource ControlCornerRadius}"
+              Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+              AutomationProperties.AutomationId="StartToolbarPreference">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <FontIcon Glyph="&#xE737;" FontSize="20" MinWidth="20" MinHeight="20" Margin="2,0,20,0"
+                    IsTextScaleFactorEnabled="True"
+                    AutomationProperties.AccessibilityView="Raw"/>
+          <StackPanel Grid.Column="1" Margin="0,0,24,0" VerticalAlignment="Center">
+            <TextBlock x:Name="StartToolbarHeader" Text="Show toolbar on launch" TextWrapping="Wrap"/>
+            <TextBlock x:Name="StartToolbarDescription" Text="When off, press Ctrl+Shift+F12 to show the toolbar."
+                       FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
+                      HorizontalAlignment="Right">
+            <TextBlock x:Name="StartToolbarState" Text="On" VerticalAlignment="Center"
+                       AutomationProperties.AccessibilityView="Raw"/>
+            <ToggleSwitch x:Name="DevToolsStartShown" MinWidth="0" Height="36" Margin="0,0,-12,0" OnContent="{x:Null}" OffContent="{x:Null}"
+                          FocusVisualMargin="-7,-3,5,-3"
+                          IsOn="True" AutomationProperties.LabeledBy="{Binding ElementName=StartToolbarHeader}"
+                          AutomationProperties.HelpText="{Binding Text, ElementName=StartToolbarDescription}"
+                          AutomationProperties.AutomationId="DevToolsStartShown"/>
+          </StackPanel>
+        </Grid>
+        <TextBlock Text="To turn DevTools back on after disabling it, run: winapp config set run.devtools on" Margin="0,8,0,0"
+                   TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        <TextBlock x:Name="SettingsError" Visibility="Collapsed" TextWrapping="Wrap"
+                   Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                   AutomationProperties.LiveSetting="Assertive"
+                   AutomationProperties.AutomationId="DevToolsSettingsError"/>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+  </Grid>
   </Grid>
   </NavigationView>
 </Grid>

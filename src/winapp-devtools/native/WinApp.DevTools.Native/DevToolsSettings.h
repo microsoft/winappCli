@@ -77,7 +77,7 @@ inline void DevToolsSettingsSetIndex(const wchar_t* name, int value)
     CloseHandle(h);
 }
 
-// A short ASCII word, such as the default DevTools mode the CLI and the toolbar share ("on", "off", "headless").
+// A short ASCII word, such as the default DevTools mode the CLI and inspector share ("on", "off", "headless").
 inline std::wstring DevToolsSettingsGetText(const wchar_t* name)
 {
     std::wstring path = DevToolsSettingsFile(name);
@@ -97,14 +97,16 @@ inline std::wstring DevToolsSettingsGetText(const wchar_t* name)
     return text;
 }
 
-inline void DevToolsSettingsSetText(const wchar_t* name, const char* value)
+inline bool DevToolsSettingsSetText(const wchar_t* name, const char* value)
 {
     std::wstring path = DevToolsSettingsFile(name);
-    if (path.empty()) return;
+    if (path.empty()) return false;
     HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return;
+    if (h == INVALID_HANDLE_VALUE) return false;
     DWORD wrote = 0;
-    WriteFile(h, value, static_cast<DWORD>(strlen(value)), &wrote, nullptr);
+    const DWORD length = static_cast<DWORD>(strlen(value));
+    const BOOL ok = WriteFile(h, value, length, &wrote, nullptr);
     CloseHandle(h);
+    return ok && wrote == length;
 }

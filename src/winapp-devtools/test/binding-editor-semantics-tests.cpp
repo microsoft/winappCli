@@ -229,16 +229,60 @@ int main()
         selector->selected = selector->items.GetAt(0);
         ApplyPropViewSelection(bar);
         check(!ShowingSetView(), "the property selector returns to Computed");
-        OnInspectorRailSelection(true);
-        check(g_commentsView, "the rail opens Comments");
-        OnInspectorRailSelection(true);
-        check(g_commentsView, "reselecting Comments keeps Comments open");
+        OnInspectorRailSelection(InspectorView::Comments);
+        check(g_inspectorView == InspectorView::Comments, "the rail opens Comments");
+        OnInspectorRailSelection(InspectorView::Comments);
+        check(g_inspectorView == InspectorView::Comments, "reselecting Comments keeps Comments open");
         g_navSyncing = true;
-        OnInspectorRailSelection(false);
-        check(g_commentsView, "a rail change that follows the view does not switch the view");
+        OnInspectorRailSelection(InspectorView::Tree);
+        check(g_inspectorView == InspectorView::Comments, "a rail change that follows the view does not switch the view");
         g_navSyncing = false;
-        OnInspectorRailSelection(false);
-        check(!g_commentsView, "the rail returns to the visual tree");
+        g_treeFilterQuery = L"keep filter";
+        const auto previousSelection = g_selWire;
+        const auto previousRows = g_treeRows.size();
+        OnInspectorRailSelection(InspectorView::Settings);
+        check(g_inspectorView == InspectorView::Settings, "the rail opens Settings");
+        OnInspectorRailSelection(InspectorView::Settings);
+        check(g_inspectorView == InspectorView::Settings, "reselecting Settings keeps Settings open");
+        OnInspectorRailSelection(InspectorView::Comments);
+        check(g_inspectorView == InspectorView::Comments, "Comments can be reopened from Settings");
+        OnInspectorRailSelection(InspectorView::Tree);
+        check(g_inspectorView == InspectorView::Tree, "the rail returns to the visual tree");
+        check(g_treeFilterQuery == L"keep filter" && g_selWire == previousSelection && g_treeRows.size() == previousRows,
+            "Settings navigation preserves the tree filter, rows and selection");
+        g_treeFilterQuery.clear();
+    }
+    {
+        const std::wstring modeFile = DevToolsSettingsFile(L"DefaultMode");
+        const bool hadMode = GetFileAttributesW(modeFile.c_str()) != INVALID_FILE_ATTRIBUTES;
+        const std::wstring savedMode = DevToolsSettingsGetText(L"DefaultMode");
+        check(SaveLaunchSettings(true, false) && DefaultLaunchMode() == L"headless",
+            "hiding the toolbar on launch saves headless");
+        check(SaveLaunchSettings(false, false) && DefaultLaunchMode() == L"off",
+            "disabling DevTools saves off");
+        g_syncingLaunchSettings = true;
+        OnLaunchSettingsToggled();
+        g_syncingLaunchSettings = false;
+        SetInspectorView(InspectorView::Settings);
+        check(DefaultLaunchMode() == L"off", "initializing and entering Settings do not save a different mode");
+        check(SaveLaunchSettings(true, false) && DefaultLaunchMode() == L"headless",
+            "enabling DevTools with the toolbar off saves headless");
+        check(SaveLaunchSettings(true, true) && DefaultLaunchMode() == L"on",
+            "enabling the toolbar on launch saves on");
+        HANDLE lock = CreateFileW(modeFile.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        check(lock != INVALID_HANDLE_VALUE && !SaveLaunchSettings(false, true),
+            "a blocked settings write reports failure");
+        if (lock != INVALID_HANDLE_VALUE) CloseHandle(lock);
+        check(DefaultLaunchMode() == L"on", "a blocked settings write preserves the saved mode");
+        DevToolsSettingsSetText(L"DefaultMode", "HEADLESS\r\n");
+        check(DefaultLaunchMode() == L"headless", "the saved mode is normalized");
+        DeleteFileW(modeFile.c_str());
+        check(DefaultLaunchMode() == L"on", "an unset launch preference defaults to on");
+        if (hadMode) {
+            const std::string narrow = winrt::to_string(savedMode);
+            DevToolsSettingsSetText(L"DefaultMode", narrow.c_str());
+        }
+        SetInspectorView(InspectorView::Tree);
     }
     {
         const std::vector<std::wstring> keys{L"AccentBrush", L"ControlFillColorDefaultBrush", L"BodyText"};
