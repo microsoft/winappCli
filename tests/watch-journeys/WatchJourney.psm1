@@ -97,7 +97,8 @@ function Get-WatchOutcome {
         if ($text -match '^dotnet watch .*Files? (updated|added|deleted):') { $pending = $true; continue }
         $was = $outcome
         if ($text -match '^dotnet watch .*(changes applied|Hot reload succeeded)') { $outcome = 'applied'; $reason = '' }
-        elseif ($text -match '^dotnet watch .*No (managed code|C#) changes to apply') { $outcome = 'unchanged'; $reason = '' }
+        # An empty batch after an applied one (its file was already in the first batch) doesn't undo the apply.
+        elseif ($text -match '^dotnet watch .*No (managed code|C#) changes to apply') { if ($outcome -ne 'applied') { $outcome = 'unchanged'; $reason = '' } }
         elseif ($text -match '^dotnet watch .*Restart is needed') { $outcome = 'restart-no-reason'; $reason = '' }
         elseif ($text -match '^dotnet watch .*error (CS\d+)') { $outcome = 'error'; if (-not $reason) { $reason = $Matches[1] } }
         elseif ($text -match '^dotnet watch .*compilation errors') { $outcome = 'error'; $reason = '' }

@@ -41,12 +41,18 @@ if ($DotnetRoot) {
 }
 # dotnet watch's messages are read in English.
 $env:DOTNET_CLI_UI_LANGUAGE = 'en'
+# The SDK winapp's 'dotnet' resolves to from a folder: the version and the dotnet.exe it comes from.
+function Get-DotnetSdk([string]$Directory) {
+    Push-Location $Directory
+    try { $version = @(& dotnet --version | Where-Object { $_ -match '^\d+\.\d+\.\d+' })[0] } finally { Pop-Location }
+    return [pscustomobject]@{ Version = $version; Dotnet = (Get-Command dotnet).Source }
+}
 # Where the apps build: outside this repository (whose global.json pins its own SDK), so a global.json in -OutputRoot
 # picks the SDK (for example 10.0.404 when SDK 11 is installed too).
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
-Push-Location $OutputRoot
-$sdk = @(& dotnet --version | Where-Object { $_ -match '^\d+\.\d+\.\d+' })[0]
-Pop-Location
+$dotnet = Get-DotnetSdk $OutputRoot
+if ($DotnetRoot -and -not $dotnet.Dotnet.StartsWith($DotnetRoot, [StringComparison]::OrdinalIgnoreCase)) { throw "dotnet resolves to $($dotnet.Dotnet), not $DotnetRoot." }
+$sdk = $dotnet.Version
 if ($WinUI) {
     $WinUI = (Resolve-Path $WinUI).Path
     $env:NUGET_PACKAGES = if ($NuGetPackages) { $NuGetPackages } else { Join-Path $OutputRoot ('nuget-' + (Split-Path $WinUI -Leaf)) }
@@ -55,7 +61,7 @@ if ($WinUI) {
 if (-not $Journey) { $Journey = @(Get-ChildItem (Join-Path $PSScriptRoot 'journeys') -Filter *.json | ForEach-Object BaseName) }
 $runRoot = Join-Path $OutputRoot "$(Get-Date -Format 'yyyyMMdd-HHmmss')-sdk$sdk"
 New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
-Write-Host "SDK $sdk, WinUI $(if ($WinUI) { $WinUI } else { 'stock (the app''s own package)' }), winapp $Winapp, results in $runRoot"
+Write-Host "SDK $sdk ($($dotnet.Dotnet)), WinUI $(if ($WinUI) { $WinUI } else { 'stock (the app''s own package)' }), winapp $Winapp, results in $runRoot"
 
 function Invoke-Ui([string[]]$Arguments) {
     $output = & $Winapp ui @Arguments 2>&1 | Out-String
@@ -152,6 +158,9 @@ function Invoke-Journey([string]$Name) {
         $keys = [System.IO.Pipes.NamedPipeServerStream]::new("winapp-journey-$PID", [System.IO.Pipes.PipeDirection]::Out)
         $stdin = " < \\.\pipe\winapp-journey-$PID"
     }
+    # The SDK this journey's builds use: winapp runs 'dotnet' from PATH in the project folder.
+    $journeySdk = Get-DotnetSdk $projectDir
+    Write-Host "[$Name] SDK $($journeySdk.Version) ($($journeySdk.Dotnet))"
     # One file for winapp's and dotnet watch's output, in the order they wrote it.
     $process = Start-Process cmd.exe -ArgumentList '/d', '/c', "`"`"$Winapp`" $($arguments -join ' ') > `"$log`" 2>&1$stdin`"" -WorkingDirectory $projectDir -PassThru -WindowStyle Hidden
     if ($keys -and -not $keys.WaitForConnectionAsync().Wait(30000)) { throw 'winapp never opened its input pipe.' }
@@ -253,7 +262,7 @@ function Invoke-Journey([string]$Name) {
         if ($keys) { $keys.Dispose() }
         $rows | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $dir 'results.json')
     }
-    return [pscustomobject]@{ Journey = $journey; Rows = $rows }
+    return [pscustomobject]@{ Journey = $journey; Rows = $rows; Sdk = "$($journeySdk.Version) ($($journeySdk.Dotnet))" }
 }
 
 $results = foreach ($name in $Journey) {
@@ -265,6 +274,8 @@ $results = foreach ($name in $Journey) {
 $md = [System.Collections.Generic.List[string]]::new()
 $all = @($results | ForEach-Object { $_.Rows })
 $md.Add("# Watch journeys: SDK $sdk, WinUI $(if ($WinUI) { Split-Path $WinUI -Leaf } else { 'stock' }), $(Get-Date -Format 'yyyy-MM-dd HH:mm')")
+$md.Add('')
+$md.Add("SDK used by the journeys: $((@($results | ForEach-Object Sdk | Where-Object { $_ }) | Sort-Object -Unique) -join ' and ')")
 $md.Add('')
 $md.Add("pass $(@($all | Where-Object Status -eq 'pass').Count) · gap $(@($all | Where-Object Status -eq 'gap').Count) · fail $(@($all | Where-Object Status -eq 'fail').Count) · untested $(@($all | Where-Object Status -eq 'untested').Count) · pending $(@($all | Where-Object Status -eq 'pending').Count)")
 foreach ($result in $results) {

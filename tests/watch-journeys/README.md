@@ -17,7 +17,8 @@ at chosen steps, whether the app matches a clean build of the same source (the p
 ```
 
 The run prints one line per save and writes `scoreboard.md`, plus each journey's `watch.log` and `results.json`, under
-`-OutputRoot` (default `%TEMP%\winapp-watch-journeys`). Journeys drive the app's UI, so don't use the desktop while they
+`-OutputRoot` (default `%TEMP%\winapp-watch-journeys`). The scoreboard names the SDK each journey's builds used and the
+`dotnet.exe` it came from; with `-DotnetRoot`, the run stops if `dotnet` on PATH comes from somewhere else. Journeys drive the app's UI, so don't use the desktop while they
 run. On a machine that other sessions share, pass `-DesktopLock <file>`: each journey waits for that lock file and holds
 it while it runs, and after a release the next journey waits 60 s so other sessions get a turn.
 
