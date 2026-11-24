@@ -37,8 +37,9 @@ static void RememberInspectorPlacement(HWND hwnd)
         if (!GetWindowPlacement(hwnd, &wp)) return;
         r = wp.rcNormalPosition;
         // rcNormalPosition is in workspace coordinates, which exclude a taskbar on the monitor's top or left.
+        // MonitorFromWindow answers with the monitor of the restored rect, even for a minimized window.
         MONITORINFO mi{ sizeof(MONITORINFO) };
-        if (HMONITOR mon = MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST); mon && GetMonitorInfo(mon, &mi))
+        if (HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST); mon && GetMonitorInfo(mon, &mi))
             OffsetRect(&r, mi.rcWork.left - mi.rcMonitor.left, mi.rcWork.top - mi.rcMonitor.top);
     } else {
         if (!GetWindowRect(hwnd, &r)) return;
@@ -255,9 +256,8 @@ static void PositionInspectorBesideApp()
                       g_placePass, cur.left, cur.top, x, y, rx, ry, g_placeSetX, g_placeSetY);
     }
 
-    if (++g_placePass < kPlaceMaxPass)
-        SetTimer(self, kPlaceTimerId, 60, PlaceTimerProc);
-    else {
+    // Only the timer reveals a cloaked window, so reveal it now if there is no next pass to do it.
+    if (++g_placePass >= kPlaceMaxPass || !SetTimer(self, kPlaceTimerId, 60, PlaceTimerProc)) {
         UncloakPlacement();
         g_placePass = 0;
     }
