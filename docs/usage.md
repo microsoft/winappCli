@@ -1946,12 +1946,13 @@ Record the guest desktop to H.264 MP4. Host video and frame files arrive after
 recording finishes; JSON and the frame manifest describe any scaling or padding.
 
 ```powershell
-winapp target record <target> [-o <host-path>] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--overwrite] [--json]
+winapp target record <target> [-o <host-path>] [--duration-sec <n>] [--fps <n>] [--max-edge <px>] [--frames] [--overwrite] [--audio [system]] [--json]
 winapp target record sandbox -o .\sandbox.mp4 --duration-sec 20 --fps 15
 ```
 
-Uses the duration, frame, overwrite, and result options of [`ui record`](#ui-record),
-but captures the desktop rather than one app. Prefer a positive `--duration-sec` for
+Uses the duration, frame, overwrite, audio, and result options of [`ui record`](#ui-record),
+but captures the desktop rather than one app. `--audio` records everything the target plays,
+such as Narrator. Prefer a positive `--duration-sec` for
 unattended CLI use; the npm helper requires `durationSec`. See
 [Sandbox capture](sandbox-execution.md#screenshots-and-recordings) for partial evidence
 and capture-readiness failures.
@@ -2451,6 +2452,9 @@ winapp ui record -a "My App" btn-save-1234 -o button.mp4
 
 # Keep an agent-readable timeline alongside the MP4
 winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.mp4
+
+# Also record the app's sound
+winapp ui record -a "My App" --audio --duration-sec 10 -o with-sound.mp4
 ```
 
 **Record options:**
@@ -2463,9 +2467,10 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.m
 - `--frames` - Write timestamped JPEGs, `frames.ndjson`, and `manifest.json` to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280), with a 1 GiB frame-data cap.
 - `--cursor` - Draw the mouse pointer into the video, with a short ring where each click happens. With `--frames`, `frames.ndjson` also records the pointer position and clicks.
 - `--no-click-highlight` - With `--cursor`, draw the pointer but no click rings.
+- `--audio [app|system]` - Also record sound into the MP4 as an AAC track. `app` (the default) records only the target app and its child processes. `system` records everything the machine plays, including Narrator. With `--on sandbox` the default is `system`, which is only the Sandbox's sound. See [Recording sound](ui-automation.md#recording-sound).
 
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
-stop reason, optional `frameArtifacts`, and warnings.
+stop reason, optional `frameArtifacts` and `audio`, and warnings.
 
 Recordings draw open menus, flyouts and tooltips in place; see
 [Menus and flyouts in recordings](ui-automation.md#menus-and-flyouts-in-recordings).

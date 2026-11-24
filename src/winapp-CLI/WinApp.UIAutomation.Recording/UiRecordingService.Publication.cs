@@ -56,6 +56,7 @@ internal sealed partial class UiRecordingService
                 CaptureScreen = options.CaptureScreen,
                 Cursor = options.Cursor,
                 ClickHighlight = options.ClickHighlight,
+                Audio = options.Audio,
             }, ct, onRecordingStarted).ConfigureAwait(false);
 
             // Cancellation stops sampling, not publication of the finalized evidence.
@@ -81,6 +82,7 @@ internal sealed partial class UiRecordingService
                 FrameArtifacts = result.FrameArtifacts is { } bundle
                     ? RecordingArtifactPublisher.RelocateFrames(bundle, framesDirectory!)
                     : null,
+                Audio = result.Audio,
                 Coordinates = result.Coordinates,
                 Warnings = previousFrames is null ? result.Warnings :
                     [.. result.Warnings ?? [], $"Previous frame artifacts were retained at {previousFrames}."],

@@ -236,12 +236,16 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 # Show the mouse pointer and click rings (for demos of click-driven flows)
 winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
 
+# Also record sound: the app's own (default), or everything incl. Narrator with `--audio system`
+winapp ui record -a myapp --audio --duration-sec 10 --output with-sound.mp4
+
 # Programmatic stop: pipe a newline to stop and finalize the MP4 (for agent/script callers)
 "" | winapp ui record -a myapp --json --output capture.mp4
 ```
 - Default `--duration-sec 0` records until Ctrl+C, a newline, or EOF on redirected stdin.
 - `--frames` writes `<output-name>.frames` with a manifest, NDJSON index, and changed JPEGs. It supports 1-30 fps and `--max-edge` 64-4096 (default 1280), with a 1 GiB cap. Use `elapsedMs` to bound transitions.
 - `--cursor` draws the pointer and a ring at each click; add `--no-click-highlight` to keep the pointer without rings. With `--frames`, each `frames.ndjson` line gains `cursor` (`x`, `y`, `visible`, `inFrame`) and `clicks` (`button`, `kind`, `elapsedMs`, `x`, `y`) in image pixels.
+- `--audio` adds an AAC track to the same MP4. Bare `--audio` means `app` (only the target process tree); `--audio system` records everything the machine plays, which is what you need to hear Narrator. With `--on sandbox` the default is `system` (the Sandbox's sound only). The JSON `audio.peakLevel` of 0 means nothing was heard; `audio_unavailable` means no video was written.
 - Existing recording outputs are rejected by default. Use a fresh path, or explicitly
   request `--overwrite` to replace them after the new take finishes. Previous frame
   directories are archived, not deleted. On partial failure, keep the reported evidence

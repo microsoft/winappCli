@@ -121,6 +121,7 @@ internal sealed class FakeUiRecordingService : IUiRecordingService
             CadenceRatio = RecordResult.CadenceRatio,
             StopReason = RecordResult.StopReason,
             FrameArtifacts = frameArtifacts,
+            Audio = RecordResult.Audio,
             Warnings = RecordResult.Warnings,
             Coordinates = RecordResult.Coordinates,
         };

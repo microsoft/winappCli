@@ -34,13 +34,26 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         Description = "With --cursor, draw the pointer but no click rings.",
     };
 
+    internal const string AudioApp = "app";
+    internal const string AudioSystem = "system";
+
+    internal static readonly Option<RecordAudioSource?> AudioOption = new("--audio")
+    {
+        Description = "Also record sound into the MP4 as an AAC track. 'app' records only the target app and its child processes; " +
+            "it is the default when recording an app on this machine. 'system' records everything the machine plays, " +
+            "including Narrator, notifications, and other apps; it is the default for a whole desktop and with --on sandbox, " +
+            "where it records only the Sandbox's sound. Fails instead of recording a silent video when the sound can't be captured.",
+        Arity = ArgumentArity.ZeroOrOne,
+        HelpName = "app|system",
+    };
+
     public string ShortDescription => "Record a window or element region to MP4";
 
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp ui record -a <app> --duration-sec 10 -o demo.mp4",
         "winapp ui record <selector> -w <hwnd> --duration-sec 5",
-        "winapp ui record -a <app> --cursor --duration-sec 10 -o demo.mp4",
+        "winapp ui record -a <app> --cursor --audio --duration-sec 10 -o demo.mp4",
     ];
 
     public string? Usage => "winapp ui record [<selector>] (-a <app> | -w <hwnd>) [options]";
@@ -63,6 +76,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         Options.Add(OverwriteOption);
         Options.Add(CursorOption);
         Options.Add(NoClickHighlightOption);
+        Options.Add(AudioOption);
         Options.Add(WinAppRootCommand.JsonOption);
         UiQueryOptions.AddTo(this);
     }
@@ -180,7 +194,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         protected override int? Preflight(ParseResult parseResult)
         {
             var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
-            if (UiRecordOptionValidator.Validate(parseResult, out var validated) is { } optionError)
+            if (UiRecordOptionValidator.Validate(parseResult, out var validated, desktop: IsDesktop) is { } optionError)
             {
                 return ReportOptionError(parseResult, optionError);
             }
@@ -222,7 +236,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
             var quiet = parseResult.GetValue(WinAppRootCommand.QuietOption);
             var selector = ElementSelector(parseResult);
             var captureScreen = CaptureScreen(parseResult);
-            var (filePath, framesDirectory, maxEdge, durationSec, fps) = _resolvedOptions ??
+            var (filePath, framesDirectory, maxEdge, durationSec, fps, audio) = _resolvedOptions ??
                 throw new InvalidOperationException("Recording options are resolved during preflight.");
             var overwrite = parseResult.GetValue(OverwriteOption);
 
@@ -274,7 +288,17 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                         ? filePath
                         : $"{filePath}; frame artifacts: {framesDirectory}";
                     var subject = uiTarget is null ? "the guest desktop" : DescribeSubject(uiTarget);
-                    ansiConsole.MarkupLine($"[grey]Recording {Markup.Escape(subject)} to {Markup.Escape(destinations)} — until {until}, {fps} fps…[/]");
+                    var targetSelector = Environment.GetEnvironmentVariable(UiCommandAdvice.TargetVariable);
+                    var sound = audio switch
+                    {
+                        RecordAudioMode.App => ", with the app's sound",
+                        RecordAudioMode.System when !string.IsNullOrEmpty(targetSelector) =>
+                            $", with all sound the {targetSelector} plays",
+                        RecordAudioMode.System when uiTarget is null => ", with all of its sound",
+                        RecordAudioMode.System => ", with ALL sound this machine plays (every app, Narrator, notifications)",
+                        _ => "",
+                    };
+                    ansiConsole.MarkupLine($"[grey]Recording {Markup.Escape(subject)} to {Markup.Escape(destinations)} — until {until}, {fps} fps{Markup.Escape(sound)}…[/]");
                 }
 
                 // Stops received before the first frame wait for encoder readiness.
@@ -301,6 +325,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                             FramesDirectory = frameArtifactsActive ? framesDirectory : null,
                             FramesManifest = frameArtifactsActive ? Path.Join(framesDirectory!, "manifest.json") : null,
                             FramesIndex = frameArtifactsActive ? Path.Join(framesDirectory!, "frames.ndjson") : null,
+                            Audio = DescribeAudioMode(audio),
                         };
                         parseResult.InvocationConfiguration.Error.WriteLine(
                             JsonSerializer.Serialize(startedEvent, UiJsonLineContext.Default.UiRecordStartedEvent));
@@ -319,6 +344,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                     FramesDirectory = framesDirectory,
                     Cursor = cursor,
                     ClickHighlight = clickHighlight,
+                    Audio = audio,
                 };
 
                 var (result, coordinationWarning) = await RecordUnderTurnAsync(
@@ -355,6 +381,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                         CadenceRatio = result.CadenceRatio,
                         StopReason = result.StopReason,
                         FrameArtifacts = result.FrameArtifacts,
+                        Audio = result.Audio,
                         Warnings = allWarnings,
                         ExecutionTarget = Scope,
                         Coordinates = result.Coordinates,
@@ -366,6 +393,12 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 logger.LogInformation(
                     "Recorded {Frames} frames ({Width}x{Height}, h264) to {Path} ({Size}KB)",
                     result.Frames, result.Width, result.Height, filePath, result.FileSize / 1024);
+                if (result.Audio is { } audioTrack)
+                {
+                    logger.LogInformation(
+                        "Audio: {Mode} sound, AAC {Rate} Hz {Channels}-channel, peak level {Peak:P0}",
+                        audioTrack.Mode, audioTrack.SampleRate, audioTrack.Channels, audioTrack.PeakLevel);
+                }
                 foreach (var warning in allWarnings ?? [])
                 {
                     logger.LogWarning("{Symbol} {Warning}", UiSymbols.Warning, warning);
@@ -417,6 +450,24 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 if (!json)
                 {
                     logger.LogError("{Symbol} Recovery: {RecoveryHint}", UiSymbols.Error, frameEx.RecoveryHint);
+                }
+                return 1;
+            }
+            catch (RecordAudioUnavailableException audioEx)
+            {
+                // Audio was asked for and can't be had. No MP4 was written: a silent video would
+                // look like a recording where nothing was said.
+                UiJsonError.Emit(
+                    json,
+                    UiJsonError.CodeAudioUnavailable,
+                    audioEx.Message,
+                    details: audioEx.InnerException is { } inner ? $"0x{inner.HResult:X8}" : null,
+                    errorOut: parseResult.InvocationConfiguration.Error,
+                    recoveryHint: audioEx.RecoveryHint);
+                logger.LogError("{Symbol} {Message}", UiSymbols.Error, audioEx.Message);
+                if (!json)
+                {
+                    logger.LogError("{Symbol} Recovery: {RecoveryHint}", UiSymbols.Error, audioEx.RecoveryHint);
                 }
                 return 1;
             }
@@ -648,5 +699,12 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
 
         internal static string GetFramesDirectory(string outputPath) =>
             RecordingArtifactPublisher.GetFramesDirectory(outputPath);
+
+        internal static string? DescribeAudioMode(RecordAudioMode mode) => mode switch
+        {
+            RecordAudioMode.App => AudioApp,
+            RecordAudioMode.System => AudioSystem,
+            _ => null,
+        };
     }
 }

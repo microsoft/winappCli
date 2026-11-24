@@ -141,6 +141,7 @@ internal sealed class GuestDesktopRecordCommand : Command, IShortDescription
         Options.Add(SharedUiOptions.MaxEdgeOption);
         Options.Add(UiRecordCommand.FramesOption);
         Options.Add(UiRecordCommand.OverwriteOption);
+        Options.Add(UiRecordCommand.AudioOption);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 

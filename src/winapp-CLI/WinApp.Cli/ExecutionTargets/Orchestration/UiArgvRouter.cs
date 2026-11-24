@@ -102,6 +102,17 @@ internal static class UiArgvRouter
                 continue;
             }
 
+            if (recording && name == "--audio" && inlineValue is null &&
+                (index + 1 >= arguments.Count ||
+                 !Enum.TryParse<RecordAudioSource>(arguments[index + 1], ignoreCase: true, out _)))
+            {
+                // A bare --audio means the app's sound on the host, but on a target the useful default
+                // is everything the target plays - that is where Narrator is heard - and it can't
+                // include anything from this machine.
+                rewritten.AddRange(["--audio", UiRecordCommand.AudioSystem]);
+                continue;
+            }
+
             rewritten.Add(token);
         }
 

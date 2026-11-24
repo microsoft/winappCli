@@ -288,6 +288,18 @@ An existing MP4 or paired `.frames` directory is rejected by default. Use a new 
 retained as `<output-name>.frames.previous-<id>`, including when the replacement omits
 `--frames`. A failed capture leaves the old recording intact.
 
+To hear Narrator (or anything else the Sandbox plays) alongside the video, add `--audio`.
+In the Sandbox it records the Sandbox's own sound, never your PC's:
+
+```powershell
+winapp target record sandbox --audio --duration-sec 20 -o .\narrator.mp4
+winapp ui record --on sandbox -a MyApp --audio --duration-sec 20 -o .\app.mp4
+```
+
+Start Narrator from the Sandbox desktop itself (for example Ctrl+Win+Enter). Narrator
+started through `winapp target exec` stops when that command ends. See
+[Recording sound](ui-automation.md#recording-sound) for the result fields.
+
 Prefer a positive `--duration-sec` for scripts and agents. The npm `uiRecord` and
 `targetRecord` helpers require `durationSec`; their abort signal cancels forcefully,
 not as a graceful stop. See [`ui record`](ui-automation.md#record) for supported values.

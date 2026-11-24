@@ -55,6 +55,7 @@ internal class TargetRecordCommand : Command, IShortDescription
         Options.Add(SharedUiOptions.OutputOption);
         Options.Add(UiRecordCommand.FramesOption);
         Options.Add(UiRecordCommand.OverwriteOption);
+        Options.Add(UiRecordCommand.AudioOption);
         Options.Add(WinAppRootCommand.JsonOption);
     }
 
@@ -75,7 +76,7 @@ internal static class TargetDesktopCapture
     {
         var json = parseResult.GetValue(WinAppRootCommand.JsonOption);
         UiRecordResolvedOptions? options = null;
-        if (recording && UiRecordOptionValidator.Validate(parseResult, out options) is { } error)
+        if (recording && UiRecordOptionValidator.Validate(parseResult, out options, desktop: true) is { } error)
         {
             return TargetOutput.RejectOptions(console, json, ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.TargetInvalidArguments, error.Message,
@@ -108,6 +109,10 @@ internal static class TargetDesktopCapture
             if (parseResult.GetValue(UiRecordCommand.OverwriteOption))
             {
                 arguments.Add("--overwrite");
+            }
+            if (UiRecordCommand.Handler.DescribeAudioMode(options.Audio) is { } audio)
+            {
+                arguments.AddRange(["--audio", audio]);
             }
         }
         if (json)

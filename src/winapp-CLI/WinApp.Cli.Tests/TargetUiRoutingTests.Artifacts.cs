@@ -65,6 +65,25 @@ public partial class TargetUiRoutingTests
     }
 
     [TestMethod]
+    [DataRow(new[] { "ui", "record", "--on", "sandbox", "-a", "app", "--audio" }, DisplayName = "trailing bare --audio")]
+    [DataRow(new[] { "ui", "record", "--audio", "--on", "sandbox", "-a", "app" }, DisplayName = "bare --audio before another option")]
+    public void Rewrite_BareAudioOnATarget_RecordsEverythingTheTargetPlays(string[] arguments)
+    {
+        var routed = Rewrite(arguments);
+        var audio = routed.Arguments.IndexOf("--audio");
+        Assert.AreEqual("system", routed.Arguments[audio + 1]);
+        Assert.AreEqual(1, routed.Arguments.Count(argument => argument == "--audio"));
+    }
+
+    [TestMethod]
+    public void Rewrite_ExplicitAppAudioOnATarget_IsKept()
+    {
+        var routed = Rewrite(["ui", "record", "--on", "sandbox", "-a", "app", "--audio", "app"]);
+        Assert.AreEqual("app", routed.Arguments[routed.Arguments.IndexOf("--audio") + 1]);
+        Assert.IsFalse(routed.Arguments.Contains("system"));
+    }
+
+    [TestMethod]
     public void Rewrite_RecordingFlags_KeepOverwriteExplicitAndHonorFalse()
     {
         var routed = Rewrite(["ui", "record", "--overwrite", "--frames", "-o", "take.mp4"]);
