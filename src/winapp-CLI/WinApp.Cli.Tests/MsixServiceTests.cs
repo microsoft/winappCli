@@ -1788,7 +1788,7 @@ public class MsixServiceTests
             FakeDevPackages =
             [
                 new DevPackageInfo("MyApp_1.0.0.0_neutral__abc", "MyApp", "1.0.0.0",
-                    Path.Combine(_tempDir.FullName, "AppX"), IsDevelopmentMode: true)
+                    Path.Join(_tempDir.FullName, "AppX"), IsDevelopmentMode: true)
             ],
             UnregisterByFullNameThrows = new UnauthorizedAccessException("Access is denied.")
         };
