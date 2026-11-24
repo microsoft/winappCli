@@ -73,7 +73,9 @@ function Invoke-JourneyEdit {
   dotnet watch path (#1197) dotnet watch's lines are read too. "Ready" is $true once a restarted app is attached again.
 #>
 function Get-WatchOutcome {
-    param([string[]]$Lines, [bool]$Exited)
+    # -Last: a save written as several files over time (an agent, "delayMs") may honestly print `waiting` or `error` for a
+    # state in between; what counts is where the last file leaves the app.
+    param([string[]]$Lines, [bool]$Exited, [switch]$Last)
     $outcome = $null; $reason = ''; $ready = $false
     # dotnet watch can split one save into several batches: a file it picked up after the last outcome is still pending.
     $pending = $false
@@ -90,7 +92,7 @@ function Get-WatchOutcome {
         if ($text -match '^\[watch\] (applied|unchanged|not applied|waiting|error|restart)\b:?\s*(.*)$') {
             $outcome = $Matches[1] -replace ' ', '-'; $reason = $Matches[2]; $pending = $false
             if ($outcome -eq 'restart' -and -not $reason) { $outcome = 'restart-no-reason' }
-            if ($outcome -notin 'restart', 'restart-no-reason') { break }
+            if ($outcome -notin 'restart', 'restart-no-reason') { if ($Last -and $outcome -in 'waiting', 'error') { continue }; break }
             continue
         }
         if ($outcome -in 'restart', 'restart-no-reason') { continue }

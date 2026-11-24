@@ -74,7 +74,8 @@ to make the scoreboard green: change its expectation instead, and say why.
   `restart` must give, so the same outcome for another cause doesn't pass.
 - Edits: `op` is `replace`, `insert-after`, `insert-before` (each needs exactly one match of `find`), `create-file`,
   `delete-file` or `rename-file` (`to`). Paths are relative to the app folder in `apps\`. Several files in one save go
-  in `edits`; `delayMs` spaces them out, the way an agent or a rename writes them.
+  in `edits`; `delayMs` spaces them out, the way an agent or a rename writes them. A `waiting` or `error` printed for
+  a state in between doesn't count then: the step's outcome is where the last file leaves the app.
 - `"op": "key", "key": "ctrl+r"` presses Ctrl+R instead of saving a file.
 - Checks: `invoke`, `set-value`, `exists`, `absent`, `text-equals`, `text-contains`, `text-changes` (the text moves on
   within 2 s, so the UI thread is alive), all through UI Automation by `x:Name` or visible text, `property-equals`

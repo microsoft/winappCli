@@ -244,7 +244,7 @@ function Invoke-Journey([string]$Name) {
                 Start-Sleep -Milliseconds 250
                 foreach ($line in Read-NewLines) { $lines.Add($line); $lastLine = Get-Date }
                 if ($step.designTimeBuild -eq 'afterBuild' -and -not $designTime -and ($lines -match '^✅ Built ')) { $designTime = Invoke-DesignTimeBuild -Background }
-                $result = Get-WatchOutcome -Lines $lines -Exited $process.HasExited
+                $result = Get-WatchOutcome -Lines $lines -Exited $process.HasExited -Last:([bool]($step.edits -and $step.delayMs))
                 # An outcome counts once the output has been quiet for a moment: one save can arrive in several batches.
                 $settled = ((Get-Date) - $lastLine).TotalSeconds -ge 1.5
                 if ($result -and $settled -and ($result.Outcome -notin 'restart', 'restart-no-reason', 'stuck' -or $result.Ready)) { break }

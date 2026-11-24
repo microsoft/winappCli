@@ -10,10 +10,11 @@ namespace WinApp.HotReload;
 
 /// <summary>
 /// Watches the app's files and turns saves into one outcome line each: <c>[watch] applied|unchanged|not applied|waiting|error|restart</c>.
-/// A save is handled once the files settle (no change for 100 ms, each changed file stable for 100 ms). An error or a
-/// restart is printed only after 2 more seconds of quiet: an editor's rename or an agent writing files one by one passes
-/// through states that don't compile, and only the final one counts. A file still being written doesn't parse or
-/// compile either, so that wait also covers a slow writer.
+/// A save is handled once the files settle (no change for 100 ms, each changed file stable for 100 ms). A restart is
+/// started only after 2 more seconds of quiet: an editor's rename or an agent writing files one by one passes through
+/// states that don't compile, and only the final one counts. An error or a waiting save changes nothing in the app, so
+/// it's printed after 300 ms of quiet; the next save handles its files again. A file still being written doesn't
+/// parse or compile either, so that wait also covers a slow writer.
 /// </summary>
 internal sealed class WatchLoop : IDisposable
 {
@@ -24,7 +25,8 @@ internal sealed class WatchLoop : IDisposable
     internal static TimeSpan Quiet = TimeSpan.FromMilliseconds(100);
     internal static TimeSpan Stable = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan Poll = TimeSpan.FromMilliseconds(25);
-    internal static TimeSpan QuietBeforeFailure = TimeSpan.FromSeconds(2);
+    internal static TimeSpan QuietBeforeFailure = TimeSpan.FromMilliseconds(300);
+    internal static TimeSpan QuietBeforeRestart = TimeSpan.FromSeconds(2);
 
     private readonly List<string> _roots;
     private readonly List<FileSystemWatcher> _watchers = [];
@@ -106,7 +108,8 @@ internal sealed class WatchLoop : IDisposable
                 while (true)
                 {
                     result = await HandleAsync(save, batch, cancellationToken).ConfigureAwait(false);
-                    if (result.Outcome is not (Outcome.Error or Outcome.Waiting or Outcome.Restart) || !await MoreChangesAsync(batch, cancellationToken).ConfigureAwait(false))
+                    if (result.Outcome is not (Outcome.Error or Outcome.Waiting or Outcome.Restart) ||
+                        !await MoreChangesAsync(batch, result.Outcome == Outcome.Restart ? QuietBeforeRestart : QuietBeforeFailure, cancellationToken).ConfigureAwait(false))
                     {
                         break;
                     }
@@ -145,11 +148,11 @@ internal sealed class WatchLoop : IDisposable
         }
     }
 
-    /// <summary>Waits <see cref="QuietBeforeFailure"/> for more saves; true (with them added to the batch) when there were some.</summary>
-    private async Task<bool> MoreChangesAsync(List<string> batch, CancellationToken cancellationToken)
+    /// <summary>Waits <paramref name="wait"/> for more saves; true (with them added to the batch) when there were some.</summary>
+    private async Task<bool> MoreChangesAsync(List<string> batch, TimeSpan wait, CancellationToken cancellationToken)
     {
         using var quiet = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        quiet.CancelAfter(QuietBeforeFailure);
+        quiet.CancelAfter(wait);
         try
         {
             await _changes.Reader.WaitToReadAsync(quiet.Token).ConfigureAwait(false);
