@@ -330,7 +330,7 @@ binding** on a property you edited. `Binding.clearValue` (managed) and
 ### Assign a resource or a binding
 
 These do what the inspector's resource and binding editors do. Each takes `handle` or
-`name`, like `HotReload.setProperty`, and needs a session that allows edits:
+`name`, like `HotReload.setProperty`:
 
 ```powershell
 winapp devtools call Resource.assign handle=123 prop=Foreground key=AccentBrush theme:=true -a 12345
@@ -343,32 +343,35 @@ winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 1
   the WinUI theme brushes. `partial: true` means some dictionaries couldn't be read.
 - `Resource.assign` sets a `{StaticResource}` key, or a `{ThemeResource}` key with
   `theme:=true`. An unknown key fails with `resource-not-found` and puts back the previous
-  value; the error message says whether that worked. Over a binding DevTools can't save
-  (for example in a C++ app, which has no managed agent), it only tries keys that
-  `Resource.list` offers. Any other key fails with `resource-unconfirmed` and changes
-  nothing; clear the property first to assign it anyway.
-- `Binding.walk handle=123 prop=Text path=Vm.Title` checks a path before you install it.
-  `resolves` says whether it resolves against the DataContext, and `verdict` says why not.
-  A path whose last property exists but is null resolves.
+  value; `error.data.restored` says whether that worked. Over a binding DevTools can't save
+  (for example in a C++ app, which has no managed agent), it only tries keys it finds in the
+  resource dictionaries in scope. Any other key fails with `resource-unconfirmed` and
+  changes nothing; clear the property first to assign it anyway.
+- `Binding.walk handle=123 prop=Text path=Vm.Title` checks a path before you install it. It
+  takes `handle` only, not `name`. `resolves` says whether the path resolves against the
+  DataContext, and `verdict` says why not. A path whose last property exists but is null
+  resolves.
 - `Binding.install` replaces the property's binding with a new `{Binding}` on the
   DataContext. Use it to switch an `{x:Bind}` property to `{Binding}`; the app's compiled
   bindings can still overwrite the property when they next update. Converter, source and
   other options are not kept; `warning` lists them. A path that reads a password, or whose
   value prints one (such as a record with a `Password` member), fails with
-  `refused-secret` and leaves the previous value in place.
+  `refused-secret`. DevTools puts the previous value back when it can; the message says
+  if it couldn't, or if it had to refresh the page's compiled bindings to do it.
 - `Binding.writeSource` writes through a TwoWay `{Binding}` to its source and keeps the
   binding. It needs the managed agent, which `winapp run --devtools on` and
-  `winapp devtools attach` load into a .NET app. Its `undo` is always empty: by the time
-  you undo, the binding may point at another record. To put the value back, call it again
-  with `sourceBefore`, which is missing when the old value has no text form (for example
-  null).
+  `winapp devtools attach` load into a .NET app. It has no `undo`: by the time you undo,
+  the binding may point at another record. To put the value back, call it again with
+  `sourceBefore`. That field is missing when the old value has no text form (for example
+  null) or is very long.
 
 When `Binding.install` or `Binding.writeSource` can't make the change, it fails with
 `binding-unavailable` and the error message says why.
 
-Each result has `before`, `after` and `undo`: the calls to run, in order, to put back what
-the edit replaced. For example, undoing `Binding.install` over the text `Hello` first
-clears the new binding, so the old text isn't written into the app's data:
+`Resource.assign` and `Binding.install` return `before`, `after` and `undo`: the calls to
+run, in order, to put back what the edit replaced. For example, undoing `Binding.install`
+over the text `Hello` first clears the new binding, so the old text isn't written into the
+app's data:
 
 ```json
 "undo": [
@@ -377,11 +380,12 @@ clears the new binding, so the old text isn't written into the app's data:
 ]
 ```
 
-Replacing an app binding or `{x:Bind}` saves it first, so `undo` ends with `Binding.restore`.
-A later `Binding.capture` doesn't replace what the edit saved. For `{x:Bind}` it passes
-`confirmOwnerRebind`, which refreshes every compiled binding on the owner. When nothing can
-be put back exactly (for example a brush with partial opacity), `undo` is empty and
-`undoReason` says why. Changes apply to the running app only; your .xaml is unchanged.
+In a .NET app with the managed agent, replacing an app binding or `{x:Bind}` saves it
+first, so `undo` ends with `Binding.restore`. A later `Binding.capture` doesn't replace what
+the edit saved. For `{x:Bind}` it passes `confirmOwnerRebind`, which refreshes every
+compiled binding on the owner. When nothing can be put back exactly (no managed agent, or a
+brush with partial opacity), `undo` is empty and `undoReason` says why. Changes apply to the
+running app only; your .xaml is unchanged.
 
 ## Troubleshooting
 

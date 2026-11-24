@@ -348,6 +348,40 @@ public class DevToolsAgentCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Call_JsonKeepsTheAppsErrorData()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Error("Resource.assign", -32009, "resource-not-found", "not found", "\"restored\":false,\"key\":\"Typo\"")
+            .Error("Binding.walk", -32602, "bad-args", "plain");
+        var console = new TestConsole();
+        var handler = new DevToolsCallCommand.Handler(agent.Resolver(), console);
+        Assert.AreEqual(1, await handler.InvokeAsync(
+            new DevToolsCallCommand().Parse(["Resource.assign", "handle=1", "prop=Text", "key=Typo", "--json"])));
+        using var result = JsonDocument.Parse(console.Output);
+        var data = result.RootElement.GetProperty("error").GetProperty("data");
+        Assert.IsFalse(data.GetProperty("restored").GetBoolean());
+        Assert.AreEqual("Typo", data.GetProperty("key").GetString());
+        Assert.IsFalse(data.TryGetProperty("token", out _), "the token is already error.token");
+
+        var plain = new TestConsole();
+        Assert.AreEqual(1, await new DevToolsCallCommand.Handler(agent.Resolver(), plain).InvokeAsync(
+            new DevToolsCallCommand().Parse(["Binding.walk", "handle=1", "prop=Text", "--json"])));
+        using var plainResult = JsonDocument.Parse(plain.Output);
+        Assert.IsFalse(plainResult.RootElement.GetProperty("error").TryGetProperty("data", out _), "no data when the app sent only a token");
+    }
+
+    [TestMethod]
+    public async Task Call_MissingParameterGetsNoTypeHint()
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Error("Binding.writeSource", -32602, "bad-args", "value is required.");
+        var console = new TestConsole();
+        Assert.AreEqual(1, await new DevToolsCallCommand.Handler(agent.Resolver(), console).InvokeAsync(
+            new DevToolsCallCommand().Parse(["Binding.writeSource", "handle=1", "prop=Text", "--json"])));
+        using var result = JsonDocument.Parse(console.Output);
+        Assert.AreEqual("value is required.", result.RootElement.GetProperty("error").GetProperty("message").GetString());
+    }
+
+    [TestMethod]
     public async Task Call_PreservesWideNumericHandleAsAString()
     {
         using var agent = new FakeDevToolsProtocolAgent().Answer("Binding.walk", "{}");

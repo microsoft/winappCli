@@ -325,15 +325,14 @@ static void TestClearPropertyIsItsOwnMutationVerb()
     // The inspector window's resource and binding editors, for protocol clients: public and mutation-tier.
     const DevToolsProtocolMethod* list = DevToolsProtocolFindMethod(L"Resource.list");
     Check(list && list->visibility == DevToolsVisibility::Public && list->access == DevToolsAccess::Read,
-           "  Resource.list (the inspector's key suggestions) is public and only reads");    for (const wchar_t* name : { L"Resource.assign", L"Binding.install", L"Binding.writeSource" }) {
+           "  Resource.list (the inspector's key suggestions) is public and only reads");
+    for (const wchar_t* name : { L"Resource.assign", L"Binding.install", L"Binding.writeSource" }) {
         const DevToolsProtocolMethod* edit = DevToolsProtocolFindMethod(name);
         Check(edit && edit->visibility == DevToolsVisibility::Public && edit->access == DevToolsAccess::Mutation,
                "  each inspector edit is a public, mutation-tier method");
         Check(edit && DevToolsProtocolParamDeclared(edit->paramsType, L"handle") &&
-               DevToolsProtocolParamDeclared(edit->paramsType, L"name") &&
-               DevToolsProtocolParamDeclared(edit->paramsType, L"window") &&
-               DevToolsProtocolParamDeclared(edit->paramsType, L"root"),
-               "  and is addressed and scoped like HotReload.setProperty");
+               DevToolsProtocolParamDeclared(edit->paramsType, L"name"),
+               "  and is addressed by handle or name like HotReload.setProperty");
     }
 }
 

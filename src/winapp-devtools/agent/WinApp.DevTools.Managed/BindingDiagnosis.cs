@@ -287,6 +287,8 @@ internal static class BindingDiagnosis
         // A secret's value never leaves the app, whichever side of the binding names it, nor does a value whose type
         // holds one.
         bool secret = DevToolsSecrets.IsSecretName(prop) || segments.Length > 0 && DevToolsSecrets.IsSecretName(segments[^1]);
+        // The declared type too: a member that is null now can hold a record that prints a password later.
+        secret |= DevToolsSecrets.HoldsSecret(declared);
         string Value(object? value)
         {
             secret |= DevToolsSecrets.HoldsSecret(value?.GetType());
@@ -756,22 +758,52 @@ internal static class BindingDiagnosis
         bool secret = DevToolsSecrets.IsSecretName(prop) || parts.Any(DevToolsSecrets.IsSecretName) ||
             DevToolsSecrets.HoldsSecret(leaf.PropertyType);
         var sb = new StringBuilder("{\"state\":\"wroteSource\"");
-        Field(sb, "before", secret ? DevToolsSecrets.Redacted : Str(element.GetValue(dp)));
+        Field(sb, "before", secret ? DevToolsSecrets.Redacted : Clip(Str(element.GetValue(dp))));
         Field(sb, "sourceTarget", ShortName(owner!.GetType()) + "." + leaf.Name);
         if (!secret)
         {
             object? previous;
             try { previous = leaf.CanRead ? leaf.GetValue(owner) : null; }
             catch (TargetInvocationException) { previous = null; }
-            if (SourceUndoText(previous, leaf.PropertyType) is { } undo) Field(sb, "sourceBefore", undo);
+            // Exact, so writing it back restores the text; left out when too long for the reply to carry.
+            if (SourceUndoText(previous, leaf.PropertyType) is { Length: <= MaxSourceBefore } undo)
+                sb.Append(",\"sourceBefore\":\"").Append(JsonText(undo)).Append('"');
         }
         try { leaf.SetValue(owner, converted); }
         catch (Exception ex) { return Unavailable("writing the source threw " + Describe(ex)); }
 
-        Field(sb, "after", secret ? DevToolsSecrets.Redacted : Str(element.GetValue(dp)));
+        Field(sb, "after", secret ? DevToolsSecrets.Redacted : Clip(Str(element.GetValue(dp))));
         if (secret) Field(sb, "redacted", "True");
         Field(sb, "bound", (ParentBindingOf(element.ReadLocalValue(dp)) is not null).ToString());
         sb.Append('}');
+        return sb.ToString();
+    }
+
+    // The relay refuses a reply over 64 KiB, so the reply's texts are kept well under it.
+    private const int MaxSourceBefore = 16 * 1024;
+    private const int MaxDisplayText = 4 * 1024;
+
+    private static string Clip(string text) => text.Length <= MaxDisplayText ? text : text[..MaxDisplayText] + "...";
+
+    // JSON string content that decodes to exactly `text`, control characters included.
+    internal static string JsonText(string text)
+    {
+        var sb = new StringBuilder(text.Length + 16);
+        foreach (char c in text)
+        {
+            switch (c)
+            {
+                case '"': sb.Append("\\\""); break;
+                case '\\': sb.Append("\\\\"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\t': sb.Append("\\t"); break;
+                default:
+                    if (c < 0x20) sb.Append("\\u").Append(((int)c).ToString("x4", System.Globalization.CultureInfo.InvariantCulture));
+                    else sb.Append(c);
+                    break;
+            }
+        }
         return sb.ToString();
     }
 

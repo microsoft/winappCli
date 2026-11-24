@@ -12,6 +12,12 @@ namespace WinApp.Cli.Services.DevTools;
 /// </summary>
 internal sealed record DevToolsProtocolError(int Code, string Token, string Message)
 {
+    /// <summary>
+    /// The app's <c>error.data</c> members other than <c>token</c> (for example <c>restored</c>), as a JSON object,
+    /// or null when it sent none. <c>--json</c> output repeats them as <c>error.data</c>.
+    /// </summary>
+    public string? DataJson { get; init; }
+
     /// <summary>The transport failure used when the agent never answered (no reply line at all).</summary>
     public static DevToolsProtocolError NoResponse(string? detail = null) =>
         new(-32000, "no-response", detail ?? "The DevTools agent did not answer.");

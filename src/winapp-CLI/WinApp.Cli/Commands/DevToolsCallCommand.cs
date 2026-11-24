@@ -144,8 +144,10 @@ internal class DevToolsCallCommand : DevToolsLiveCommand, IHelpExamples
                     }));
                 }
                 // A method that wanted a boolean or a number and got a string says `bad-args`. That token
-                // alone sends the caller looking at the method rather than at the ':=' they omitted.
-                if (response.Error!.Token == "bad-args" && parsed.HasStringValues)
+                // alone sends the caller looking at the method rather than at the ':=' they omitted. A missing
+                // parameter is not a type problem, so it gets no hint.
+                if (response.Error!.Token == "bad-args" && parsed.HasStringValues &&
+                    !response.Error.Message.Contains(" is required", StringComparison.Ordinal))
                 {
                     return Task.FromResult(Fail(
                         json,

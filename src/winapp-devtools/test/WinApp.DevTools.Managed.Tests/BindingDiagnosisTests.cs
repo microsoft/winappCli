@@ -272,4 +272,25 @@ public sealed class BindingDiagnosisTests
         Assert.IsNull(BindingDiagnosis.SourceUndoText(null, typeof(string)), "null has no text form to write back");
         Assert.IsNull(BindingDiagnosis.SourceUndoText(new object(), typeof(object)), "an object cannot be written back as text");
     }
+
+    [TestMethod]
+    public void SourceBeforeTextDecodesToTheExactSourceValue()
+    {
+        const string original = "first\r\nsecond\titem \"quoted\" \\ \u0001";
+        using var decoded = JsonDocument.Parse("\"" + BindingDiagnosis.JsonText(original) + "\"");
+        Assert.AreEqual(original, decoded.RootElement.GetString());
+    }
+
+    private sealed class SelectionSource
+    {
+        public Login? Selected { get; set; }
+    }
+
+    [TestMethod]
+    public void AMemberThatIsNullNowIsRedactedWhenItsDeclaredTypeHoldsAPassword()
+    {
+        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate("Selected", new SelectionSource(), "Source", "{Binding}", "OneWay",
+            typeof(string), "Text", () => ""));
+        Assert.IsTrue(result.RootElement.GetProperty("redacted").GetBoolean(), result.RootElement.GetRawText());
+    }
 }

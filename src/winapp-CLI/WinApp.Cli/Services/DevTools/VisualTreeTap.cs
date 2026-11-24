@@ -163,9 +163,34 @@ internal sealed class VisualTreeTap(uint targetPid, uint? expectedServerPid = nu
                 }
                 var token = error.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object &&
                     data.TryGetProperty("token", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null;
-                return DevToolsProtocolResponse.Failure(new(codeValue, token ?? "unknown", message.GetString()!));
+                return DevToolsProtocolResponse.Failure(new(codeValue, token ?? "unknown", message.GetString()!)
+                {
+                    DataJson = data.ValueKind == JsonValueKind.Object ? DataWithoutToken(data) : null,
+                });
             }
         }
+    }
+
+    // The members of an error's `data` other than its token, as a JSON object; null when there are none.
+    internal static string? DataWithoutToken(JsonElement data)
+    {
+        var members = data.EnumerateObject().Where(member => member.Name != "token").ToList();
+        if (members.Count == 0)
+        {
+            return null;
+        }
+
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            foreach (var member in members)
+            {
+                member.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(buffer.ToArray());
     }
 
     public DevToolsProtocolResponse Hello(int timeoutMs = 4000, CancellationToken cancellationToken = default) =>

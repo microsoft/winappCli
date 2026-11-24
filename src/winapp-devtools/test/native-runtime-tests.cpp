@@ -1302,15 +1302,18 @@ struct ResourceTreeService : TextTreeService {
             local=false;text.text.clear();
             return S_OK;
         }
+        // Like a TwoWay binding left in place: the value goes through it to the source, and the binding stays.
+        if(bound){ text.text=L"from "+std::wstring(key); writtenThrough=true; return S_OK; }
         local=true;text.text=L"from "+std::wstring(key);
         return S_OK;
     }
+    bool writtenThrough = false;
     HRESULT STDMETHODCALLTYPE CreateInstance(BSTR,BSTR value,InstanceHandle* out) override {pending=value;*out=0x5000;return S_OK;}
     HRESULT STDMETHODCALLTYPE SetProperty(InstanceHandle,InstanceHandle value,unsigned int) override {
         if(value!=0x5000) return E_INVALIDARG;
         local=true;text.text=pending;return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE ClearProperty(InstanceHandle,unsigned int) override {local=false;text.text.clear();return S_OK;}
+    HRESULT STDMETHODCALLTYPE ClearProperty(InstanceHandle,unsigned int) override {local=false;bound=false;text.text.clear();return S_OK;}
 };
 
 static void CheckResourceAssign(const std::function<void(bool,const char*)>& check)
@@ -1347,7 +1350,7 @@ static void CheckResourceAssign(const std::function<void(bool,const char*)>& che
     auto assigned=assign(L"\"name\":\"Title\"",L"Greeting");
     const DevToolsJson* result=assigned.Find(L"result");
     check(result && result->GetString(L"after")==L"from Greeting" && result->GetString(L"before")==L"Hello" &&
-        result->GetString(L"kind")==L"staticResource" && result->GetString(L"previousKind")==L"literal",
+        result->GetString(L"kind")==L"staticResource" && !result->Find(L"previousKind"),
         "a key the app has is assigned by name, reporting the value before and after");
     const DevToolsJson* undoList=result ? result->Find(L"undo") : nullptr;
     const DevToolsJson* undo=undoList && undoList->type==DevToolsJsonType::Array && undoList->arr.size()==1 ? &undoList->arr[0] : nullptr;
@@ -1560,11 +1563,52 @@ static void CheckBindingEdits(const std::function<void(bool,const char*)>& check
         diagnostics.text.text=L"Hello";
         g_bindingInstallFake=[&](InstanceHandle,const std::wstring&){ diagnostics.text.text=L"Login { User = ada, Password = hunter2 }"; };
         g_bindingInstallAnswer=L"{\"state\":\"bound\",\"bound\":\"True\",\"after\":\"expr-2\"}";
-        auto leak=callAgent(L"Binding.install",target+L",\"path\":\"Current\"");
+        auto leak=callAgent(L"Binding.install",target+L",\"path\":\"Logins[0]\"");
         check(token(leak)==L"refused-secret" && leak.Find(L"error")->Find(L"data")->GetBool(L"restored",false) &&
             diagnostics.text.text==L"Hello" && leak.Find(L"error")->GetString(L"message").find(L"hunter2")==std::wstring::npos &&
+            agent.Ops().empty(),
+            "Binding.install puts the old value back when the new value's text prints a password, with no agent needed");
+        g_bindingInstallFake=[&](InstanceHandle,const std::wstring&){ diagnostics.text.text=L""; };
+        auto later=callAgent(L"Binding.install",target+L",\"path\":\"Selected\"");
+        check(token(later)==L"refused-secret" && diagnostics.text.text==L"Hello" &&
             agent.Ops()==std::vector<std::wstring>{L"diagnose"},
-            "Binding.install puts the old value back when the agent says the new binding's value shows a secret");
+            "and when the agent redacts it, as for a member that is null now but holds a password-printing type");
+    }
+    {
+        // A secret refused over a binding DevTools installed earlier: the rollback reinstalls that binding and does
+        // not save the refused one as the app's original.
+        FakeBindingAgent agent([](const std::wstring&) -> std::wstring { return L"{\"state\":\"none\"}"; });
+        diagnostics.text.text=L"Hello"; tree.bound=false; tree.local=true;
+        g_bindingInstallFake=[&](InstanceHandle,const std::wstring& path){
+            diagnostics.text.text=path==L"Current" ? L"Login { User = ada, Password = hunter2 }" : L"bound "+path;
+            tree.bound=true;
+        };
+        g_bindingInstallAnswer=L"{\"state\":\"bound\",\"bound\":\"True\",\"after\":\"bound Name\"}";
+        auto first=callAgent(L"Binding.install",target+L",\"path\":\"Name\"");
+        check(first.Find(L"result") && diagnostics.text.text==L"bound Name", "a first install over a literal");
+        auto secretOverInstalled=callAgent(L"Binding.install",target+L",\"path\":\"Current\"");
+        const auto ops=agent.Ops();
+        check(token(secretOverInstalled)==L"refused-secret" && secretOverInstalled.Find(L"error")->Find(L"data")->GetBool(L"restored",false) &&
+            diagnostics.text.text==L"bound Name" &&
+            std::find(ops.begin(),ops.end(),std::wstring(L"captureoriginal"))==ops.end(),
+            "a refused secret over an installed binding puts that binding back and saves nothing in its place");
+        tree.bound=false;
+    }
+    {
+        // A key over a TwoWay binding DevTools saved: the binding is cleared first, so the key never reaches the data.
+        FakeBindingAgent agent([](const std::wstring& op) -> std::wstring {
+            if(op==L"captureoriginal") return L"{\"state\":\"captured\",\"restoreKind\":\"binding\"}";
+            return L"{\"state\":\"none\"}";
+        });
+        { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+        diagnostics.text.text=L"Hello"; tree.bound=true; tree.local=true; tree.writtenThrough=false;
+        auto assigned=callAgent(L"Resource.assign",target+L",\"key\":\"Greeting\"");
+        const DevToolsJson* a=assigned.Find(L"result");
+        const DevToolsJson* aUndo=a ? a->Find(L"undo") : nullptr;
+        check(a && a->GetString(L"after")==L"from Greeting" && !tree.writtenThrough && !tree.bound &&
+            aUndo && aUndo->arr.size()==1 && aUndo->arr[0].GetString(L"method")==L"Binding.restore",
+            "Resource.assign over a saved binding clears it first, so nothing is written through to the app's data");
+        tree.bound=false;
     }
     {
         FakeBindingAgent agent([](const std::wstring& op) -> std::wstring {
@@ -1583,23 +1627,37 @@ static void CheckBindingEdits(const std::function<void(bool,const char*)>& check
     {
         std::wstring writeAnswer;
         FakeBindingAgent agent([&](const std::wstring&) { return writeAnswer; });
-        writeAnswer=L"{\"state\":\"wroteSource\",\"before\":\"Hello\",\"after\":\"Hi\",\"sourceTarget\":\"Vm.Title\",\"sourceBefore\":\"Hello\",\"bound\":\"True\"}";
+        writeAnswer=L"{\"state\":\"wroteSource\",\"before\":\"Hello\",\"after\":\"Hi\",\"sourceTarget\":\"Vm.Title\",\"sourceBefore\":\"Hello\\nthere\",\"bound\":\"True\"}";
         auto wrote=callAgent(L"Binding.writeSource",target+L",\"value\":\"Hi\"");
         const DevToolsJson* w=wrote.Find(L"result");
-        check(w && w->GetString(L"state")==L"wroteSource" && w->GetString(L"sourceBefore")==L"Hello" &&
-            w->Find(L"undo") && w->Find(L"undo")->arr.empty() && w->GetString(L"undoReason").find(L"sourceBefore")!=std::wstring::npos &&
-            agent.Ops()==std::vector<std::wstring>{L"writesource"},
-            "Binding.writeSource reports the source's old value and has no undo");
-        writeAnswer=L"{\"state\":\"wroteSource\",\"before\":\"Hello\",\"after\":\"Hi\",\"sourceTarget\":\"Vm.Title\",\"bound\":\"True\"}";
-        auto noBefore=callAgent(L"Binding.writeSource",target+L",\"value\":\"Hi\"");
-        check(noBefore.Find(L"result") && noBefore.Find(L"result")->GetString(L"undoReason").find(L"sourceBefore")==std::wstring::npos,
-            "and its undoReason mentions sourceBefore only when there is one");
+        check(w && w->GetString(L"state")==L"wroteSource" && w->GetString(L"sourceBefore")==L"Hello\nthere" &&
+            !w->Find(L"undo") && agent.Ops()==std::vector<std::wstring>{L"writesource"},
+            "Binding.writeSource reports the source's old value exactly, and no undo");
+        check(token(callAgent(L"Binding.writeSource",target))==L"bad-args", "and says value is required when it is missing");
         writeAnswer=L"{\"state\":\"unavailable\",\"reason\":\"this binding is OneWay, so its source cannot be written\"}";
         auto oneWay=callAgent(L"Binding.writeSource",target+L",\"value\":\"Hi\"");
         check(token(oneWay)==L"binding-unavailable" &&
             oneWay.Find(L"error")->GetString(L"message").find(L"OneWay")!=std::wstring::npos,
             "a source write that cannot happen is an error that says why");
     }
+
+    // A literal written after a key forgets the key, so the next edit's undo puts the literal back.
+    g_testEnqueueUiOperation=QueryEnqueue;
+    { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+    diagnostics.text.text=L"Hello"; tree.local=true;
+    check(call(L"Resource.assign",target+L",\"key\":\"Greeting\"").Find(L"result")!=nullptr, "a key is assigned");
+    RunOnUiThread([]() -> HRESULT { return SetLiteral(901, L"Text", L"String", L"from Greeting"); });
+    auto afterLiteral=call(L"Resource.assign",target+L",\"key\":\"Other\"");
+    const DevToolsJson* literalUndo=afterLiteral.Find(L"result") ? afterLiteral.Find(L"result")->Find(L"undo") : nullptr;
+    check(literalUndo && literalUndo->arr.size()==1 && literalUndo->arr[0].GetString(L"method")==L"HotReload.setProperty",
+        "a literal written over a key, even one with the same text, is undone as that literal");
+
+    // The new methods, and Binding.restore, run inside a window or root scope like HotReload.setProperty.
+    const std::wstring rootScope=L",\"root\":\""+handle+L"\"";
+    for (const wchar_t* method : {L"Resource.assign", L"Resource.list", L"Binding.install", L"Binding.writeSource", L"Binding.restore"})
+        check(token(call(method,target+rootScope))!=L"window-scope-unsupported", "each edit method accepts a root scope");
+    check(token(call(L"Overlay.show",rootScope.substr(1)))==L"window-scope-unsupported",
+        "CONTROL: a process-wide method still refuses one");
 
     g_bindingInstallFake=nullptr; g_testBindingInstall=nullptr;
     { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }

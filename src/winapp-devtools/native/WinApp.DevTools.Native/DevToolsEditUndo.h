@@ -6,6 +6,7 @@
 // Pure, so the classification can be tested without a live tree.
 
 #include <cstdlib>
+#include <cwctype>
 #include <string>
 
 #include "DevToolsProtocol.h"
@@ -23,14 +24,12 @@ struct DevToolsSessionEdit
     std::wstring path, mode;
     std::wstring after;              // resource: the value the key produced
     std::wstring bindingId;          // binding: the runtime handle of the expression DevTools installed
-    int          elementTheme = -1;  // resource: the element's ActualTheme when the key was assigned
 };
 
-// What the property holds now, beyond its row: the runtime identity of its binding and the element's theme.
+// What the property holds now, beyond its row: the runtime identity of its binding.
 struct DevToolsEditObserved
 {
     std::wstring bindingId;
-    int          elementTheme = -1;
 };
 
 struct DevToolsEditPrior
@@ -76,7 +75,7 @@ inline std::wstring DevToolsLossyTextReason(const DevToolsReadProp& row)
 
 // Session records come first because the runtime forgets a resource key and does not mark who installed a binding.
 // A binding record counts only while the very expression DevTools installed is still there; a resource record while
-// the value is what the key produced, or the element's theme has changed since (a theme key follows the theme).
+// the value is what the key produced. A later literal write or clear forgets the record.
 inline DevToolsEditPrior DevToolsClassifyPrior(const DevToolsReadProp& row, const DevToolsSessionEdit* session,
                                                const DevToolsEditObserved& observed = {})
 {
@@ -84,9 +83,7 @@ inline DevToolsEditPrior DevToolsClassifyPrior(const DevToolsReadProp& row, cons
     const bool bound = DevToolsRowIsBound(row);
     const bool local = row.source == L"Local" || row.source == kDevToolsReadLiveEditSource;
     if (session) {
-        const bool themeMoved = session->theme && session->elementTheme >= 0 && observed.elementTheme >= 0 &&
-                                observed.elementTheme != session->elementTheme;
-        if (session->resource && !bound && local && (row.value == session->after || themeMoved)) {
+        if (session->resource && !bound && local && row.value == session->after) {
             prior.kind = DevToolsPriorKind::Resource; prior.key = session->key; prior.theme = session->theme;
             return prior;
         }
@@ -179,11 +176,24 @@ inline bool DevToolsPathNamesSecret(const std::wstring& path)
     return secret();
 }
 
-// A source write has no exact undo: the binding can point at another object by the time it runs, and writing the
-// old value then changes that object instead. `sourceBefore`, when present, reports the value the source held.
-inline std::wstring DevToolsWriteSourceUndoMembers(bool hasSourceBefore)
+// Text that shows a member whose name ends in "Password" the way a record prints it ("Login { User = ada,
+// Password = hunter2 }"). The native read-back cannot see the value's type, so this checks its text instead.
+inline bool DevToolsTextPrintsSecret(const std::wstring& text)
 {
-    return std::wstring(L"\"undo\":[],\"undoReason\":\"the binding's source can change before an undo runs, so DevTools "
-                        L"does not write the previous value back for you") +
-           (hasSourceBefore ? L"; sourceBefore shows what it was\"" : L"\"");
+    if (text.find(L"{ ") == std::wstring::npos) return false;
+    const std::wstring word = L"password";
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text[i] != L'{' && text[i] != L',') continue;
+        size_t j = i + 1;
+        if (j >= text.size() || !iswspace(text[j])) continue;
+        while (j < text.size() && iswspace(text[j])) ++j;
+        size_t end = j;
+        while (end < text.size() && (iswalnum(text[end]) || text[end] == L'_')) ++end;
+        if (end - j < word.size() || _wcsnicmp(text.c_str() + end - word.size(), word.c_str(), word.size()) != 0) continue;
+        size_t k = end;
+        if (k >= text.size() || !iswspace(text[k])) continue;
+        while (k < text.size() && iswspace(text[k])) ++k;
+        if (k + 1 < text.size() && text[k] == L'=' && iswspace(text[k + 1])) return true;
+    }
+    return false;
 }

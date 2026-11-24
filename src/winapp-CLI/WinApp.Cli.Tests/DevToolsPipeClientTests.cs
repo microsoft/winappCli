@@ -258,13 +258,13 @@ internal sealed class FakeDevToolsProtocolAgent : IDisposable
         return this;
     }
 
-    public FakeDevToolsProtocolAgent Error(string method, int code, string token, string message)
+    public FakeDevToolsProtocolAgent Error(string method, int code, string token, string message, string? extraData = null)
     {
         lock (_gate)
         {
             _answers.Add((method,
                 $"{{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{{\"code\":{code},\"message\":{JsonSerializer.Serialize(message)}," +
-                $"\"data\":{{\"token\":{JsonSerializer.Serialize(token)}}}}}}}\n", null));
+                $"\"data\":{{\"token\":{JsonSerializer.Serialize(token)}{(extraData is null ? "" : "," + extraData)}}}}}}}\n", null));
         }
         return this;
     }

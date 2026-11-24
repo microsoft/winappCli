@@ -112,14 +112,9 @@ static void Test_AnEditAnswersWithTheCallsThatUndoIt()
           "and is forgotten once the property no longer shows that resource");
 
     DevToolsSessionEdit themed; themed.resource = true; themed.theme = true; themed.key = L"AccentText";
-    themed.after = L"#FF99EBFF"; themed.elementTheme = 2;
-    DevToolsEditObserved light; light.elementTheme = 1;
-    const auto followed = DevToolsClassifyPrior(Row(L"Local", L"#FF003E92", L"", L"themeResource", L"Secondary"), &themed, light);
-    Check(BContains(Undo(followed), L"\"key\":\"AccentText\""),
-          "a theme key this session assigned survives a theme change that changes its value");
-    DevToolsEditObserved dark; dark.elementTheme = 2;
-    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF003E92", L"", L"themeResource", L"Secondary"), &themed, dark)),
-                    L"\"key\":\"Secondary\""), "but not a value change in the same theme");
+    themed.after = L"#FF99EBFF";
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF0000FF"), &themed)), L"\"value\":\"#FF0000FF\""),
+          "a literal written after a theme key, with a value the key never produced, is undone as that literal");
 
     auto boundRow = Row(L"Binding", L"Title", L"binding");
     boundRow.binding = L"{Binding Vm.Title, Mode=OneWay}";
@@ -165,10 +160,13 @@ static void Test_AnEditAnswersWithTheCallsThatUndoIt()
     Check(!DevToolsPathNamesSecret(L"Vm.Title") && !DevToolsPathNamesSecret(L"Items[0].Name") &&
           !DevToolsPathNamesSecret(L"Items[PasswordHint]"),
           "CONTROL: ordinary paths and keys are not");
-    Check(BContains(DevToolsWriteSourceUndoMembers(true), L"\"undo\":[]") &&
-          BContains(DevToolsWriteSourceUndoMembers(true), L"sourceBefore") &&
-          !BContains(DevToolsWriteSourceUndoMembers(false), L"sourceBefore"),
-          "a source write offers no undo, and points at sourceBefore only when there is one");
+    Check(DevToolsTextPrintsSecret(L"Login { User = ada, Password = hunter2 }") &&
+          DevToolsTextPrintsSecret(L"[Login { User = ada, DbPassword = x }]") &&
+          DevToolsTextPrintsSecret(L"State { Auth = SignedIn {  password  = x } }"),
+          "a value whose text prints a member named like a password is recognised, as a record prints it");
+    Check(!DevToolsTextPrintsSecret(L"Enter your password = here") && !DevToolsTextPrintsSecret(L"Login { User = ada }") &&
+          !DevToolsTextPrintsSecret(L"Login { PasswordHint = x }") && !DevToolsTextPrintsSecret(L""),
+          "CONTROL: ordinary text, a record without one and a member that only starts with the word are not");
 
     auto halfRed = Row(L"Local", L"#FFFF0000");
     DevToolsReadProp color; color.name = L"Color"; color.value = L"Red";
