@@ -125,16 +125,20 @@ public abstract class BaseCommandTests(bool configPaths = true, LogLevel logLeve
     /// text written to the swapped-in ambient console.
     /// </remarks>
     /// <returns>The command exit code and the text captured from the ambient console.</returns>
-    protected async Task<(int ExitCode, string AmbientOutput)> InvokeWithAmbientConsoleCaptureAsync(
-        Command command, string[] manifestArgs)
+    protected Task<(int ExitCode, string AmbientOutput)> InvokeWithAmbientConsoleCaptureAsync(
+        Command command, string[] manifestArgs) =>
+        InvokeWithAmbientConsoleCaptureAsync(() => ParseAndInvokeWithCaptureAsync(command, manifestArgs));
+
+    /// <summary>Runs <paramref name="action"/> with the ambient console captured; same rules as the command overload.</summary>
+    private protected static async Task<(T Result, string AmbientOutput)> InvokeWithAmbientConsoleCaptureAsync<T>(Func<Task<T>> action)
     {
         var previousAmbient = AnsiConsole.Console;
         var ambient = new TestConsole();
         AnsiConsole.Console = ambient;
         try
         {
-            int exitCode = await ParseAndInvokeWithCaptureAsync(command, manifestArgs);
-            return (exitCode, ambient.Output);
+            var result = await action();
+            return (result, ambient.Output);
         }
         finally
         {

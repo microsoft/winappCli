@@ -355,6 +355,24 @@ public class PriServiceTests
 
     #endregion
 
+    #region VerifyXamlResourcesAsync
+
+    [TestMethod]
+    public async Task VerifyXamlResourcesAsync_RejectedPri_LeavesReportingToTheCaller()
+    {
+        // The app still launches when its PRI can't be checked, so MakePri's own output must not print as an error.
+        var priFile = new FileInfo(Path.Combine(_packageDir.FullName, "resources.pri"));
+        File.WriteAllText(priFile.FullName, "not a pri");
+        _buildTools.Handler = (_, _) => throw new InvalidOperationException("makepri.exe execution failed");
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => _service.VerifyXamlResourcesAsync(
+            priFile, new Dictionary<string, string>(), _taskContext, CancellationToken.None));
+
+        Assert.IsFalse(_buildTools.PrintErrors.Single());
+    }
+
+    #endregion
+
     #region MergeAssetsIntoPriAsync
 
     private void WriteLayoutFile(string relativePath, string content = "x")
