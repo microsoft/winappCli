@@ -47,6 +47,7 @@ $testCpps = @(
     (Join-Path $testDir "toolbarcorner-tests.cpp"),
     (Join-Path $testDir "toolbar-tests.cpp"),
     (Join-Path $testDir "selectionplacement-tests.cpp"),
+    (Join-Path $testDir "inspectorplacement-tests.cpp"),
     (Join-Path $testDir "inspector-acceptance-tests.cpp"),
     (Join-Path $testDir "selectiontracking-tests.cpp"),
     (Join-Path $testDir "binding-relay-tests.cpp"),

@@ -5,6 +5,7 @@
 // Generated wrappers keep HRESULT/ref-lifetime explicit; local COM delegates publish their IIDs.
 #include "DevToolsWindow.h"
 #include "DevToolsInspectorAcceptance.h"
+#include "DevToolsInspectorPlacement.h"
 #include "DevToolsSourcePath.h"
 #include "DevToolsThreadGuard.h"
 #include "DevToolsProjected.h"
@@ -14,6 +15,7 @@
 #include <shlwapi.h>
 #pragma comment(lib, "shlwapi.lib")
 #include <shcore.h>
+#include <ShellScalingApi.h>
 #pragma comment(lib, "shcore.lib")
 #include <commctrl.h>
 #pragma comment(lib, "comctl32.lib")

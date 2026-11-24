@@ -644,6 +644,8 @@ int RunToolbarCornerTests();
 int RunToolbarTests();
 // Defined in selectionplacement-tests.cpp: screen-safe placement for the in-app comment flyout.
 int RunSelectionPlacementTests();
+// Defined in inspectorplacement-tests.cpp: where the inspector window opens and reopens.
+int RunInspectorPlacementTests();
 int RunInspectorAcceptanceTests();
 // Defined in selectiontracking-tests.cpp: scroll-offset translation for live selection tracking.
 int RunSelectionTrackingTests();
@@ -872,6 +874,7 @@ int main()
 
     std::printf("\n");
     const int selectionPlacementFailures = RunSelectionPlacementTests();
+    const int inspectorPlacementFailures = RunInspectorPlacementTests();
     const int inspectorAcceptanceFailures = RunInspectorAcceptanceTests();
 
     std::printf("\n");
@@ -950,7 +953,7 @@ int main()
 
     const int total = g_testFailures + protocolFailures + trustFailures + crashFailures + sourcePathFailures + sinkFailures +
                       cornerFailures + toolbarFailures + authoredFailures +
-                      selectionPlacementFailures + inspectorAcceptanceFailures + selectionTrackingFailures + relayFailures +
+                      selectionPlacementFailures + inspectorPlacementFailures + inspectorAcceptanceFailures + selectionTrackingFailures + relayFailures +
                       bindingRowFailures + pathWalkFailures + pathProbeFailures + pathSyntaxFailures + readFailures + pickRouteFailures + perfFailures + uiDispatchFailures +
                       focusSubscriptionFailures + overlayStateFailures + resourceInlineFailures +
                       shellOpenFailures + ownedStateFailures + batchFailures + queryFailures + bindingAnswerFailures +
