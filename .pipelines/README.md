@@ -5,7 +5,6 @@
 | WinDevCLI - CI | [`ci.yml`](ci.yml) | `main`, `dev/**` | Prerelease build and tests on every push. |
 | WinDevCLI - Release | [`release.yml`](release.yml) | `rel/v*` **and** a weekly schedule on `main` | Ships a release from `rel/v*`; rehearses one every Monday from `main`. |
 | WinDevCLI - Fuzz | [`fuzz.yml`](fuzz.yml) | Manual | Submits the OneFuzz job. |
-| WinAppCLI - Restore check | [`restore-check.yml`](restore-check.yml) | PRs to `main` that touch restore inputs, and every merge queue group | Fails when a package version isn't in `pde-oss_Internal` yet. Restore only. |
 
 Shared step templates live in [`templates/`](templates):
 

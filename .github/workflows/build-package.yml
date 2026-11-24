@@ -28,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      restore: ${{ steps.classify.outputs.restore }}
     steps:
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,6 +51,8 @@ jobs:
           default { $null }
         }
         $code = $true
+        # Only PRs and merge groups add package versions that the package age check compares.
+        $restore = $false
         if ($range) {
           # --no-renames lists a moved file's old path too, so moving code into docs\ still builds.
           $files = @(git diff --name-only --no-renames $range)
@@ -59,9 +62,15 @@ jobs:
           })
           # An empty diff is not evidence of a docs-only change.
           $code = $files.Count -eq 0 -or $codeFiles.Count -gt 0
-          Write-Host "$($files.Count) changed file(s); $($codeFiles.Count) need the full build."
+          $restoreFiles = @($files | Where-Object {
+            $_ -match '\.(csproj|props|targets)$|(^|/)(nuget\.config|global\.json)$' -or
+            $_ -in 'scripts/test-package-age.ps1', '.github/workflows/build-package.yml'
+          })
+          $restore = $files.Count -eq 0 -or $restoreFiles.Count -gt 0
+          Write-Host "$($files.Count) changed file(s); $($codeFiles.Count) need the full build; $($restoreFiles.Count) affect package restore."
         }
         "code=$($code.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+        "restore=$($restore.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
   # The scripts Pester suite ports the real docs and checks their links and tables.
   docs-tests:
@@ -374,6 +383,30 @@ jobs:
         if-no-files-found: error
         overwrite: true
 
+  # GitHub restores from nuget.org, but the ADO build restores only from pde-oss_Internal, which
+  # refuses most nuget.org versions until they are about 7 days old. Fail before merge instead of
+  # breaking the ADO build on main. Uses only public nuget.org data, so it works for forks.
+  package-age:
+    needs: changes
+    if: needs.changes.outputs.restore == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0  # The base commit is restored too
+
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Check that new package versions are old enough for the internal feed
+      env:
+        BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      run: .\scripts\test-package-age.ps1 -BaseRef $env:BASE
+
   # Called locally, within this run and with the PR token, including for forks.
   samples:
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
@@ -613,9 +646,10 @@ jobs:
   # Retain the original required check, but only turn it green after every lane.
   # metrics only reports results, so the check does not wait for it.
   # Docs-only changes expect every build and test lane to be skipped and docs-tests to pass.
+  # package-age runs only when a PR or merge group changes restore inputs, so it is expected exactly then.
   build-and-package:
     if: always()
-    needs: [changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples]
+    needs: [changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples, package-age]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs
@@ -628,6 +662,7 @@ jobs:
         $code = $results['changes'].outputs.code -eq 'true'
         foreach ($job in $results.Keys) {
           $expected = if ($job -eq 'changes') { 'success' }
+            elseif ($job -eq 'package-age') { if ($results['changes'].outputs.restore -eq 'true') { 'success' } else { 'skipped' } }
             elseif ($job -eq 'docs-tests') { if ($code) { 'skipped' } else { 'success' } }
             elseif (-not $code) { 'skipped' }
             elseif ($job -eq 'samples' -and $env:PRE_MERGE -ne 'true') { 'skipped' }

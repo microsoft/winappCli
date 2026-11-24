@@ -75,7 +75,7 @@ Describe 'Artifact-first workflow dependencies' {
         $gate = Get-JobText $buildWorkflow 'build-and-package'
         $gate | Should -Match '(?m)^\s+if: always\(\)'
         # metrics only reports results, so the required check does not wait for it.
-        $gate | Should -Match 'needs: \[changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples\]'
+        $gate | Should -Match 'needs: \[changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples, package-age\]'
     }
 
     It 'builds each CLI and engine part on its own runner and packages them once' {
@@ -300,10 +300,10 @@ Describe 'Failed validation reports without promoting the main baseline' {
 Describe 'Required build check outcomes' {
     BeforeEach {
         $script:results = @{}
-        foreach ($job in @('build-parts', 'build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples')) {
+        foreach ($job in @('build-parts', 'build-artifacts', 'validate-tests', 'validate-docs', 'validate-devtools', 'e2e-test-ui', 'samples', 'package-age')) {
             $results[$job] = @{ result = 'success' }
         }
-        $results['changes'] = @{ result = 'success'; outputs = @{ code = 'true' } }
+        $results['changes'] = @{ result = 'success'; outputs = @{ code = 'true'; restore = 'true' } }
         $results['docs-tests'] = @{ result = 'skipped' }
         $env:PRE_MERGE = 'true'
     }
@@ -335,9 +335,18 @@ Describe 'Required build check outcomes' {
         { & $buildGate } | Should -Throw
     }
 
+    It 'expects the package age check exactly when restore inputs changed' {
+        $results.changes.outputs.restore = 'false'
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
+        { & $buildGate } | Should -Throw -ExpectedMessage '*package-age did not meet*'
+        $results.'package-age'.result = 'skipped'
+        $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
+        { & $buildGate } | Should -Not -Throw
+    }
+
     It 'passes a docs-only change only when every lane is skipped and the docs tests pass' {
         foreach ($job in @($results.Keys)) { $results[$job].result = 'skipped' }
-        $results.changes = @{ result = 'success'; outputs = @{ code = 'false' } }
+        $results.changes = @{ result = 'success'; outputs = @{ code = 'false'; restore = 'false' } }
         $results.'docs-tests'.result = 'success'
         $env:NEEDS_JSON = $results | ConvertTo-Json -Compress -Depth 5
         { & $buildGate } | Should -Not -Throw
@@ -377,15 +386,28 @@ Describe 'Docs-only change classification' {
         $runner = [scriptblock]::Create("param(`$files, `$output) function git { if (`$args -notcontains '--no-renames') { throw 'Renames into docs/ would hide the moved file''s old path' }; `$global:LASTEXITCODE = 0; `$files }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'pull_request'; `$env:PR_BASE = 'a'; `$env:PR_HEAD = 'b'
 " + $classify)
         & $runner $Files $output | Out-Null
-        (Get-Content $output) | Should -Be "code=$Code"
+        (Get-Content $output)[0] | Should -Be "code=$Code"
     }
 
-    It 'always builds push and manual runs' {
+    It 'classifies <Case> as restore=<Restore>' -ForEach @(
+        @{ Case = 'a central package version bump'; Files = @('src/winapp-CLI/Directory.Packages.props'); Restore = 'true' }
+        @{ Case = 'a project file'; Files = @('src/winapp-CLI/WinApp.Cli/WinApp.Cli.csproj'); Restore = 'true' }
+        @{ Case = 'the SDK pin'; Files = @('global.json'); Restore = 'true' }
+        @{ Case = 'source code and docs only'; Files = @('src/winapp-CLI/WinApp.Cli/Program.cs', 'docs/usage.md'); Restore = 'false' }
+    ) {
+        $output = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $runner = [scriptblock]::Create("param(`$files, `$output) function git { `$global:LASTEXITCODE = 0; `$files }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'pull_request'; `$env:PR_BASE = 'a'; `$env:PR_HEAD = 'b'
+" + $classify)
+        & $runner $Files $output | Out-Null
+        (Get-Content $output)[1] | Should -Be "restore=$Restore"
+    }
+
+    It 'always builds push and manual runs, which have no base to compare packages with' {
         $output = Join-Path $TestDrive 'push-output'
         $runner = [scriptblock]::Create("param(`$output) function git { throw 'no diff on push' }; `$env:GITHUB_OUTPUT = `$output; `$env:EVENT = 'push'
 " + $classify)
         & $runner $output | Out-Null
-        (Get-Content $output) | Should -Be 'code=true'
+        (Get-Content $output) | Should -Be @('code=true', 'restore=false')
     }
 }
 
