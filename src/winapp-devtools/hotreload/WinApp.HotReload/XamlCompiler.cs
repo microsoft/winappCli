@@ -121,7 +121,7 @@ internal sealed class XamlCompiler : IDisposable
         var inputs = File.Exists(inputsAsBuilt) ? inputsAsBuilt : Path.Combine(intermediate, "input.json");
         if (FindCompiler(compilerArguments) is not { } exe || !File.Exists(inputs))
         {
-            unavailable = "the XAML compiler or its inputs from the app's build (input.json next to XamlTypeInfo.g.cs) weren't found";
+            unavailable = "the XAML compiler or its inputs from the app's build (input.json next to XamlTypeInfo.g.cs) weren't found; press Ctrl+R to rebuild";
             return null;
         }
         var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -129,7 +129,7 @@ internal sealed class XamlCompiler : IDisposable
         {
             if (!json.RootElement.TryGetProperty("CompileMode", out var mode) || mode.GetString() != "RealBuildPass2")
             {
-                unavailable = "the XAML compiler's inputs in obj are from an editor's design-time build, not the app's build; rebuild with Ctrl+R";
+                unavailable = "the build's XAML compiler inputs were overwritten by another build (an editor's, for example); press Ctrl+R to rebuild";
                 return null;
             }
             foreach (var list in new[] { "XamlApplications", "XamlPages" })

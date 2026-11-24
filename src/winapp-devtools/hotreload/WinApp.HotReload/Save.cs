@@ -21,8 +21,9 @@ internal sealed record SaveResult(Outcome Outcome, string Detail, IReadOnlyList<
 /// to referenced projects, the package manifest and string resources restart the app with a reason.
 /// </summary>
 /// <param name="reload">Sends the reload request to the app; null without live XAML.</param>
+/// <param name="xamlUnavailable">Why a WinUI that can apply XAML can't in this session; null on a WinUI that can't.</param>
 internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompiler? xaml = null,
-    Func<List<MarkupPayload>, CancellationToken, Task<HotReloadResponse>>? reload = null)
+    Func<List<MarkupPayload>, CancellationToken, Task<HotReloadResponse>>? reload = null, string? xamlUnavailable = null)
 {
     /// <summary>The x:Key values of App.xaml and dictionaries as the running app has them, to tell which a save removed.</summary>
     private readonly Dictionary<string, HashSet<string>> _keys = new(StringComparer.OrdinalIgnoreCase);
@@ -57,7 +58,8 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         // every save restarts, for example in Release, XAML restarts too.)
         if (xaml is null && engine is not RestartingEngine && files.Where(f => Is(f, ".xaml") && graph.LibraryOf(f) is null).ToList() is { Count: > 0 } stock)
         {
-            var line = $"{string.Join(", ", stock.Select(Relative))}: XAML changes need a restart on this WinUI version (press Ctrl+R)";
+            var line = $"{string.Join(", ", stock.Select(Relative))}: " +
+                (xamlUnavailable is null ? "XAML changes need a restart on this WinUI version (press Ctrl+R)" : xamlUnavailable);
             if (files.Except(stock).ToList() is not { Count: > 0 } rest)
             {
                 return new SaveResult(Outcome.NotApplied, line);
@@ -118,7 +120,7 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         if (result.Outcome == CSharpOutcome.Error)
         {
             return xaml is null && UncompiledXaml(result.Detail!) is { } uncompiled
-                ? new SaveResult(Outcome.NotApplied, $"{uncompiled}: new XAML isn't compiled on this WinUI version (press Ctrl+R to restart)")
+                ? new SaveResult(Outcome.NotApplied, $"{uncompiled}: " + (xamlUnavailable ?? "new XAML isn't compiled on this WinUI version (press Ctrl+R to restart)"))
                 : InGeneratedCode(result.Detail!);
         }
         var names = string.Join(", ", files.Select(Relative));

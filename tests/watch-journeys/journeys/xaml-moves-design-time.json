@@ -1,6 +1,6 @@
 {
   "id": "xaml-moves-design-time",
-  "title": "The same moves while an editor runs design-time builds into obj (VS Code C# Dev Kit, Visual Studio): one before every save, and one during the restart",
+  "title": "The same moves while an editor runs design-time builds into obj (VS Code C# Dev Kit, Visual Studio): one right after the launch build, one before every save, one during a restart and one right after another",
   "app": "winui",
   "project": "App",
   "process": "TodoBench",
@@ -245,6 +245,58 @@
       "parity": true,
       "designTimeBuild": "before",
       "note": "restart when m7's rebuild failed: this save rebuilds the app"
+    },
+    {
+      "id": "m9-ctrl-r-design-time-after-build",
+      "row": 58,
+      "title": "Ctrl+R again, and a design-time build starts the moment the rebuild finishes",
+      "op": "key",
+      "key": "ctrl+r",
+      "designTimeBuild": "afterBuild",
+      "expect": {
+        "v1": "restart",
+        "reason": "^requested \\(Ctrl\\+R\\)",
+        "today": "restart"
+      },
+      "checks": [
+        {
+          "assert": "invoke",
+          "target": "Move me"
+        },
+        {
+          "assert": "text-equals",
+          "target": "StatusText",
+          "value": "moved 1"
+        }
+      ],
+      "note": "the design-time build rewrites obj's input.json after the build; winapp keeps the copy it took right after the XAML compiler's pass 2"
+    },
+    {
+      "id": "m10-move-after-design-time",
+      "row": 6,
+      "title": "Then a move: still live",
+      "file": "App/ContactsPage.xaml",
+      "op": "replace",
+      "find": "            <Button Content=\"Move me\" Click=\"OnMove\" />\n            <TextBlock x:Name=\"StatusText\" Text=\"ready\" />\n            <TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />",
+      "text": "            <TextBlock x:Name=\"StatusText\" Text=\"ready\" />\n            <Button Content=\"Move me\" Click=\"OnMove\" />\n            <TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />",
+      "parity": true,
+      "expect": {
+        "v1": "live+note",
+        "today": "applied",
+        "stock": "not-applied"
+      },
+      "checks": [
+        {
+          "assert": "invoke",
+          "target": "Move me"
+        },
+        {
+          "assert": "text-equals",
+          "target": "StatusText",
+          "value": "moved 1"
+        }
+      ]
     }
-  ]
+  ],
+  "designTimeBuildAfterLaunch": true
 }

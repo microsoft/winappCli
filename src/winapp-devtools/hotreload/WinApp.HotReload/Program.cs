@@ -66,9 +66,9 @@ internal static class Program
             using var xaml = engine is RoslynEngine ? XamlCompiler.Start(graph.CompilerArguments(), graph.ProjectDirectory, graph.XamlInputsAsBuilt, out xamlUnavailable) : null;
             if (xamlUnavailable is not null)
             {
-                Console.WriteLine($"[watch] note: XAML saves restart the app: {xamlUnavailable}");
+                Console.WriteLine($"[watch] note: XAML saves aren't applied: {xamlUnavailable}");
             }
-            var save = xaml is null ? new Save(engine, graph)
+            var save = xaml is null ? new Save(engine, graph, xamlUnavailable: xamlUnavailable)
                 : new Save(engine, graph, xaml, (markup, ct) => agent.SendAsync(new HotReloadRequest { Op = "reload", Markup = markup }, ct));
             save.Start();
             return await loop.RunAsync(save, stop.Token).ConfigureAwait(false);

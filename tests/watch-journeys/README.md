@@ -88,7 +88,9 @@ to make the scoreboard green: change its expectation instead, and say why.
   that check stock WinUI's behavior.
 - `designTimeBuild: "before"` runs an editor's design-time build (what VS Code C# Dev Kit and Visual Studio run for
   IntelliSense, into the same `obj` folder) before the step; `"during"` starts one with the step, for example while
-  Ctrl+R rebuilds the app. `xaml-moves-design-time` is `xaml-moves` with one before every save.
+  Ctrl+R rebuilds the app; `"afterBuild"` starts one the moment winapp's rebuild prints `Built`. The journey-level
+  `designTimeBuildAfterLaunch: true` does the same after the launch build. `xaml-moves-design-time` is `xaml-moves`
+  with all of these.
 
 The apps: `apps\winui` is a WinUI app (`App`, with `Core` and `Data` class libraries beside it) and `apps\reactor` is a
 Microsoft.UI.Reactor app. Both use the stock Windows App SDK 2.7.0 through `Microsoft.WindowsAppSDK.WinUI` and

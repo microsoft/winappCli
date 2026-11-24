@@ -199,10 +199,14 @@ function Invoke-Journey([string]$Name) {
     try {
         $deadline = (Get-Date).AddMinutes(10)
         $seen = [System.Collections.Generic.List[string]]::new()
+        $launchDesignTime = $null
         while ((Get-Date) -lt $deadline -and -not $process.HasExited -and -not ($seen -match 'DevTools attached to the app \(PID')) {
             foreach ($line in Read-NewLines) { $seen.Add($line) }
+            # An editor's design-time build right after winapp's launch build, before the helper reads anything.
+            if ($journey.designTimeBuildAfterLaunch -and -not $launchDesignTime -and ($seen -match '^✅ Built ')) { $launchDesignTime = Invoke-DesignTimeBuild -Background }
             Start-Sleep -Milliseconds 250
         }
+        if ($launchDesignTime) { $launchDesignTime.WaitForExit() }
         $appPid = Get-AppPid
         if (-not $appPid) { throw "The app never started (see $log)." }
         Write-Host "[$Name] app ready (PID $appPid)"
@@ -239,6 +243,7 @@ function Invoke-Journey([string]$Name) {
             while ($true) {
                 Start-Sleep -Milliseconds 250
                 foreach ($line in Read-NewLines) { $lines.Add($line); $lastLine = Get-Date }
+                if ($step.designTimeBuild -eq 'afterBuild' -and -not $designTime -and ($lines -match '^✅ Built ')) { $designTime = Invoke-DesignTimeBuild -Background }
                 $result = Get-WatchOutcome -Lines $lines -Exited $process.HasExited
                 # An outcome counts once the output has been quiet for a moment: one save can arrive in several batches.
                 $settled = ((Get-Date) - $lastLine).TotalSeconds -ge 1.5
