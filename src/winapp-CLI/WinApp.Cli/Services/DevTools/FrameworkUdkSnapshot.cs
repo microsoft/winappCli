@@ -111,11 +111,43 @@ internal sealed unsafe partial class FrameworkUdkSnapshot : IDisposable
         }
     }
 
-    private static FileStream OpenSource(string source)
+    // Windows 10 counts the \??\C: drive-letter link itself as a reparse under OBJ_DONT_REPARSE and
+    // fails every such open with STATUS_REPARSE_POINT_ENCOUNTERED, so OpenSource names the volume
+    // device directly. Only a plain volume device qualifies: a subst drive (\??\C:\dir) or a network
+    // redirector (\Device\LanmanRedirector\;Z:...\server\share) is itself a redirection.
+    internal static string GetVolumeDevicePath(string source, Func<string, string?> queryDosDevice)
+    {
+        var target = queryDosDevice(source[..2]);
+        if (target is null || !target.StartsWith(@"\Device\", StringComparison.Ordinal) ||
+            target.Length == @"\Device\".Length || target.IndexOf('\\', @"\Device\".Length) >= 0)
+        {
+            throw new IOException("The framework UDK is not on a local volume. Use an unredirected local runtime path.");
+        }
+        return target + source[2..];
+    }
+
+    private static string? QueryDosDevice(string drive)
+    {
+        var buffer = new char[1024];
+        fixed (char* target = buffer)
+        {
+            var length = QueryDosDeviceW(drive, target, (uint)buffer.Length);
+            if (length == 0)
+            {
+                return null;
+            }
+            // The result is a NUL-separated list; the first entry is the active mapping.
+            var text = buffer.AsSpan(0, (int)length);
+            var end = text.IndexOf('\0');
+            return new string(end < 0 ? text : text[..end]);
+        }
+    }
+
+    internal static FileStream OpenSource(string source)
     {
         // OBJ_DONT_REPARSE refuses redirection atomically, including an ancestor replaced after
         // discovery. Opening the file directly also works under non-enumerable WindowsApps.
-        var nativePath = @"\??\" + source;
+        var nativePath = GetVolumeDevicePath(source, QueryDosDevice);
         fixed (char* path = nativePath)
         {
             var name = new UnicodeString
@@ -238,6 +270,9 @@ internal sealed unsafe partial class FrameworkUdkSnapshot : IDisposable
     [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     private static partial SafeFileHandle CreateFileW(string path, uint access, uint share, nint security,
         uint disposition, uint flags, nint template);
+
+    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial uint QueryDosDeviceW(string deviceName, char* targetPath, uint max);
 
     [LibraryImport("advapi32.dll")]
     private static partial uint GetSecurityInfo(SafeFileHandle handle, uint type, uint information,
