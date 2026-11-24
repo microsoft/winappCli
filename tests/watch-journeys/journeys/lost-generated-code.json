@@ -37,7 +37,7 @@
       "id": "g5-csharp-again", "row": 28, "title": "One more C# edit to the page",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v3\";", "text": "return \"hello-v4\";",
       "expect": { "v1": "live", "today": "applied" },
-      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "HELLO-V4 2" } ]
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-contains", "target": "StatusText", "value": "HELLO-V4" } ]
     }
   ]
 }

@@ -159,6 +159,10 @@ internal sealed class ProjectGraph
         return (process.ExitCode, await output.ConfigureAwait(false) + await errors.ConfigureAwait(false));
     }
 
+    /// <summary>The assemblies the project references, as its last restore resolved them (after a project file save).</summary>
+    public IReadOnlyList<string> References() =>
+        [.. ReadLines("references.txt").Where(l => l.StartsWith("/reference:", StringComparison.Ordinal)).Select(l => l["/reference:".Length..])];
+
     private List<string> ReadLines(string name)
     {
         var path = Path.Combine(_capture, name);

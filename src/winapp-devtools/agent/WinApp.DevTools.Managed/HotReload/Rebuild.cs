@@ -119,6 +119,9 @@ internal static class Rebuild
         }
         var notes = new List<string>();
         MarkupPayload? loading = null;
+        // Taken before anything changes: new resources re-template controls, and a page that fails to load is built
+        // again from these.
+        var states = pages.Select(p => UiState.Take(p.Page)).ToList();
         try
         {
             foreach (var payload in markup.Where(m => m.Kind is "application" or "dictionary"))
@@ -126,10 +129,11 @@ internal static class Rebuild
                 loading = payload;
                 LoadResources(payload);
             }
-            foreach (var (frame, page, shows) in pages)
+            for (var i = 0; i < pages.Count; i++)
             {
+                var (frame, page, shows) = pages[i];
                 loading = markup.FirstOrDefault(m => m.ClassName == page.GetType().FullName) ?? markup.FirstOrDefault(m => m.Kind == "component");
-                if (await RebuildPageAsync(frame, page, shows) is { } note)
+                if (await RebuildPageAsync(frame, page, states[i], shows) is { } note)
                 {
                     notes.Add(note);
                 }
@@ -141,6 +145,22 @@ internal static class Rebuild
             foreach (var payload in markup)
             {
                 _ = s_good.TryGetValue(payload.Uri, out var good) && good is not null ? service.SetComponentMarkup(payload.Uri, good) : service.RemoveComponentMarkup(payload.Uri);
+            }
+            // A page that failed after it replaced the old one (markup that fails as the page lays out, in a template):
+            // built again from that markup, with what the user had.
+            for (var i = 0; i < pages.Count; i++)
+            {
+                if (!ReferenceEquals(pages[i].Frame.Content, pages[i].Page) && pages[i].Frame.Content is Page shown)
+                {
+                    try
+                    {
+                        await RebuildPageAsync(pages[i].Frame, shown, states[i]);
+                    }
+                    catch (Exception again) when (again is not OutOfMemoryException)
+                    {
+                        System.Diagnostics.Trace.TraceWarning("Hot reload: {0} couldn't be built again: {1}", shown.GetType().Name, again.Message);
+                    }
+                }
             }
             return ex is XamlParseException
                 ? new HotReloadResponse { Ok = true, Error = LoadError(ex), ErrorUri = loading?.Uri }
@@ -243,63 +263,86 @@ internal static class Rebuild
     /// Opens the page again in its Frame. The Frame's own navigation state (when every parameter in it can be saved)
     /// brings back the same parameter and stacks; otherwise the parameter seen when the page was opened. Returns the note.
     /// </summary>
+    /// <param name="state">What the user had on the page, when taken before (else now).</param>
     /// <param name="shows">The changed UserControl the page is rebuilt for, if that's why.</param>
-    private static async Task<string?> RebuildPageAsync(Frame frame, Page page, string? shows = null)
+    private static async Task<string?> RebuildPageAsync(Frame frame, Page page, UiState.Snapshot? state = null, string? shows = null)
     {
         var name = page.GetType().Name;
-        var state = UiState.Take(page);
+        state ??= UiState.Take(page);
         var fields = Fields.Take(page);
         var nested = Descendants(page).OfType<Frame>().Where(f => f.Name.Length > 0 && ReferenceEquals(page.FindName(f.Name), f))
             .Select(f => (f.Name, State: NavigationState(f))).Where(f => f.State is not null).ToList();
         NavigationFailedEventHandler reported = (_, e) => e.Handled = true;
         frame.NavigationFailed += reported;
-        // A page the Frame keeps in its cache would be handed back as it is.
-        var cacheMode = page.NavigationCacheMode;
-        page.NavigationCacheMode = NavigationCacheMode.Disabled;
+        // Markup that fails only as the new page lays out (a value in a template) is this save's error, not the app's.
+        XamlParseException? late = null;
+        Microsoft.UI.Xaml.UnhandledExceptionEventHandler caught = (_, e) =>
+        {
+            if (late is null && e.Exception is XamlParseException parse)
+            {
+                late = parse;
+                e.Handled = true;
+            }
+        };
+        Application.Current.UnhandledException += caught;
         try
         {
-            if (NavigationState(frame) is { } navigation)
+            // A page the Frame keeps in its cache would be handed back as it is.
+            var cacheMode = page.NavigationCacheMode;
+            page.NavigationCacheMode = NavigationCacheMode.Disabled;
+            try
             {
-                frame.SetNavigationState(navigation);
-            }
-            else
-            {
-                var forward = frame.ForwardStack.ToList();
-                frame.Navigate(page.GetType(), s_parameters.TryGetValue(page, out var parameter) ? parameter.Value : null, new SuppressNavigationTransitionInfo());
-                frame.BackStack.RemoveAt(frame.BackStack.Count - 1);
-                foreach (var entry in forward)
+                if (NavigationState(frame) is { } navigation)
                 {
-                    frame.ForwardStack.Add(entry);
+                    frame.SetNavigationState(navigation);
+                }
+                else
+                {
+                    var forward = frame.ForwardStack.ToList();
+                    frame.Navigate(page.GetType(), s_parameters.TryGetValue(page, out var parameter) ? parameter.Value : null, new SuppressNavigationTransitionInfo());
+                    frame.BackStack.RemoveAt(frame.BackStack.Count - 1);
+                    foreach (var entry in forward)
+                    {
+                        frame.ForwardStack.Add(entry);
+                    }
                 }
             }
+            finally
+            {
+                frame.NavigationFailed -= reported;
+                if (ReferenceEquals(frame.Content, page))
+                {
+                    page.NavigationCacheMode = cacheMode;
+                }
+            }
+            if (frame.Content is not Page fresh || ReferenceEquals(fresh, page))
+            {
+                return $"{name} couldn't be opened again in its Frame; it keeps what it showed until the app restarts";
+            }
+            await LoadedAsync(fresh);
+            foreach (var (frameName, navigation) in nested)
+            {
+                if (fresh.FindName(frameName) is Frame inner && NavigationState(inner) != navigation)
+                {
+                    inner.SetNavigationState(navigation);
+                    await LoadedAsync(inner.Content as FrameworkElement);
+                }
+            }
+            UiState.Restore(fresh, state);
+            // Let what restoring raised run (a selection's handler) before the fields are compared.
+            await YieldAsync(fresh.DispatcherQueue);
+            var lost = Fields.Changed(fields, Fields.Take(fresh));
+            if (late is not null)
+            {
+                throw late;
+            }
+            var why = shows is null ? "" : $" for the new {shows}";
+            return lost.Count == 0 ? $"{name} re-created{why}" : $"{name} re-created{why}; its fields start over ({string.Join(", ", lost)})";
         }
         finally
         {
-            frame.NavigationFailed -= reported;
-            if (ReferenceEquals(frame.Content, page))
-            {
-                page.NavigationCacheMode = cacheMode;
-            }
+            Application.Current.UnhandledException -= caught;
         }
-        if (frame.Content is not Page fresh || ReferenceEquals(fresh, page))
-        {
-            return $"{name} couldn't be opened again in its Frame; it keeps what it showed until the app restarts";
-        }
-        await LoadedAsync(fresh);
-        foreach (var (frameName, navigation) in nested)
-        {
-            if (fresh.FindName(frameName) is Frame inner && NavigationState(inner) != navigation)
-            {
-                inner.SetNavigationState(navigation);
-                await LoadedAsync(inner.Content as FrameworkElement);
-            }
-        }
-        UiState.Restore(fresh, state);
-        // Let what restoring raised run (a selection's handler) before the fields are compared.
-        await YieldAsync(fresh.DispatcherQueue);
-        var lost = Fields.Changed(fields, Fields.Take(fresh));
-        var why = shows is null ? "" : $" for the new {shows}";
-        return lost.Count == 0 ? $"{name} re-created{why}" : $"{name} re-created{why}; its fields start over ({string.Join(", ", lost)})";
     }
 
     /// <summary>App.xaml again into the application, or a merged dictionary again where it's merged; built before anything is replaced.</summary>

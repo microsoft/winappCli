@@ -25,7 +25,7 @@ internal static class UiState
     private static readonly ConditionalWeakTable<DependencyObject, State> Baselines = new();
 
     internal sealed record State(string? Text, int SelectionStart, int SelectionLength, bool? Checked, int? SelectedIndex, double? Value,
-        double? HorizontalOffset, double? VerticalOffset);
+        double? HorizontalOffset, double? VerticalOffset, string? SelectedKey = null, int ItemCount = 0);
 
     internal sealed class Snapshot
     {
@@ -88,7 +88,7 @@ internal static class UiState
         AutoSuggestBox box => new(box.Text, 0, 0, null, null, null, null, null),
         ToggleButton toggle => new(null, 0, 0, toggle.IsChecked, null, null, null, null),
         ToggleSwitch toggle => new(null, 0, 0, toggle.IsOn, null, null, null, null),
-        Selector selector => new(null, 0, 0, null, selector.SelectedIndex, null, null, null),
+        Selector selector => new(null, 0, 0, null, selector.SelectedIndex, null, null, null, ItemKey(selector.SelectedItem), selector.Items.Count),
         RangeBase range when range is not ScrollBar => new(null, 0, 0, null, null, range.Value, null, null),
         ScrollViewer viewer => new(null, 0, 0, null, null, null, viewer.HorizontalOffset, viewer.VerticalOffset),
         // Checked holds whether it is expanded or its pane open.
@@ -125,8 +125,17 @@ internal static class UiState
                 toggle.IsOn = current.Checked == true;
                 break;
             case Selector selector when Carry(s => s.SelectedIndex):
-                // Items the page fills in later (in OnNavigatedTo, or from a load) aren't there yet.
-                WhenReady(selector, () => current.SelectedIndex < selector.Items.Count, () => selector.SelectedIndex = current.SelectedIndex ?? -1);
+                // Items the page fills in later (in OnNavigatedTo, or from a load) aren't there yet. The same item, found by
+                // what it says it is; by position only when items don't say and there are as many as before; else none.
+                WhenReady(selector, () => current.SelectedIndex < selector.Items.Count, () =>
+                {
+                    var index = current.SelectedKey is { } key ? selector.Items.Select(ItemKey).ToList().IndexOf(key)
+                        : selector.Items.Count == current.ItemCount ? current.SelectedIndex ?? -1 : -1;
+                    if (index >= 0)
+                    {
+                        selector.SelectedIndex = index;
+                    }
+                });
                 break;
             case RangeBase range when Carry(s => s.Value):
                 range.Value = current.Value ?? range.Value;
@@ -145,6 +154,13 @@ internal static class UiState
                 navigation.IsPaneOpen = current.Checked == true;
                 break;
         }
+    }
+
+    /// <summary>What an item says it is (its text), or null when it only names its type.</summary>
+    private static string? ItemKey(object? item)
+    {
+        var value = item is ContentControl { Content: { } content } ? content : item;
+        return value?.ToString() is { } text && text != value.GetType().FullName ? text : null;
     }
 
     /// <summary>Runs <paramref name="apply"/> now when <paramref name="ready"/>, else after the layout pass that makes it so (up to 3 s).</summary>

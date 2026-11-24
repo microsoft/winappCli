@@ -59,7 +59,8 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied",
+        "stock": "unchanged"
       },
       "checks": [
         {
@@ -99,7 +100,8 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied",
+        "stock": "unchanged"
       },
       "checks": [
         {
@@ -129,7 +131,8 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "error",
-        "today": "error", "stock": "unchanged",
+        "today": "error",
+        "stock": "unchanged",
         "reason": "Thickness|1,2,3,4,5"
       },
       "checks": [
@@ -160,7 +163,8 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged"
+        "today": "applied",
+        "stock": "unchanged"
       },
       "checks": [
         {
@@ -198,7 +202,8 @@
       "file": "App/ContactCard.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "applied", "stock": "unchanged",
+        "today": "applied",
+        "stock": "unchanged",
         "reason": "_taps"
       },
       "checks": [
@@ -230,6 +235,62 @@
           "assert": "text-equals",
           "target": "NoteBox",
           "value": "kept"
+        }
+      ]
+    },
+    {
+      "id": "u6-broken-template",
+      "row": 9,
+      "title": "A value only the runtime rejects, inside the list's DataTemplate (it fails as the page lays out): an error, and the page is built again as it was",
+      "file": "App/ContactsPage.xaml",
+      "op": "replace",
+      "find": "<TextBlock x:Name=\"ContactName\" Text=\"{x:Bind Name}\" />",
+      "text": "<TextBlock x:Name=\"ContactName\" Margin=\"1,2,3,4,5\" Text=\"{x:Bind Name}\" />",
+      "expect": {
+        "v1": "error",
+        "today": "?",
+        "stock": "unchanged",
+        "reason": "Thickness|1,2,3,4,5"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "text-equals",
+          "target": "NoteBox",
+          "value": "kept"
+        },
+        {
+          "assert": "exists",
+          "target": "Grace"
+        }
+      ]
+    },
+    {
+      "id": "u7-template-fixed",
+      "row": 9,
+      "title": "The template value is fixed",
+      "file": "App/ContactsPage.xaml",
+      "op": "replace",
+      "find": "Margin=\"1,2,3,4,5\" Text=\"{x:Bind Name}\"",
+      "text": "Margin=\"0,2,0,2\" Text=\"{x:Bind Name}\"",
+      "expect": {
+        "v1": "live+note",
+        "today": "?",
+        "stock": "unchanged"
+      },
+      "checks": [
+        {
+          "assert": "text-equals",
+          "target": "DetailName",
+          "value": "Grace"
+        },
+        {
+          "assert": "exists",
+          "target": "Grace"
         }
       ]
     }

@@ -28,7 +28,7 @@ internal sealed class XamlCompiler : IDisposable
 {
     private const string XamlNamespace = "http://schemas.microsoft.com/winfx/2006/xaml";
     private readonly string _exe;
-    private readonly string _inputs;
+    private string _inputs;
     private readonly string _projectDirectory;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private Process? _process;
@@ -39,6 +39,7 @@ internal sealed class XamlCompiler : IDisposable
     {
         _exe = exe;
         _inputs = inputs;
+        Intermediate = Path.GetDirectoryName(inputs)!;
         _projectDirectory = projectDirectory;
         _files = links;
     }
@@ -51,8 +52,35 @@ internal sealed class XamlCompiler : IDisposable
     /// <summary>A XAML file the build didn't compile (new since): the service compiles it like the others.</summary>
     public void Add(string file) => _files.TryAdd(file, Path.GetRelativePath(_projectDirectory, file).Replace('\\', '/'));
 
+    /// <summary>
+    /// After a project file save brought new references (a package, a project): the service starts again on the
+    /// build's inputs with these references, so markup can use their types.
+    /// </summary>
+    public void UseReferences(IReadOnlyList<string> references)
+    {
+        var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(Intermediate, "input.json")))!.AsObject();
+        var built = (json["ReferenceAssemblies"]?.AsArray() ?? []).OfType<System.Text.Json.Nodes.JsonObject>().ToList();
+        if (references.Count == 0 || built.Count == 0)
+        {
+            return;
+        }
+        var items = new System.Text.Json.Nodes.JsonArray();
+        foreach (var path in references.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var item = (built.FirstOrDefault(b => string.Equals((string?)b["FullPath"], path, StringComparison.OrdinalIgnoreCase)) ?? built[0]).DeepClone().AsObject();
+            item["ItemSpec"] = path;
+            item["FullPath"] = path;
+            items.Add(item);
+        }
+        json["ReferenceAssemblies"] = items;
+        _inputs = Path.Combine(Intermediate, "input.hotreload.json");
+        File.WriteAllText(_inputs, json.ToJsonString());
+        Stop();
+        _warm = WarmUpAsync();
+    }
+
     /// <summary>The obj folder the compiler writes to (where XamlTypeInfo.g.cs is).</summary>
-    public string Intermediate => Path.GetDirectoryName(_inputs)!;
+    public string Intermediate { get; }
 
     /// <summary>
     /// The compiler of the app's WinUI package when it can run as a service, started and warming up; null when it

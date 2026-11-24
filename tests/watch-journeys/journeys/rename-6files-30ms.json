@@ -5,13 +5,14 @@
   "project": "App",
   "process": "TodoBench",
   "setup": [
+    { "file": "App/ContactsPage.xaml.cs", "op": "insert-after", "find": "    private int _clicks;", "text": "    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _renameTimer;" },
     { "file": "App/Rename/Tagger.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class Tagger", "{", "    public static string Tag() => \"t\";", "}" ] },
     { "file": "App/Rename/RenA.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class RenA", "{", "    public static string V() => Tagger.Tag() + \"a\";", "}" ] },
     { "file": "App/Rename/RenB.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class RenB", "{", "    public static string V() => Tagger.Tag() + \"b\";", "}" ] },
     { "file": "App/Rename/RenC.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class RenC", "{", "    public static string V() => Tagger.Tag() + \"c\";", "}" ] },
     { "file": "App/Rename/RenD.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class RenD", "{", "    public static string V() => Tagger.Tag() + \"d\";", "}" ] },
     { "file": "App/Rename/RenE.cs", "op": "create-file", "text": [ "namespace TodoBench.Rename;", "", "public static class RenE", "{", "    public static string V() => Tagger.Tag() + \"e\";", "}" ] },
-    { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "        InitializeComponent();\n    }", "text": "        InitializeComponent();\n        var ticks = 0;\n        var timer = DispatcherQueue.CreateTimer();\n        timer.Interval = TimeSpan.FromMilliseconds(250);\n        timer.Tick += (_, _) =>\n        {\n            string ren;\n            try { ren = Rename.RenA.V() + Rename.RenB.V() + Rename.RenC.V() + Rename.RenD.V() + Rename.RenE.V(); }\n            catch (Exception ex) { ren = \"ERR \" + ex.GetType().Name; }\n            StatusText.Text = $\"ticks={++ticks} ren={ren}\";\n        };\n        timer.Start();\n    }" }
+    { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "        InitializeComponent();\n    }", "text": "        InitializeComponent();\n        var ticks = 0;\n        var timer = _renameTimer = DispatcherQueue.CreateTimer();\n        timer.Interval = TimeSpan.FromMilliseconds(250);\n        timer.Tick += (_, _) =>\n        {\n            string ren;\n            try { ren = Rename.RenA.V() + Rename.RenB.V() + Rename.RenC.V() + Rename.RenD.V() + Rename.RenE.V(); }\n            catch (Exception ex) { ren = \"ERR \" + ex.GetType().Name; }\n            StatusText.Text = $\"ticks={++ticks} ren={ren}\";\n        };\n        timer.Start();\n    }" }
   ],
   "steps": [
     {

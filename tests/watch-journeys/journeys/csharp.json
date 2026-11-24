@@ -7,7 +7,9 @@
   "parity": {
     "root": "ContactsPage",
     "navigate": [ { "assert": "invoke", "target": "CountButton" }, { "assert": "invoke", "target": "HelloButton" } ],
-    "probes": [ { "assert": "invoke", "target": "HelloButton" } ]
+    "probes": [ { "assert": "invoke", "target": "HelloButton" } ],
+    "ignore": [ "*#CountText*" ],
+    "note": "With live XAML, a code-behind save rebuilds the page, so its click count starts over (the note names _clicks) while the clean build replays the click"
   },
   "before": [ { "assert": "invoke", "target": "CountButton" } ],
   "steps": [

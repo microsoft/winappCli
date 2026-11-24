@@ -119,6 +119,11 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         }
         var names = string.Join(", ", files.Select(Relative));
         var notes = result.Detail?.Split(Environment.NewLine).ToList() ?? [];
+        if (xaml is not null && files.Contains(graph.ProjectFile, StringComparer.OrdinalIgnoreCase))
+        {
+            // New packages or projects: markup can use their types from the next save on.
+            xaml.UseReferences(graph.References());
+        }
         if (reload is null || (result.Outcome == CSharpOutcome.Unchanged && compiled.Markup.Count == 0))
         {
             return new SaveResult(result.Outcome == CSharpOutcome.Applied ? Outcome.Applied : Outcome.Unchanged, names, notes);
@@ -177,7 +182,7 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
             }
             if (Is(file, ".xaml") && xaml is not null)
             {
-                if (!xaml.Files.ContainsKey(file) && !File.Exists(file))
+                if (!File.Exists(file))
                 {
                     return $"{name}: a deleted XAML file takes effect when the app is rebuilt";
                 }

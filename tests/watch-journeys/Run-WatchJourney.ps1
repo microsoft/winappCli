@@ -41,8 +41,10 @@ if ($DotnetRoot) {
 }
 # dotnet watch's messages are read in English.
 $env:DOTNET_CLI_UI_LANGUAGE = 'en'
-# Outside this repository, whose global.json pins its own SDK.
-Push-Location ([IO.Path]::GetTempPath())
+# Where the apps build: outside this repository (whose global.json pins its own SDK), so a global.json in -OutputRoot
+# picks the SDK (for example 10.0.404 when SDK 11 is installed too).
+New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
+Push-Location $OutputRoot
 $sdk = @(& dotnet --version | Where-Object { $_ -match '^\d+\.\d+\.\d+' })[0]
 Pop-Location
 if ($WinUI) {
