@@ -405,6 +405,32 @@ public class PathSafetyTests
     }
 
     [TestMethod]
+    public void RedirectsToNetwork_VolumeTargetWithSameNamedSibling_IsRefused()
+    {
+        // A relative symlink to a sibling named Volume{GUID} reads back exactly like a
+        // volume mount point, and Windows would follow the sibling, which can be another
+        // link to a share. The walk can't tell the two apart, so it must refuse.
+        const string VolumeName = "Volume{00000000-0000-0000-0000-000000000000}";
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string link = Path.Combine(_tempDir.FullName, "cert.pfx");
+        Directory.CreateDirectory(target);
+        Directory.CreateDirectory(Path.Combine(_tempDir.FullName, VolumeName));
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsTrue(PathSafety.RedirectsToNetwork(link, static _ => VolumeName));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
     public void RedirectsToNetwork_VolumeMountPoint_IsAllowed()
     {
         // A drive mounted into a folder reads back as Volume{GUID}\ and must stay local.

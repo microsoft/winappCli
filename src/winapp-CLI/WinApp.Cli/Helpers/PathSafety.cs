@@ -217,7 +217,16 @@ internal static class PathSafety
                     {
                         return true;
                     }
-                    target = NormalizeLinkTarget(target);
+                    string normalized = NormalizeLinkTarget(target);
+                    if (!string.Equals(normalized, target, StringComparison.Ordinal)
+                        && RelativeReadingExists(Path.GetDirectoryName(current)!, target))
+                    {
+                        // A relative symlink stores the same text, and Windows resolves it
+                        // beside the link. With an entry there, this walk can't tell which
+                        // one Windows follows.
+                        return true;
+                    }
+                    target = normalized;
                     if (IsNetworkPath(target) || IsDeviceOrNtNamespaceTarget(target))
                     {
                         return true;
@@ -462,6 +471,22 @@ internal static class PathSafety
         static bool IsVolumeTarget(string value) =>
             value.Length >= 44 && value.StartsWith("Volume{", StringComparison.OrdinalIgnoreCase) && value[43] == '}'
             && Guid.TryParseExact(value.AsSpan(7, 36), "D", out _) && (value.Length == 44 || value[44] is '\\' or '/');
+    }
+
+    // Whether the first segment of target, read as a path relative to linkParent, exists.
+    // GetAttributes does not follow a final link, so this never reads through one.
+    private static bool RelativeReadingExists(string linkParent, string target)
+    {
+        string first = target.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], 2)[0];
+        try
+        {
+            File.GetAttributes(Path.Combine(linkParent, first));
+            return true;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
