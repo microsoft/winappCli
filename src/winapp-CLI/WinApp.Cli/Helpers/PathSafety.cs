@@ -161,6 +161,10 @@ internal static class PathSafety
         const int MaxLinkHops = 64;
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int linkHops = 0;
+        // How many leading segments of the current path come from a link target. Those
+        // must exist: a missing one means the target was read in a form this walk could
+        // not place, while Windows may still follow it somewhere else.
+        int requiredSegments = 0;
         try
         {
             while (true)
@@ -192,7 +196,7 @@ internal static class PathSafety
                     }
                     catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
                     {
-                        return false;
+                        return index < requiredSegments;
                     }
                     if ((attributes & FileAttributes.ReparsePoint) == 0)
                     {
@@ -209,16 +213,44 @@ internal static class PathSafety
                     // Even ResolveLinkTarget(false) constructs a target FileSystemInfo,
                     // which can probe short names. LinkTarget only reads the reparse data.
                     string? target = readLinkTarget(info);
-                    if (string.IsNullOrEmpty(target) || IsNetworkPath(target) || IsDeviceOrNtNamespaceTarget(target))
+                    if (string.IsNullOrEmpty(target))
+                    {
+                        return true;
+                    }
+                    string normalized = NormalizeLinkTarget(target);
+                    if (!string.Equals(normalized, target, StringComparison.Ordinal)
+                        && (HasDotSegment(target) || RelativeReadingExists(Path.GetDirectoryName(current)!, target)))
+                    {
+                        // A relative symlink stores the same text, and Windows resolves it
+                        // beside the link. With an entry there, or a dot segment that skips
+                        // past one, this walk can't tell which path Windows follows.
+                        return true;
+                    }
+                    target = normalized;
+                    if (IsNetworkPath(target) || IsDeviceOrNtNamespaceTarget(target))
                     {
                         return true;
                     }
 
                     // The target's parents can themselves be links. Restart from its
                     // root before probing them, keeping the original unvisited suffix.
-                    path = Path.Combine(
-                        Path.IsPathRooted(target) ? target : Path.Combine(Path.GetDirectoryName(current)!, target),
-                        string.Join(Path.DirectorySeparatorChar, segments[(index + 1)..]));
+                    // Normalize the target together with the suffix, so a trailing space
+                    // or dot on the target's last segment isn't trimmed as if it were final.
+                    string[] suffix = segments[(index + 1)..];
+                    string? resolved = NormalizeLocalPathWithoutProbing(Path.Join(
+                        Path.IsPathRooted(target) ? target : Path.Join(Path.GetDirectoryName(current), target),
+                        string.Join(Path.DirectorySeparatorChar, suffix)));
+                    string? resolvedRoot = resolved is null ? null : Path.GetPathRoot(resolved);
+                    if (string.IsNullOrEmpty(resolvedRoot))
+                    {
+                        return true;
+                    }
+                    int resolvedSegments = resolved![resolvedRoot.Length..].Split(
+                        [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                        StringSplitOptions.RemoveEmptyEntries).Length;
+                    // Segments after this link that came from an earlier target stay required.
+                    requiredSegments = Math.Max(0, resolvedSegments - suffix.Length) + Math.Max(0, requiredSegments - (index + 1));
+                    path = resolved;
                     redirected = true;
                     break;
                 }
@@ -418,6 +450,53 @@ internal static class PathSafety
         bool isVolumeGuid = device.StartsWith("Volume{", StringComparison.OrdinalIgnoreCase);
         return !isDriveLetter && !isVolumeGuid;
     }
+
+    /// <summary>
+    /// Rewrites link-target forms that <see cref="System.IO.FileSystemInfo.LinkTarget"/> returns without
+    /// their NT prefix, so the walk can place them: a volume mount point (a drive mounted into a folder)
+    /// reads back as <c>Volume{GUID}\</c>, and a junction stored as <c>\??\Global\C:\x</c> reads back as
+    /// <c>Global\C:\x</c>, which Windows follows exactly like <c>C:\x</c>. Other targets are returned as written.
+    /// </summary>
+    internal static string NormalizeLinkTarget(string target)
+    {
+        const string GlobalPrefix = @"Global\";
+        if (target.StartsWith(GlobalPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            string rest = target[GlobalPrefix.Length..];
+            bool isDrivePath = rest.Length >= 3 && char.IsAsciiLetter(rest[0]) && rest[1] == ':' && rest[2] is '\\' or '/';
+            if (isDrivePath || IsVolumeTarget(rest) || IsDeviceOrNtNamespaceTarget(rest))
+            {
+                target = rest;
+            }
+        }
+
+        return IsVolumeTarget(target) ? @"\\?\" + target : target;
+
+        static bool IsVolumeTarget(string value) =>
+            value.Length >= 44 && value.StartsWith("Volume{", StringComparison.OrdinalIgnoreCase) && value[43] == '}'
+            && Guid.TryParseExact(value.AsSpan(7, 36), "D", out _) && (value.Length == 44 || value[44] is '\\' or '/');
+    }
+
+    // Whether the first segment of target, read as a path relative to linkParent, exists.
+    // GetAttributes does not follow a final link, so this never reads through one.
+    private static bool RelativeReadingExists(string linkParent, string target)
+    {
+        string first = target.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], 2)[0];
+        try
+        {
+            File.GetAttributes(Path.Combine(linkParent, first));
+            return true;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    // Windows trims trailing dots and spaces from a segment, so ". ." and ".. " also act as . and ..
+    private static bool HasDotSegment(string target) =>
+        target.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
+            .Any(segment => segment.Length > 0 && segment.TrimEnd('.', ' ').Length == 0);
 
     /// <summary>
     /// True when a reparse-point <em>link target</em> names an NT device or namespace path rather than an

@@ -27,6 +27,8 @@ $cases = @(
     @{ Source = '<Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/></Grid.RowDefinitions><TextBlock/></Grid>'; Rule = '' }
     @{ Source = '<Grid><Grid.RowDefinitions><RowDefinition Height="1"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Border Height="1"/><TextBlock Grid.Row="1"/></Grid>'; Rule = '' }
     @{ Source = '<!-- <Button Height="32"/> --><TextBlock/>'; Rule = '' }
+    @{ Source = '<?xml version="1.0" encoding="utf-8"?>' + "`n" + '<Button Height="32" Content="Comment"/>'; Rule = 'fixed-content-height'; Line = 2 }
+    @{ Source = '<?xml version="1.0" encoding="utf-8" ?>' + "`n" + '<TextBlock Text="Comment"/>'; Rule = ''; Bom = $true }
     @{ Source = 'auto x = L"<Button Height=\"32\"" L" Content=\"Comment\"/>";'; Rule = 'fixed-content-height'; Cpp = $true }
     @{ Source = 'auto x = L"<ToggleSplitButton Height=\"26\" Content=\"Comments\"/>";'; Rule = 'fixed-content-height'; Cpp = $true }
     @{ Source = 'auto x = L"<TextBlock IsTextScaleFactorEnabled=\"False\"/>";'; Rule = 'disabled-text-scaling'; Cpp = $true }
@@ -50,7 +52,7 @@ try {
     foreach ($case in $cases) {
         $extension = if ($case.Cpp) { 'inc' } else { 'xaml' }
         $path = Join-Path $root "fixture.$extension"
-        Set-Content -LiteralPath $path -Value $case.Source
+        [IO.File]::WriteAllText($path, $case.Source, [Text.UTF8Encoding]::new([bool]$case.Bom))
         $findings = @(Get-DevToolsScalingFindings $root)
         if ($case.Rule) {
             if ($case.Rule -notin $findings.Rule) { throw "Missed $($case.Rule): $($case.Source)" }
@@ -78,8 +80,8 @@ try {
     if (-not $rejected) { throw 'An unused exception did not fail.' }
     Set-Content -LiteralPath $path -Value '<Button'
     $rejected = $false
-    try { Get-DevToolsScalingFindings $root } catch { $rejected = $true }
-    if (-not $rejected) { throw 'Malformed XAML did not fail.' }
+    try { Get-DevToolsScalingFindings $root } catch { $rejected = $_.Exception.Message -like "Cannot parse XAML in $path`:*" }
+    if (-not $rejected) { throw 'Malformed XAML did not fail with its file and line.' }
     Write-Host "Passed $($cases.Count) styling cases and 4 validation/exception checks."
 } finally {
     Remove-Item -LiteralPath $root -Recurse -Force

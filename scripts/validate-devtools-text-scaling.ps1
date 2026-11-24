@@ -83,10 +83,25 @@ function Get-DevToolsScalingFindings {
     foreach ($file in $files) {
         $text = [IO.File]::ReadAllText($file.FullName)
         if ($file.Extension -eq '.xaml') {
-            $markup = [regex]::Replace($text, '(?s)<!--.*?-->', { param($match) [regex]::Replace($match.Value, '[^\r\n]', ' ') })
+            # Blank out comments and a leading XML declaration (which can't follow the wrapper below),
+            # keeping line breaks so reported line numbers still match the file.
+            $markup = [regex]::Replace($text, '(?s)<!--.*?-->|\A\s*<\?xml\b.*?\?>', { param($match) [regex]::Replace($match.Value, '[^\r\n]', ' ') })
             # Templates contain multiple roots and runtime placeholders, but are valid XML inside this wrapper.
             $wrapped = '<ScalingCheck xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">' + "`n$markup`n</ScalingCheck>"
-            $document = [Xml.Linq.XDocument]::Parse($wrapped, [Xml.Linq.LoadOptions]::SetLineInfo)
+            try {
+                $document = [Xml.Linq.XDocument]::Parse($wrapped, [Xml.Linq.LoadOptions]::SetLineInfo)
+            } catch {
+                $parseError = $_.Exception.GetBaseException()
+                $message = $parseError.Message
+                $at = ''
+                if ($parseError -is [Xml.XmlException]) {
+                    # The wrapper adds one line before the file's first line.
+                    $at = ":$($parseError.LineNumber - 1):$($parseError.LinePosition)"
+                    $message = $message -replace '\s*Line \d+, position \d+\.$', ''
+                    $message = [regex]::Replace($message, '(?i)(?<=\bline )\d+', { param($line) [int]$line.Value - 1 })
+                }
+                throw "Cannot parse XAML in $($file.FullName)$at. $message"
+            }
             foreach ($element in $document.Root.Descendants()) {
                 Test-Element $element $file.FullName ($element.LineNumber - 1) $true
             }

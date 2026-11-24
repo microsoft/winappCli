@@ -129,9 +129,9 @@ if ($Rebuild -or -not $built) {
     # The XAML compiler fails without a message on long paths, so build through a short junction.
     $short = Join-Path ([System.IO.Path]::GetTempPath()) "uibench-gallery-$PID"
     New-Item -ItemType Junction -Path $short -Target $src | Out-Null
+    $pkgDir = Join-Path ([System.IO.Path]::GetTempPath()) "uibench-gallery-pkg-$PID\"
     try {
         $proj = Join-Path $short 'WinUIGallery\WinUIGallery.csproj'
-        $pkgDir = Join-Path ([System.IO.Path]::GetTempPath()) "uibench-gallery-pkg-$PID\"
         Remove-Item -Recurse -Force -LiteralPath (Join-Path $src 'WinUIGallery\obj'), (Join-Path $src 'WinUIGallery\bin') -ErrorAction SilentlyContinue
         $log = Join-Path $out 'build.log'
         Write-Host "Building WinUI Gallery $($config.tag) for $platform (log: $log); this takes several minutes the first time..."
@@ -148,9 +148,9 @@ if ($Rebuild -or -not $built) {
         if (-not $msix) { throw "The build produced no .msix under $pkgDir." }
         $cachedMsix = Join-Path $out 'WinUIGallery-uibench.msix'
         Copy-Item -Path $msix.FullName -Destination $cachedMsix -Force
-        Remove-Item -Recurse -Force -LiteralPath $pkgDir -ErrorAction SilentlyContinue
     }
     finally {
+        Remove-Item -Recurse -Force -LiteralPath $pkgDir -ErrorAction SilentlyContinue
         # Removing the junction itself, never its target.
         [System.IO.Directory]::Delete($short)
     }

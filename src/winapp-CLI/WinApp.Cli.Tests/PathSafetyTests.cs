@@ -390,6 +390,243 @@ public class PathSafetyTests
     }
 
     [TestMethod]
+    [DataRow(@"Global\C:\Cache\pkg", @"C:\Cache\pkg")]
+    [DataRow(@"global\d:/Cache", @"d:/Cache")]
+    [DataRow(@"Global\UNC\server\share", @"UNC\server\share")]
+    [DataRow(@"Global\GLOBALROOT\Device\Mup\server\share", @"GLOBALROOT\Device\Mup\server\share")]
+    [DataRow(@"Volume{00000000-0000-0000-0000-000000000001}\Cache", @"\\?\Volume{00000000-0000-0000-0000-000000000001}\Cache")]
+    [DataRow(@"Global\Volume{00000000-0000-0000-0000-000000000001}\", @"\\?\Volume{00000000-0000-0000-0000-000000000001}\")]
+    [DataRow(@"Volume{backup}\packages", @"Volume{backup}\packages")]
+    [DataRow(@"Global\Cache", @"Global\Cache")]
+    [DataRow(@"C:\Global\Cache", @"C:\Global\Cache")]
+    public void NormalizeLinkTarget_RewritesOnlyPrefixlessNamespaceForms(string target, string expected)
+    {
+        Assert.AreEqual(expected, PathSafety.NormalizeLinkTarget(target));
+    }
+
+    [TestMethod]
+    [DataRow(@"Volume{00000000-0000-0000-0000-000000000000}\..")]
+    [DataRow(@"Global\Volume{00000000-0000-0000-0000-000000000000}\.\..")]
+    [DataRow(@"Volume{00000000-0000-0000-0000-000000000000}\.. ")]
+    public void RedirectsToNetwork_RewrittenTargetWithDotSegments_IsRefused(string linkText)
+    {
+        // Read as a relative symlink, Volume{fake}\.. resolves back beside the link without
+        // needing a Volume{fake} entry, so Windows could open evil\cert.pfx through a sibling
+        // link that the walk never checks.
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string link = Path.Combine(_tempDir.FullName, "link");
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsTrue(PathSafety.RedirectsToNetwork(Path.Combine(link, "evil", "cert.pfx"), _ => linkText));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_TargetWithTrailingSpace_ChecksThatExactEntry()
+    {
+        // NTFS keeps "Cache " and "Cache" apart. A link to "Cache " must be checked as
+        // "Cache ", not as a trimmed "Cache" that Windows never opens.
+        string root = Path.Combine(_tempDir.FullName, "root");
+        string plain = Path.Combine(root, "Cache");
+        string spaced = @"\\?\" + Path.Combine(root, "Cache ");
+        string link = Path.Combine(root, "link");
+        string staging = Path.Combine(root, "staging");
+        string target = Path.Combine(_tempDir.FullName, "Real");
+        Directory.CreateDirectory(plain);
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target) || !TryCreateJunction(staging, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        Directory.Move(@"\\?\" + staging, spaced);
+        try
+        {
+            bool refused = PathSafety.RedirectsToNetwork(Path.Combine(link, "marker.txt"), info =>
+                string.Equals(info.FullName, @"\\?\" + link, StringComparison.OrdinalIgnoreCase)
+                    ? "Cache "
+                    : @"\\server\share");
+            Assert.IsTrue(refused, "\"Cache \" is a link to a share and must be inspected.");
+        }
+        finally
+        {
+            Directory.Delete(link);
+            Directory.Delete(spaced);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_VolumeTargetWithSameNamedSibling_IsRefused()
+    {
+        // A relative symlink to a sibling named Volume{GUID} reads back exactly like a
+        // volume mount point, and Windows would follow the sibling, which can be another
+        // link to a share. The walk can't tell the two apart, so it must refuse.
+        const string VolumeName = "Volume{00000000-0000-0000-0000-000000000000}";
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string link = Path.Combine(_tempDir.FullName, "cert.pfx");
+        Directory.CreateDirectory(target);
+        Directory.CreateDirectory(Path.Combine(_tempDir.FullName, VolumeName));
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsTrue(PathSafety.RedirectsToNetwork(link, static _ => VolumeName));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_VolumeMountPoint_IsAllowed()
+    {
+        // A drive mounted into a folder reads back as Volume{GUID}\ and must stay local.
+        string root = Path.GetPathRoot(_tempDir.FullName)!;
+        string? volume = GetVolumeName(root);
+        string link = Path.Combine(_tempDir.FullName, "Mounted");
+        if (volume is null || !TryCreateJunction(link, volume))
+        {
+            Assert.Inconclusive("Could not create a volume junction on this machine.");
+        }
+
+        try
+        {
+            Assert.StartsWith("Volume{", new DirectoryInfo(link).LinkTarget!);
+            string throughMount = Path.Combine(link, _tempDir.FullName[root.Length..], "Api.winmd");
+            Assert.IsFalse(PathSafety.RedirectsToNetwork(throughMount));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_GlobalNamespaceTargets_AreFollowed()
+    {
+        // A junction stored as \??\Global\C:\... reads back as Global\C:\..., and Windows
+        // follows it. The walk must follow it too instead of losing the chain.
+        string real = Path.Combine(_tempDir.FullName, "RealCache");
+        string middle = Path.Combine(_tempDir.FullName, "MiddleCache");
+        string first = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(Path.Combine(real, "pkg"));
+        if (!TryCreateJunction(middle, real))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        bool firstCreated = false;
+        try
+        {
+            firstCreated = TryCreateJunction(first, Path.Combine(middle, "pkg"));
+            if (!firstCreated)
+            {
+                Assert.Inconclusive("Could not create a junction on this machine.");
+            }
+
+            string winmd = Path.Combine(first, "Api.winmd");
+            // Build the targets from known paths, so the test holds where LinkTarget already adds Global\.
+            string GlobalTarget(FileSystemInfo info) =>
+                @"Global\" + (string.Equals(info.FullName, @"\\?\" + first, StringComparison.OrdinalIgnoreCase)
+                    ? Path.Combine(middle, "pkg")
+                    : real);
+            Assert.IsFalse(PathSafety.RedirectsToNetwork(winmd, GlobalTarget), "A local chain stays allowed.");
+
+            var inspected = new List<string>();
+            bool refused = PathSafety.RedirectsToNetwork(winmd, info =>
+            {
+                inspected.Add(info.FullName);
+                return string.Equals(info.FullName, @"\\?\" + middle, StringComparison.OrdinalIgnoreCase)
+                    ? @"\\server\share"
+                    : GlobalTarget(info);
+            });
+            Assert.IsTrue(refused, "A network hop after a Global\\ target must still be found.");
+            Assert.AreSequenceEqual(new[] { @"\\?\" + first, @"\\?\" + middle }, inspected);
+        }
+        finally
+        {
+            if (firstCreated)
+            {
+                Directory.Delete(first);
+            }
+            Directory.Delete(middle);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_LinkTargetThatCannotBePlaced_IsRefused()
+    {
+        // A target read in a form the walk misplaces would look missing here, while
+        // Windows may follow it somewhere else. Refuse instead of answering "local".
+        string target = Path.Combine(_tempDir.FullName, "Cache");
+        string link = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(target);
+        if (!TryCreateJunction(link, target))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        try
+        {
+            Assert.IsTrue(PathSafety.RedirectsToNetwork(
+                Path.Combine(link, "Api.winmd"), static _ => @"Unplaceable\Cache"));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_MissingTargetPartAfterAnotherLink_IsRefused()
+    {
+        // LinkedCache -> MiddleCache\missing, MiddleCache -> RealCache. "missing" still
+        // belongs to the first link's target after the walk restarts at RealCache.
+        string real = Path.Combine(_tempDir.FullName, "RealCache");
+        string middle = Path.Combine(_tempDir.FullName, "MiddleCache");
+        string first = Path.Combine(_tempDir.FullName, "LinkedCache");
+        Directory.CreateDirectory(real);
+        if (!TryCreateJunction(middle, real))
+        {
+            Assert.Inconclusive("Could not create a junction on this machine.");
+        }
+
+        bool firstCreated = false;
+        try
+        {
+            firstCreated = TryCreateJunction(first, Path.Combine(middle, "missing"));
+            if (!firstCreated)
+            {
+                Assert.Inconclusive("Could not create a junction on this machine.");
+            }
+
+            Assert.IsTrue(PathSafety.RedirectsToNetwork(Path.Combine(first, "Api.winmd")));
+        }
+        finally
+        {
+            if (firstCreated)
+            {
+                Directory.Delete(first);
+            }
+            Directory.Delete(middle);
+        }
+    }
+
+    [TestMethod]
     [DataRow(@"\\server\share")]
     [DataRow(@"\\?\UNC\server\share")]
     [DataRow(@"\\?\GLOBALROOT\Device\Mup\server\share")]
@@ -652,6 +889,28 @@ public class PathSafetyTests
         finally
         {
             Directory.Delete(link);
+        }
+    }
+
+    // \\?\Volume{GUID}\ for a drive root, via mountvol, or null when unavailable.
+    private static string? GetVolumeName(string root)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("mountvol.exe", $"{root.TrimEnd('\\')} /L")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            string? output = p?.StandardOutput.ReadToEnd().Trim();
+            p?.WaitForExit(5000);
+            return output is not null && output.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase) ? output : null;
+        }
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception)
+        {
+            return null;
         }
     }
 
