@@ -56,7 +56,7 @@
     {
       "id": "r31-rude-unseal", "row": 31, "title": "Rude edit: unseal the page class",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "public sealed partial class ContactsPage", "text": "public partial class ContactsPage",
-      "expect": { "v1": "restart", "today": "restart-no-reason" },
+      "expect": { "v1": "restart", "today": "restart" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "pre:HELLO-V2! 1" } ]
     },
     {

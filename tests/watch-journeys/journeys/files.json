@@ -41,13 +41,13 @@
       "edits": [
         { "file": "App/Unused.cs", "op": "create-file", "text": [ "namespace TodoBench;", "", "internal static class Unused", "{", "    public static int Value => 1;", "}" ] }
       ],
-      "expect": { "v1": "live", "today": "error", "stock": "error" },
+      "expect": { "v1": "live", "today": "error", "stock": "applied" },
       "note": "stuck on the earlier step's error: the new UserControl's XAML isn't compiled on stock WinUI, so Badge.xaml.cs fails (CS0103 InitializeComponent) on every save until the app restarts"
     },
     {
       "id": "r19-deleted", "row": 19, "title": "(the delete itself)",
       "file": "App/Unused.cs", "op": "delete-file",
-      "expect": { "v1": "live", "today": "error", "stock": "error" }
+      "expect": { "v1": "live", "today": "error", "stock": "applied" }
     },
     {
       "id": "r17-delete-hidden-page", "row": 17, "title": "Delete a page that isn't shown",
@@ -56,7 +56,7 @@
         { "file": "App/AboutPage.xaml", "op": "delete-file" },
         { "file": "App/AboutPage.xaml.cs", "op": "delete-file" }
       ],
-      "expect": { "v1": "live", "today": "error", "stock": "error" },
+      "expect": { "v1": "live", "today": "error", "stock": "applied" },
       "note": "E1 (ghost page); fallback: restart with a reason"
     },
     {

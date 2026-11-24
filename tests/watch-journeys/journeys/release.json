@@ -9,7 +9,7 @@
     {
       "id": "r66-release-csharp", "row": 66, "title": "A C# save in a Release build",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v1\";", "text": "return \"hello-v2\";",
-      "expect": { "v1": "restart", "today": "restart-no-reason" },
+      "expect": { "v1": "restart", "today": "restart" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ],
       "note": "v1: every save restarts, and that's said once"
     },

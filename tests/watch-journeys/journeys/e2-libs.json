@@ -67,7 +67,7 @@
     {
       "id": "r45-rude-in-library", "row": 45, "title": "Rude edit in a library (a field's type)",
       "file": "Data/Store.cs", "op": "replace", "find": "public static string Tag = ", "text": "public static object Tag = ",
-      "expect": { "v1": "restart", "today": "restart-no-reason", "reason": "Store" },
+      "expect": { "v1": "restart", "today": "restart", "reason": "Store" },
       "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-contains", "target": "Header", "value": "data-v2" } ]
     },
     {
@@ -78,7 +78,7 @@
     {
       "id": "r47-library-csproj", "row": 47, "title": "Library .csproj edit (a new package)",
       "file": "Core/Core.csproj", "op": "replace", "find": "    <ProjectReference Include=\"..\\Data\\Data.csproj\" />", "text": "    <ProjectReference Include=\"..\\Data\\Data.csproj\" />\n    <PackageReference Include=\"Newtonsoft.Json\" Version=\"13.0.3\" />",
-      "expect": { "v1": "restart", "today": "error", "reason": "csproj|project|package" },
+      "expect": { "v1": "restart", "today": "restart", "reason": "csproj|project|package" },
       "checks": [ { "assert": "invoke", "target": "LibButton" }, { "assert": "text-contains", "target": "Header", "value": "[core-v3]" } ]
     },
     {

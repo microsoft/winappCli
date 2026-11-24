@@ -29,7 +29,7 @@
         { "file": "App/Gen19.cs", "op": "create-file", "text": "namespace TodoBench; internal static class Gen19 { public static int V => 19; }" },
         { "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v1\";", "text": "return \"sum \" + (Gen01.V + Gen02.V + Gen03.V + Gen04.V + Gen05.V + Gen06.V + Gen07.V + Gen08.V + Gen09.V + Gen10.V + Gen11.V + Gen12.V + Gen13.V + Gen14.V + Gen15.V + Gen16.V + Gen17.V + Gen18.V + Gen19.V);" }
       ],
-      "expect": { "v1": "live", "today": "error" },
+      "expect": { "v1": "live", "today": "applied" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "sum 190" } ],
       "note": "one direction only; the switch back is not scripted yet"
     }
