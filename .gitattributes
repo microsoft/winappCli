@@ -5,6 +5,7 @@
 docs/cli-schema.json text eol=lf
 /plugin.json text eol=lf
 plugins/winapp/** text eol=lf
+plugins/winapp/**/*.png binary
 .github/plugin/marketplace.json text eol=lf
 .claude-plugin/marketplace.json text eol=lf
 docs/npm-usage.md text eol=lf

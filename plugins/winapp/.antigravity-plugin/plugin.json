@@ -1,0 +1,36 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "winappcli",
+  "displayName": "WinApp CLI",
+  "description": "Package, sign, and ship Windows apps from any framework with the winapp CLI: MSIX installers, certificates, package identity, Windows SDK setup, and UI tests.",
+  "version": "0.8.1",
+  "logo": "assets/logo.png",
+  "suggestedPrompts": [
+    "Add package identity to this app with winapp.",
+    "Package this app as a signed MSIX.",
+    "Set up the Windows SDK and Windows App SDK for this project."
+  ],
+  "author": {
+    "name": "Microsoft",
+    "url": "https://github.com/microsoft/WinAppCli"
+  },
+  "homepage": "https://github.com/microsoft/WinAppCli",
+  "repository": "https://github.com/microsoft/WinAppCli",
+  "license": "MIT",
+  "keywords": [
+    "windows",
+    "msix",
+    "packaging",
+    "installer",
+    "package identity",
+    "code signing",
+    "windows app sdk",
+    "microsoft store",
+    "electron",
+    "dotnet",
+    "cpp",
+    "rust",
+    "flutter",
+    "tauri"
+  ]
+}

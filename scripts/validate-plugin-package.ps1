@@ -14,7 +14,9 @@
     It also checks the skills of every plugin root under -PluginsRoot (any folder holding
     plugin.json and a skills/ folder): SKILL.md frontmatter and placement, description
     length, relative links staying inside the plugin, and `winapp` command examples in
-    skills and agents matching an explicitly supplied CLI schema. It then prints an approximate size report.
+    skills and agents matching an explicitly supplied CLI schema. Each plugin root's
+    Antigravity manifest (.antigravity-plugin/plugin.json) is checked against Antigravity's
+    closed schema and Marketplace requirements. It then prints an approximate size report.
 
     Requires no build output and can be run standalone:
         .\scripts\validate-plugin-package.ps1
@@ -268,6 +270,120 @@ foreach ($marketplace in $Marketplaces) {
         }
         elseif ($marketplace.Versioned -and $RepoVersion -and $entry.version -ne $RepoVersion) {
             Add-Failure "plugin '$($pluginDir.Name)' in $($marketplace.Path) has version '$($entry.version)', expected '$RepoVersion' from version.json"
+        }
+    }
+}
+
+# --- Antigravity manifests ---------------------------------------------------------------
+# Every plugin root (a folder holding plugin.json and skills/) ships .antigravity-plugin/plugin.json,
+# which Antigravity reads instead of the root plugin.json. Its schema is closed, so unknown keys are
+# errors here, and the Marketplace requires the fields below. Identity fields must stay equal to the
+# plugin's own plugin.json so the two manifests can't describe different plugins.
+$AntigravitySchemaId = "https://antigravity.google/schemas/v1/plugin.json"
+$AntigravityAllowedFields = @(
+    '$schema', 'name', 'displayName', 'description', 'version', 'disabled', 'logo', 'suggestedPrompts',
+    'skills', 'author', 'homepage', 'repository', 'license', 'keywords', 'extensions'
+)
+$AntigravityRequiredFields = @('name', 'displayName', 'description', 'version', 'logo', 'author', 'suggestedPrompts')
+$AntigravitySyncedFields = @('name', 'version', 'author', 'license', 'homepage', 'repository')
+# Antigravity loads only this many bytes of a SKILL.md body and drops the rest.
+$AntigravitySkillBodyMaxBytes = 24000
+
+$AntigravityRoots = @(Get-ChildItem $PluginsRoot -Recurse -File -Filter "plugin.json" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Directory.Name -ne '.antigravity-plugin' -and (Test-Path (Join-Path $_.DirectoryName "skills") -PathType Container) } |
+    ForEach-Object { $_.Directory } | Sort-Object FullName)
+foreach ($agRoot in $AntigravityRoots) {
+    $rootLabel = [System.IO.Path]::GetRelativePath($ProjectRoot, $agRoot.FullName).Replace('\', '/')
+    $agPath = Join-Path $agRoot.FullName ".antigravity-plugin/plugin.json"
+    $agLabel = "$rootLabel/.antigravity-plugin/plugin.json"
+    if (-not (Test-Path $agPath -PathType Leaf)) {
+        Add-Failure "$agLabel not found. Every plugin root needs an Antigravity manifest; see https://antigravity.google/docs/build-plugins."
+        continue
+    }
+    $ag = Read-JsonFile $agPath $agLabel
+    if (-not $ag) { continue }
+
+    if ($ag.'$schema' -ne $AntigravitySchemaId) {
+        Add-Failure "$agLabel must declare `$schema as $AntigravitySchemaId"
+    }
+    $unknown = @($ag.PSObject.Properties.Name | Where-Object { $AntigravityAllowedFields -cnotcontains $_ })
+    if ($unknown.Count -gt 0) {
+        Add-Failure "$agLabel has field(s) Antigravity ignores: $($unknown -join ', ')"
+    }
+    foreach ($field in $AntigravityRequiredFields) {
+        $value = $ag.PSObject.Properties[$field]
+        if (-not $value -or $null -eq $value.Value -or ($value.Value -is [string] -and -not $value.Value.Trim())) {
+            Add-Failure "$agLabel is missing '$field', which the Antigravity Marketplace requires"
+        }
+    }
+    foreach ($field in @('name', 'displayName', 'description', 'version', 'logo', 'homepage', 'repository', 'license')) {
+        $value = $ag.PSObject.Properties[$field]
+        if ($value -and $value.Value -isnot [string]) { Add-Failure "$agLabel '$field' must be a string" }
+    }
+    if ($ag.name -is [string] -and $ag.name -cnotmatch '^[a-z0-9]+(-[a-z0-9]+)*$') {
+        Add-Failure "$agLabel name '$($ag.name)' must be lowercase kebab-case"
+    }
+    foreach ($field in @('name', 'displayName')) {
+        if ($ag.$field -is [string] -and $ag.$field -match '^\s*(Antigravity|Gemini|Claude|Cursor)') {
+            Add-Failure "$agLabel '$field' must not start with Antigravity, Gemini, Claude, or Cursor"
+        }
+    }
+    foreach ($field in @('homepage', 'repository')) {
+        if ($ag.$field -is [string] -and $ag.$field -notmatch '^https://') { Add-Failure "$agLabel '$field' must be an https:// URL" }
+    }
+    $prompts = $ag.PSObject.Properties['suggestedPrompts']
+    if ($prompts -and ($prompts.Value -isnot [array] -or @($prompts.Value).Count -gt 3 -or
+            @($prompts.Value | Where-Object { $_ -isnot [string] -or -not $_.Trim() }).Count -gt 0)) {
+        Add-Failure "$agLabel 'suggestedPrompts' must be an array of at most 3 non-empty strings"
+    }
+    $keywords = $ag.PSObject.Properties['keywords']
+    if ($keywords -and ($keywords.Value -isnot [array] -or
+            @($keywords.Value | Where-Object { $_ -isnot [string] -or $_ -cne $_.ToLowerInvariant() }).Count -gt 0)) {
+        Add-Failure "$agLabel 'keywords' must be an array of lowercase strings"
+    }
+    $author = $ag.PSObject.Properties['author']
+    if ($author -and $author.Value -isnot [string]) {
+        if ($author.Value -isnot [System.Management.Automation.PSCustomObject] -or
+                @($author.Value.PSObject.Properties | Where-Object { @('name', 'email', 'url') -cnotcontains $_.Name -or $_.Value -isnot [string] }).Count -gt 0) {
+            Add-Failure "$agLabel 'author' must be a string or an object with string 'name', 'email', and 'url'"
+        }
+        elseif ($author.Value.url -and $author.Value.url -notmatch '^https://') {
+            Add-Failure "$agLabel 'author.url' must be an https:// URL"
+        }
+    }
+    if ($ag.logo -is [string]) {
+        $logoFull = [System.IO.Path]::GetFullPath((Join-Path $agRoot.FullName $ag.logo))
+        $inside = $logoFull.StartsWith($agRoot.FullName.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+        if ($ag.logo -notmatch '\.(png|svg|jpe?g|webp)$' -or -not $inside -or -not (Test-Path -LiteralPath $logoFull -PathType Leaf)) {
+            Add-Failure "$agLabel logo '$($ag.logo)' must be a .png, .svg, .jpg, .jpeg, or .webp file inside $rootLabel"
+        }
+    }
+    if (-not (Test-Path (Join-Path $agRoot.FullName "README.md") -PathType Leaf) -and
+            -not (Test-Path (Join-Path $agRoot.FullName ".antigravity-plugin/README.md") -PathType Leaf)) {
+        Add-Failure "$rootLabel has no README.md next to its manifest; the Antigravity Marketplace shows it before install"
+    }
+
+    $source = Read-JsonFile (Join-Path $agRoot.FullName "plugin.json") "$rootLabel/plugin.json"
+    if ($source) {
+        foreach ($field in $AntigravitySyncedFields) {
+            $expected = $source.PSObject.Properties[$field]
+            if (-not $expected) { continue }
+            $actual = $ag.PSObject.Properties[$field]
+            $expectedJson = $expected.Value | ConvertTo-Json -Depth 10 -Compress
+            $actualJson = if ($actual) { $actual.Value | ConvertTo-Json -Depth 10 -Compress } else { '<missing>' }
+            if ($expectedJson -cne $actualJson) {
+                Add-Failure "$agLabel '$field' is $actualJson but $rootLabel/plugin.json has $expectedJson; keep them equal"
+            }
+        }
+    }
+
+    foreach ($skillFile in Get-ChildItem (Join-Path $agRoot.FullName "skills") -Recurse -File -Filter "SKILL.md" -ErrorAction SilentlyContinue) {
+        $raw = [System.IO.File]::ReadAllText($skillFile.FullName)
+        $body = [regex]::Replace($raw, '^---\r?\n[\s\S]*?\r?\n---\r?\n', '').Trim()
+        $bodyBytes = [System.Text.Encoding]::UTF8.GetByteCount($body)
+        if ($bodyBytes -gt $AntigravitySkillBodyMaxBytes) {
+            $skillLabel = [System.IO.Path]::GetRelativePath($ProjectRoot, $skillFile.FullName).Replace('\', '/')
+            Add-Warning "$skillLabel body is $bodyBytes bytes; Antigravity loads only the first $AntigravitySkillBodyMaxBytes. Move detail into references/."
         }
     }
 }
