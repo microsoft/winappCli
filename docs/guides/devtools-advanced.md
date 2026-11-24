@@ -117,6 +117,11 @@ predicate. `search` matches text from realized elements, not bindings; when noth
 your XAML matches, it searches the whole tree (for example, items created from data)
 and says so. A search with no match exits nonzero.
 
+`--with 'Background==#123456'` compares a brush's solid color, not its appearance on
+screen. A `LinearGradientBrush` or `AcrylicBrush` never equals a solid color, so `==`
+excludes it and `!=` includes it without making the search incomplete. A solid
+brush whose color can't be read still counts as unknown.
+
 `get-property` and `set-property` with `--of-type`/`--with` instead of a selector need
 exactly one provable match. Zero, several, unreadable or truncated matches refuse the
 operation and list each candidate's predicate results. To get past a refusal, narrow the
