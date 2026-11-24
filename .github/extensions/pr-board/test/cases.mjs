@@ -310,9 +310,11 @@ export function register(test) {
         assert.equal(ctx.world.mutations.length, 0);
     }, { changesGitHub: true });
 
-    test("layer 5: your PRs get Get it ready & keep it ready on their own, show it, and stay off once you turn it off", async (ctx) => {
+    test("layer 5: your PRs get Get it ready & keep it ready on their own, show it, skip drafts, and stay off once you turn it off", async (ctx) => {
         const { page } = ctx;
-        await page.eval(`post("/api/action", { pr: 108, action: "monitor", enable: false })`); // you turned it off for #108 earlier
+        await page.eval(`post("/api/action", { pr: 101, action: "monitor", enable: false })`); // you turned it off for #101 earlier
+        ctx.world.addPr({ number: 112, title: "Try a new cache layout", author: "me" });
+        ctx.world.prs.at(-1).isDraft = true; // a draft you opened to try something
         const before = ctx.host.sends.length;
         await autoOn(ctx, { maxConcurrent: 5, layers: { keepReady: true } });
         await refresh(ctx);
@@ -322,8 +324,8 @@ export function register(test) {
         assert.match(p, /Never merge, approve or post a review/);
         await sleep(500);
         const keeps = ctx.host.sends.slice(before).filter((s) => /\(layer 5/.test(s.prompt)).map((s) => s.prompt.match(/#(\d+)/)[1]);
-        assert.ok(!keeps.includes("101"), "#101 is already kept ready");
-        assert.ok(!keeps.includes("108"), "#108 was turned on again after you turned it off");
+        assert.ok(!keeps.includes("101"), "#101 was turned on again after you turned it off");
+        assert.ok(!keeps.includes("108") && !keeps.includes("112"), "a draft got keep-ready");
         await openRow(page, 107);
         assert.match(await text(page, "#wsHead .ws-meta"), /Turning on….*On automatically.*Turn off/);
         await ctx.shot("keep-ready-auto");

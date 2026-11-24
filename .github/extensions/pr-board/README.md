@@ -556,7 +556,7 @@ It works in layers, each one on or off in the Auto panel:
 | 2 · Re-review after a push | Yes | A PR you reviewed has a newer commit | pr-review runs again, and the result lands in Your move, for example "Re-review done: both asks fixed → approve?" with **Post review…** |
 | 3 · First review | Yes | Someone else's PR that isn't a draft and isn't failing CI, and either asks for your review or has no review yet. Bot PRs (Dependabot) only with **Also first-review bot PRs** | A PR session runs pr-review and leaves a drafted review in Your move, the same as clicking **Review**. Nothing is posted |
 | 4 · Issue follow-through | Yes | The reporter replies on an issue you're in | A summary, then an attempt to reproduce or validate it: "Reproduced", "Not reproduced" or "Fixed by #n", with evidence |
-| 5 · Keep your PRs ready | Yes | Your PR, or one our session opened, shows up without keep-ready | **Get it ready & keep it ready** turns on by itself, once. The card says *On automatically* with **Turn off**; once you turn it off, it stays off for that PR |
+| 5 · Keep your PRs ready | Yes | Your PR, or one our session opened, shows up without keep-ready. Drafts wait until they're marked ready | **Get it ready & keep it ready** turns on by itself, once. The card says *On automatically* with **Turn off**; once you turn it off, it stays off for that PR |
 
 ```text
 Row:    PR #104 Rework auth token refresh

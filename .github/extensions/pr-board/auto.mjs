@@ -7,7 +7,7 @@ export const LAYERS = [
     { id: "rereview", n: 2, title: "Re-review after a push", hint: "A PR you reviewed got new commits: run pr-review again." },
     { id: "firstReview", n: 3, title: "First review", hint: "Someone else's ready PR (not a draft, CI not failing) that asks for your review, or that nobody has reviewed yet: open a PR session and draft a review, so it's waiting when you get to it. Never posted." },
     { id: "issues", n: 4, title: "Issue follow-through", hint: "A reporter replied: summarize it, then try to reproduce or validate in a session." },
-    { id: "keepReady", n: 5, title: "Keep your PRs ready", hint: "Your PRs and the ones our sessions open: turn on Get it ready & keep it ready (pr-lifecycle, pr-review, and Agent merge for reviews, CI and conflicts; never merges). Not for a PR where you turned it off." },
+    { id: "keepReady", n: 5, title: "Keep your PRs ready", hint: "Your PRs and the ones our sessions open: turn on Get it ready & keep it ready (pr-lifecycle, pr-review, and Agent merge for reviews, CI and conflicts; never merges). Skips drafts until they're marked ready, and any PR where you turned it off." },
 ];
 
 export const DEFAULTS = Object.freeze({
@@ -142,7 +142,8 @@ export function candidates(snap, settings, now = Date.now()) {
         }
         // Layer 5: your PR (or one our session opened) gets "Get it ready & keep it ready", once, unless you turned it off.
         const keepOn = l.sync?.agentMerge?.enabled || l.monitorPending?.enable || l.readyAsked;
-        if (!picked && kind === "pr" && mine && settings.layers.keepReady && !keepOn && !l.keepReadyOff && !c.queue && !c.autoMerge) {
+        // Drafts are skipped: the user opens them on purpose to try things. It starts once the PR is marked ready.
+        if (!picked && kind === "pr" && mine && !c.isDraft && settings.layers.keepReady && !keepOn && !l.keepReadyOff && !c.queue && !c.autoMerge) {
             add({ layer: "keepReady", key: `keep:${c.number}`, priority: 1, reason: l.role === "author" && c.author !== viewer ? "our session opened it" : "it's your PR",
                 readyAt: ts(c.createdAt) + settings.stableMin * 60_000, head: c.headSha, events: [] });
             picked = true;
