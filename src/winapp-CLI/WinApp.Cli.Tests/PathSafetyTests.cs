@@ -394,11 +394,38 @@ public class PathSafetyTests
     [DataRow(@"global\d:/Cache", @"d:/Cache")]
     [DataRow(@"Global\UNC\server\share", @"UNC\server\share")]
     [DataRow(@"Global\GLOBALROOT\Device\Mup\server\share", @"GLOBALROOT\Device\Mup\server\share")]
+    [DataRow(@"Volume{00000000-0000-0000-0000-000000000001}\Cache", @"\\?\Volume{00000000-0000-0000-0000-000000000001}\Cache")]
+    [DataRow(@"Global\Volume{00000000-0000-0000-0000-000000000001}\", @"\\?\Volume{00000000-0000-0000-0000-000000000001}\")]
+    [DataRow(@"Volume{backup}\packages", @"Volume{backup}\packages")]
     [DataRow(@"Global\Cache", @"Global\Cache")]
     [DataRow(@"C:\Global\Cache", @"C:\Global\Cache")]
-    public void StripGlobalNamespace_RemovesOnlyTheNamespacePrefix(string target, string expected)
+    public void NormalizeLinkTarget_RewritesOnlyPrefixlessNamespaceForms(string target, string expected)
     {
-        Assert.AreEqual(expected, PathSafety.StripGlobalNamespace(target));
+        Assert.AreEqual(expected, PathSafety.NormalizeLinkTarget(target));
+    }
+
+    [TestMethod]
+    public void RedirectsToNetwork_VolumeMountPoint_IsAllowed()
+    {
+        // A drive mounted into a folder reads back as Volume{GUID}\ and must stay local.
+        string root = Path.GetPathRoot(_tempDir.FullName)!;
+        string? volume = GetVolumeName(root);
+        string link = Path.Combine(_tempDir.FullName, "Mounted");
+        if (volume is null || !TryCreateJunction(link, volume))
+        {
+            Assert.Inconclusive("Could not create a volume junction on this machine.");
+        }
+
+        try
+        {
+            Assert.StartsWith("Volume{", new DirectoryInfo(link).LinkTarget!);
+            string throughMount = Path.Combine(link, _tempDir.FullName[root.Length..], "Api.winmd");
+            Assert.IsFalse(PathSafety.RedirectsToNetwork(throughMount));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
     }
 
     [TestMethod]
@@ -772,6 +799,28 @@ public class PathSafetyTests
         finally
         {
             Directory.Delete(link);
+        }
+    }
+
+    // \\?\Volume{GUID}\ for a drive root, via mountvol, or null when unavailable.
+    private static string? GetVolumeName(string root)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("mountvol.exe", $"{root.TrimEnd('\\')} /L")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            string? output = p?.StandardOutput.ReadToEnd().Trim();
+            p?.WaitForExit(5000);
+            return output is not null && output.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase) ? output : null;
+        }
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception)
+        {
+            return null;
         }
     }
 

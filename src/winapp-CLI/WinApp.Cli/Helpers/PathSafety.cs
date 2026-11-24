@@ -217,7 +217,7 @@ internal static class PathSafety
                     {
                         return true;
                     }
-                    target = StripGlobalNamespace(target);
+                    target = NormalizeLinkTarget(target);
                     if (IsNetworkPath(target) || IsDeviceOrNtNamespaceTarget(target))
                     {
                         return true;
@@ -439,22 +439,29 @@ internal static class PathSafety
     }
 
     /// <summary>
-    /// A junction stored as <c>\??\Global\C:\x</c> reads back from
-    /// <see cref="System.IO.FileSystemInfo.LinkTarget"/> as <c>Global\C:\x</c>, and Windows follows it
-    /// exactly like <c>C:\x</c>. Strips that prefix when what follows is a drive path or a device form
-    /// <see cref="IsDeviceOrNtNamespaceTarget"/> refuses; anything else is left as written.
+    /// Rewrites link-target forms that <see cref="System.IO.FileSystemInfo.LinkTarget"/> returns without
+    /// their NT prefix, so the walk can place them: a volume mount point (a drive mounted into a folder)
+    /// reads back as <c>Volume{GUID}\</c>, and a junction stored as <c>\??\Global\C:\x</c> reads back as
+    /// <c>Global\C:\x</c>, which Windows follows exactly like <c>C:\x</c>. Other targets are returned as written.
     /// </summary>
-    internal static string StripGlobalNamespace(string target)
+    internal static string NormalizeLinkTarget(string target)
     {
         const string GlobalPrefix = @"Global\";
-        if (!target.StartsWith(GlobalPrefix, StringComparison.OrdinalIgnoreCase))
+        if (target.StartsWith(GlobalPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            return target;
+            string rest = target[GlobalPrefix.Length..];
+            bool isDrivePath = rest.Length >= 3 && char.IsAsciiLetter(rest[0]) && rest[1] == ':' && rest[2] is '\\' or '/';
+            if (isDrivePath || IsVolumeTarget(rest) || IsDeviceOrNtNamespaceTarget(rest))
+            {
+                target = rest;
+            }
         }
 
-        string rest = target[GlobalPrefix.Length..];
-        bool isDrivePath = rest.Length >= 3 && char.IsAsciiLetter(rest[0]) && rest[1] == ':' && rest[2] is '\\' or '/';
-        return isDrivePath || IsDeviceOrNtNamespaceTarget(rest) ? rest : target;
+        return IsVolumeTarget(target) ? @"\\?\" + target : target;
+
+        static bool IsVolumeTarget(string value) =>
+            value.Length >= 44 && value.StartsWith("Volume{", StringComparison.OrdinalIgnoreCase) && value[43] == '}'
+            && Guid.TryParseExact(value.AsSpan(7, 36), "D", out _) && (value.Length == 44 || value[44] is '\\' or '/');
     }
 
     /// <summary>
