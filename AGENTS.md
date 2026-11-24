@@ -403,6 +403,15 @@ every build and test lane and run only the docs port tests (`docs-tests`).
 `docs\npm-usage.md` is checked by npm tests, and other files in `docs\` (such as
 `winui-sample-index.schema.json`) are read by CLI tests, so changing them runs everything.
 
+GitHub Actions restores packages from nuget.org, but the ADO pipelines restore only from
+`pde-oss_Internal`, which saves new nuget.org versions days later. When a change touches restore
+inputs (`*.csproj`, `*.props`, `*.targets`, `nuget.config`, `global.json`), the
+`internal-feed-restore` job restores every project from that feed, so a version it doesn't have
+yet fails the PR instead of the ADO build on main. Fork and Dependabot PRs get no feed
+credentials, so for them it runs in the merge queue. Run it locally with
+`.\scripts\test-internal-feed-restore.ps1 -Token $env:VSS_NUGET_ACCESSTOKEN` (see the feed token
+command above).
+
 CI runs `-TestSuite Cli -CliShard 1`, `-CliShard 2`, `-CliShard 4`,
 `-TestSuite Auxiliary`, and `-TestSuite UIAutomation` on separate runners, never
 concurrently in one workspace. Together with the native integration shard below,

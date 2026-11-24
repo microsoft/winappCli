@@ -28,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      restore: ${{ steps.classify.outputs.restore }}
     steps:
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,6 +44,8 @@ jobs:
         PR_HEAD: ${{ github.event.pull_request.head.sha }}
         MQ_BASE: ${{ github.event.merge_group.base_sha }}
         MQ_HEAD: ${{ github.event.merge_group.head_sha }}
+        # Fork and Dependabot PRs get no OIDC token, so their feed restore runs in the merge queue.
+        NO_FEED_TOKEN: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]') }}
       run: |
         $range = switch ($env:EVENT) {
           'pull_request' { "$env:PR_BASE...$env:PR_HEAD" }
@@ -50,6 +53,7 @@ jobs:
           default { $null }
         }
         $code = $true
+        $restore = $true
         if ($range) {
           # --no-renames lists a moved file's old path too, so moving code into docs\ still builds.
           $files = @(git diff --name-only --no-renames $range)
@@ -59,9 +63,16 @@ jobs:
           })
           # An empty diff is not evidence of a docs-only change.
           $code = $files.Count -eq 0 -or $codeFiles.Count -gt 0
-          Write-Host "$($files.Count) changed file(s); $($codeFiles.Count) need the full build."
+          $restoreFiles = @($files | Where-Object {
+            $_ -match '\.(csproj|props|targets)$|(^|/)(nuget\.config|global\.json)$' -or
+            $_ -in '.pipelines/release-nuget.config', 'scripts/test-internal-feed-restore.ps1', '.github/workflows/build-package.yml'
+          })
+          $restore = $files.Count -eq 0 -or $restoreFiles.Count -gt 0
+          Write-Host "$($files.Count) changed file(s); $($codeFiles.Count) need the full build; $($restoreFiles.Count) affect package restore."
         }
+        $restore = $restore -and $env:NO_FEED_TOKEN -ne 'true'
         "code=$($code.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+        "restore=$($restore.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
   # The scripts Pester suite ports the real docs and checks their links and tables.
   docs-tests:
@@ -374,6 +385,48 @@ jobs:
         if-no-files-found: error
         overwrite: true
 
+  # GitHub restores from nuget.org, but the ADO build restores only from pde-oss_Internal, which
+  # saves new nuget.org versions days later. Restore from that feed too, so a version it doesn't
+  # have yet fails here instead of breaking the ADO build on main.
+  internal-feed-restore:
+    needs: changes
+    if: needs.changes.outputs.restore == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    # The environment gives the OIDC token a stable subject on every event; it creates no deployments.
+    environment:
+      name: internal-feed
+      deployment: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Restore from pde-oss_Internal
+      env:
+        CLIENT_ID: ${{ vars.INTERNAL_FEED_CLIENT_ID }}
+      run: |
+        if (-not $env:CLIENT_ID) { throw 'The internal-feed environment has no INTERNAL_FEED_CLIENT_ID variable.' }
+        $oidc = Invoke-RestMethod "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" `
+          -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" }
+        # 499b84ac-... is Azure DevOps; 72f988bf-... is the Microsoft tenant.
+        $aad = Invoke-RestMethod 'https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/oauth2/v2.0/token' -Method Post -Body @{
+          client_id = $env:CLIENT_ID
+          scope = '499b84ac-1321-427f-aa17-267ca6975798/.default'
+          grant_type = 'client_credentials'
+          client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+          client_assertion = $oidc.value
+        }
+        Write-Host "::add-mask::$($aad.access_token)"
+        .\scripts\test-internal-feed-restore.ps1 -Token $aad.access_token
+
   # Called locally, within this run and with the PR token, including for forks.
   samples:
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
@@ -613,9 +666,10 @@ jobs:
   # Retain the original required check, but only turn it green after every lane.
   # metrics only reports results, so the check does not wait for it.
   # Docs-only changes expect every build and test lane to be skipped and docs-tests to pass.
+  # internal-feed-restore runs only when restore inputs change, so it is expected exactly then.
   build-and-package:
     if: always()
-    needs: [changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples]
+    needs: [changes, docs-tests, build-parts, build-artifacts, validate-tests, validate-docs, validate-devtools, e2e-test-ui, samples, internal-feed-restore]
     runs-on: ubuntu-latest
     steps:
     - name: Require all build and validation jobs
@@ -628,6 +682,7 @@ jobs:
         $code = $results['changes'].outputs.code -eq 'true'
         foreach ($job in $results.Keys) {
           $expected = if ($job -eq 'changes') { 'success' }
+            elseif ($job -eq 'internal-feed-restore') { if ($results['changes'].outputs.restore -eq 'true') { 'success' } else { 'skipped' } }
             elseif ($job -eq 'docs-tests') { if ($code) { 'skipped' } else { 'success' } }
             elseif (-not $code) { 'skipped' }
             elseif ($job -eq 'samples' -and $env:PRE_MERGE -ne 'true') { 'skipped' }
