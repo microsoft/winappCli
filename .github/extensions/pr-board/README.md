@@ -554,9 +554,9 @@ It works in layers, each one on or off in the Auto panel:
 |-------|---------------|-------------|---------|
 | 1 · Notice and summarize | Yes | Someone else comments, reviews or pushes on an item you're in | A **What changed** line on the row, and a box at the top of the panel: who did what, which files and how, and which of our asks are addressed |
 | 2 · Re-review after a push | Yes | A PR you reviewed has a newer commit | pr-review runs again, and the result lands in Your move, for example "Re-review done: both asks fixed → approve?" with **Post review…** |
-| 3 · First review | No | A ready PR (CI green, not a draft) that you're asked on, or that nobody here is on | A drafted review to post or not |
+| 3 · First review | Yes | Someone else's PR that isn't a draft and isn't failing CI, and either asks for your review or has no review yet. Bot PRs (Dependabot) only with **Also first-review bot PRs** | A PR session runs pr-review and leaves a drafted review in Your move, the same as clicking **Review**. Nothing is posted |
 | 4 · Issue follow-through | Yes | The reporter replies on an issue you're in | A summary, then an attempt to reproduce or validate it: "Reproduced", "Not reproduced" or "Fixed by #n", with evidence |
-| 5 · Keep ready | Per PR | Your own PRs, with **Get it ready & keep it ready** | As described above |
+| 5 · Keep your PRs ready | Yes | Your PR, or one our session opened, shows up without keep-ready | **Get it ready & keep it ready** turns on by itself, once. The card says *On automatically* with **Turn off**; once you turn it off, it stays off for that PR |
 
 ```text
 Row:    PR #104 Rework auth token refresh
@@ -592,7 +592,9 @@ free slot (2 of 2 busy)". **Run now** starts it anyway, even while paused, and
 
 **Guardrails, always on:** auto work never posts, approves, requests changes,
 merges, labels or comments on GitHub, and never pushes to someone else's branch. It
-drafts, and you decide. Every run is logged on the item's timeline, for example
+drafts, and you decide. The one exception is layer 5 on your own PRs: it does what
+**Get it ready & keep it ready** does (labels, fixes pushed to your branch, Agent
+merge for reviews, CI and conflicts), and still never merges or approves. Every run is logged on the item's timeline, for example
 `Auto · re-review after a push because bob pushed 104aaaa (layer 2)`.
 
 ## Merging from the board
@@ -719,7 +721,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ thread column: an anchor chip switches the tab on the left while the thread stays put (893ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-90 passed, 0 failed, 90 total (331s)
+93 passed, 0 failed, 93 total (353s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

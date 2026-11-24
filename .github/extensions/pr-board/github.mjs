@@ -899,6 +899,7 @@ export function buildCards(data, localPrs) {
             title: pr.title,
             url: pr.url,
             author: pr.author?.login || "unknown",
+            authorBot: isBot(pr.author),
             isDraft: pr.isDraft,
             size: sizeLabel(pr),
             ci: c.ci,

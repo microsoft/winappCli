@@ -5,13 +5,16 @@ import { cpus, freemem } from "node:os";
 export const LAYERS = [
     { id: "notice", n: 1, title: "Notice and summarize", hint: "New activity on your items: write \"What changed since you last looked\"." },
     { id: "rereview", n: 2, title: "Re-review after a push", hint: "A PR you reviewed got new commits: run pr-review again." },
-    { id: "firstReview", n: 3, title: "First review", hint: "A ready PR (CI green, not a draft) that you're asked on, or nobody is on: draft a review." },
+    { id: "firstReview", n: 3, title: "First review", hint: "Someone else's ready PR (not a draft, CI not failing) that asks for your review, or that nobody has reviewed yet: open a PR session and draft a review, so it's waiting when you get to it. Never posted." },
     { id: "issues", n: 4, title: "Issue follow-through", hint: "A reporter replied: summarize it, then try to reproduce or validate in a session." },
+    { id: "keepReady", n: 5, title: "Keep your PRs ready", hint: "Your PRs and the ones our sessions open: turn on Get it ready & keep it ready (pr-lifecycle, pr-review, and Agent merge for reviews, CI and conflicts; never merges). Not for a PR where you turned it off." },
 ];
 
 export const DEFAULTS = Object.freeze({
     paused: false,
-    layers: { notice: true, rereview: true, firstReview: false, issues: true },
+    layers: { notice: true, rereview: true, firstReview: true, issues: true, keepReady: true },
+    reviewBots: false, // first reviews of bot PRs (Dependabot and friends)
+    v: 2,
     maxConcurrent: 2,
     dailyCap: 10,
     cooldownMin: 30,
@@ -27,9 +30,11 @@ const RUN_TIMEOUT_MS = 3 * 3600_000;
 const int = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : d; };
 const hour = (v) => (v === null || v === "" || v === undefined ? null : int(v, 0, 23, null));
 
-// Merge user input over the saved settings, keeping every value in range.
+// Merge user input over the saved settings, keeping every value in range. Settings saved before v2 had first
+// review off and no keep-ready layer; v2 turns both on once, and keeps everything else as it was.
 export function normalizeSettings(input = {}, current = {}) {
     const cur = { ...DEFAULTS, ...current, layers: { ...DEFAULTS.layers, ...(current.layers || {}) } };
+    if (current && Object.keys(current).length && (current.v || 1) < 2) { cur.layers.firstReview = true; cur.layers.keepReady = true; }
     const inp = input || {};
     const layers = { ...cur.layers };
     for (const l of LAYERS) if (typeof inp.layers?.[l.id] === "boolean") layers[l.id] = inp.layers[l.id];
@@ -45,6 +50,8 @@ export function normalizeSettings(input = {}, current = {}) {
         minFreeGB: int(inp.minFreeGB ?? cur.minFreeGB, 0, 512, DEFAULTS.minFreeGB),
         hoursFrom: "hoursFrom" in inp ? hour(inp.hoursFrom) : hour(cur.hoursFrom),
         hoursTo: "hoursTo" in inp ? hour(inp.hoursTo) : hour(cur.hoursTo),
+        reviewBots: typeof inp.reviewBots === "boolean" ? inp.reviewBots : !!cur.reviewBots,
+        v: 2,
     };
 }
 
@@ -121,14 +128,24 @@ export function candidates(snap, settings, now = Date.now()) {
                     reason: `${who} pushed ${short(realHead)}`, readyAt: ts(lastPush?.at) + settings.stableMin * 60_000, head: realHead, events: fresh });
                 picked = true;
             }
-            // Layer 3: a ready PR nobody here has reviewed.
-            const ours = reviewed || c.myReviewAt || l.draft || l.agent?.kind === "review";
+            // Layer 3: someone else's ready PR that asks for your review, or that nobody has reviewed yet.
+            const ours = reviewed || c.myReviewAt || l.draft || l.review || l.agent?.kind === "review";
             const requested = (c.requested || []).includes(viewer);
-            if (!picked && settings.layers.firstReview && !ours && c.ci?.state === "passing" && (requested || c.section === "other") && !l.session?.id) {
+            const unreviewed = !(c.reviewers || []).length && c.reviewDecision !== "APPROVED";
+            const ciOk = c.ci?.state === "passing" || c.ci?.state === "none" || !c.ci?.state;
+            const botOk = !c.authorBot || settings.reviewBots;
+            if (!picked && settings.layers.firstReview && !ours && ciOk && botOk && (requested || (["other", "reviewing"].includes(c.section) && unreviewed)) && !l.session?.id) {
                 add({ layer: "firstReview", key: `review:${c.headSha}`, priority: requested ? 1 : 3,
                     reason: requested ? `${c.author} asked you to review it` : "it's ready and nobody here is on it", readyAt: ts(lastPush?.at || c.updatedAt) + settings.stableMin * 60_000, head: c.headSha, events: [] });
                 picked = true;
             }
+        }
+        // Layer 5: your PR (or one our session opened) gets "Get it ready & keep it ready", once, unless you turned it off.
+        const keepOn = l.sync?.agentMerge?.enabled || l.monitorPending?.enable || l.readyAsked;
+        if (!picked && kind === "pr" && mine && settings.layers.keepReady && !keepOn && !l.keepReadyOff && !c.queue && !c.autoMerge) {
+            add({ layer: "keepReady", key: `keep:${c.number}`, priority: 1, reason: l.role === "author" && c.author !== viewer ? "our session opened it" : "it's your PR",
+                readyAt: ts(c.createdAt) + settings.stableMin * 60_000, head: c.headSha, events: [] });
+            picked = true;
         }
         // Layer 4: the reporter replied on an issue you're in.
         if (!picked && kind === "issue" && settings.layers.issues && involved(c)) {

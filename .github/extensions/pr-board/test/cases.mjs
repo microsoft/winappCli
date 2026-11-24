@@ -209,7 +209,7 @@ export function register(test) {
         assert.match(await text(page, "#pauseBtn"), /Resume auto/, "the fixture starts paused");
         await page.click("#autoBtn");
         await page.waitFor(`!!document.querySelector('#autoHost .auto-panel')`, 2000, "the panel");
-        assert.equal(await page.eval(`document.getElementById('auto-layer-firstReview').checked`), false, "first review is off by default");
+        assert.equal(await page.eval(`document.getElementById('auto-layer-firstReview').checked`), false, "the fixture turned first review off");
         assert.equal(await page.eval(`document.getElementById('auto-layer-rereview').checked`), true);
         await page.click("#auto-layer-firstReview");
         await page.waitFor(() => true);
@@ -282,7 +282,7 @@ export function register(test) {
         await waitForSend(ctx, new RegExp(`re-review contoso/widgets#104 .*pushed ${other.slice(0, 7)} \\(layer 2`));
     }, { changesGitHub: true });
 
-    test("layer 3: off by default; turned on, it drafts a first review of a ready PR you're asked on", async (ctx) => {
+    test("layer 3: turned off, nothing; turned on, it drafts a first review of a ready PR you're asked on", async (ctx) => {
         const { world } = ctx;
         world.addPr({ number: 109, title: "Add a retry budget", author: "dana", requested: ["me"] });
         await autoOn(ctx);
@@ -292,6 +292,69 @@ export function register(test) {
         await autoOn(ctx, { layers: { firstReview: true } });
         await waitForSend(ctx, /Auto: first review of contoso\/widgets#109 .*because dana asked you to review it \(layer 3/);
     }, { changesGitHub: true });
+
+    test("layer 3: a new unreviewed PR from a teammate gets a first review without asking; bot PRs wait unless you opt in", async (ctx) => {
+        const { world } = ctx;
+        world.addPr({ number: 110, title: "Bump lodash", author: "dependabot[bot]" });
+        world.addPr({ number: 111, title: "Faster thumbnails on scroll", author: "erin" });
+        await autoOn(ctx, { maxConcurrent: 5, layers: { firstReview: true } });
+        await refresh(ctx);
+        const p = await waitForSend(ctx, /Auto: first review of contoso\/widgets#111 .*because it's ready and nobody here is on it \(layer 3/);
+        assert.match(p, /open_pr_session/);
+        assert.match(p, /never post, approve/);
+        await sleep(500);
+        assert.equal(autoPrompts(ctx).filter((s) => /#110\b/.test(s.prompt)).length, 0, "a Dependabot PR got a first review");
+        assert.equal(autoPrompts(ctx).filter((s) => /#10[346]\b/.test(s.prompt)).length, 0, "a PR with failing CI, a review or in the queue got a first review");
+        await autoOn(ctx, { reviewBots: true });
+        await waitForSend(ctx, /Auto: first review of contoso\/widgets#110 /);
+        assert.equal(ctx.world.mutations.length, 0);
+    }, { changesGitHub: true });
+
+    test("layer 5: your PRs get Get it ready & keep it ready on their own, show it, and stay off once you turn it off", async (ctx) => {
+        const { page } = ctx;
+        await page.eval(`post("/api/action", { pr: 108, action: "monitor", enable: false })`); // you turned it off for #108 earlier
+        const before = ctx.host.sends.length;
+        await autoOn(ctx, { maxConcurrent: 5, layers: { keepReady: true } });
+        await refresh(ctx);
+        const p = await waitForSend(ctx, /Auto: keep contoso\/widgets#107 .*ready for review because it's your PR \(layer 5/);
+        assert.match(p, /get contoso\/widgets#107 "Add CSV export" ready for human review and keep it ready/);
+        assert.match(p, /merge_pr \*\*off\*\*/);
+        assert.match(p, /Never merge, approve or post a review/);
+        await sleep(500);
+        const keeps = ctx.host.sends.slice(before).filter((s) => /\(layer 5/.test(s.prompt)).map((s) => s.prompt.match(/#(\d+)/)[1]);
+        assert.ok(!keeps.includes("101"), "#101 is already kept ready");
+        assert.ok(!keeps.includes("108"), "#108 was turned on again after you turned it off");
+        await openRow(page, 107);
+        assert.match(await text(page, "#wsHead .ws-meta"), /Turning on….*On automatically.*Turn off/);
+        await ctx.shot("keep-ready-auto");
+        await page.click('#wsHead .auto-keep [data-act="monitor"]');
+        await page.waitFor(`/Turning off/.test(document.querySelector('#wsHead .ws-meta').innerText)`, 4000, "Turning off");
+        assert.match(ctx.host.sends.at(-1).prompt, /turn (monitoring|Agent merge) off|off/i);
+        assert.ok(state(ctx).prs["107"].keepReadyOff, "turning it off wasn't recorded");
+        await ctx.board.tool("pr_board_reply", { repo: REPO, pr: 107, text: "Stopped." });
+        await refresh(ctx);
+        await sleep(500);
+        assert.equal(ctx.host.sends.slice(before).filter((s) => /keep contoso\/widgets#107/.test(s.prompt)).length, 1, "it turned keep-ready on again");
+        assert.equal(ctx.world.mutations.length, 0);
+    }, { changesGitHub: true });
+
+    test("settings saved before v2 get first review and keep-ready turned on, and keep everything else", async (ctx) => {
+        const { page } = ctx;
+        const st = state(ctx);
+        st.meta.auto.settings = { paused: true, layers: { notice: true, rereview: false, firstReview: false, issues: true }, maxConcurrent: 3, dailyCap: 7, cooldownMin: 30, stableMin: 5, machineCheck: true, cpuMax: 70, minFreeGB: 4, hoursFrom: null, hoursTo: null };
+        fs.writeFileSync(ctx.board.stateFile, JSON.stringify(st));
+        await ctx.board.api("/api/settings", { settings: {} });
+        const s = state(ctx).meta.auto.settings;
+        assert.deepEqual([s.layers.firstReview, s.layers.keepReady, s.layers.rereview, s.maxConcurrent, s.dailyCap, s.paused, s.v], [true, true, false, 3, 7, true, 2]);
+        await page.click("#autoBtn");
+        await page.waitFor(`!!document.querySelector('#autoHost .auto-panel')`, 2000, "the panel");
+        assert.equal(await page.eval(`document.getElementById('auto-layer-keepReady').checked`), true);
+        await page.click("#auto-layer-keepReady");
+        await sleep(400);
+        assert.equal(state(ctx).meta.auto.settings.layers.keepReady, false, "turning layer 5 off didn't stick");
+        await ctx.board.api("/api/settings", { settings: {} });
+        assert.equal(state(ctx).meta.auto.settings.layers.keepReady, false, "the migration ran again");
+    });
 
     test("layer 4: a reporter's reply starts a follow-up that reproduces and validates, with no separate summary", async (ctx) => {
         const { world } = ctx;

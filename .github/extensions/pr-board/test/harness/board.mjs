@@ -20,6 +20,9 @@ export async function startBoard({ live = false } = {}) {
         mkdirSync(dirname(stateFile), { recursive: true });
         if (existsSync(real)) copyFileSync(real, stateFile);
     }
+    // Proactive mode starts paused, with layers 3 and 5 (on by default) off, before the board's first read, so
+    // nothing starts while the fixture is seeded. Each test opts in to what it checks.
+    if (!live) { mkdirSync(dirname(stateFile), { recursive: true }); writeFileSync(stateFile, JSON.stringify({ repo, prs: {}, issues: {}, meta: { auto: { settings: { paused: true, v: 2, layers: { notice: true, rereview: true, firstReview: false, issues: true, keepReady: false } } } } })); }
     const world = live ? null : createWorld();
     globalThis.__prBoardGh = world ? (args) => board.world.handle(args) : liveGh;
     let board;

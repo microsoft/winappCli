@@ -15,7 +15,7 @@ import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
 import { candidates, LAYERS, normalizeSettings, plan, sampleMachine, today } from "./auto.mjs";
-import { autoPrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { autoPrompt, keepReadyAutoPrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -204,6 +204,13 @@ class Board {
             s.auto.done = { ...(s.auto.done || {}), [job.key]: nowIso() };
             s.auto.lastAt = nowIso();
             s.auto.running = { key: job.key, layer: job.layer, reason: job.reason, at: nowIso() };
+            if (job.layer === "keepReady") {
+                // The same state as the Get it ready button, marked as turned on by the board.
+                s.pending = { id: "get-ready", at: nowIso() };
+                s.readyAsked = { head: card?.headSha || null, sha: card?.readiness?.reviewHead || null, at: nowIso() };
+                s.monitorPending = { enable: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"], at: nowIso() };
+                s.keepReadyAuto = { at: nowIso(), reason: job.reason };
+            }
             note(s, line);
         });
         updateMeta(this.repo, (m) => {
@@ -211,7 +218,7 @@ class Board {
             if (heavy) m.auto.counts = { [today()]: ((m.auto.counts || {})[today()] || 0) + 1 };
             m.auto.log = [...(m.auto.log || []), { at: nowIso(), kind: job.kind, number: job.number, layer: job.layer, key: job.key, reason: job.reason, by }].slice(-50);
         });
-        const prompt = autoPrompt(job, card, this.repo);
+        const prompt = job.layer === "keepReady" ? keepReadyAutoPrompt(card, this.repo, card?.readiness, job) : autoPrompt(job, card, this.repo);
         if (how === "send") {
             try { await session.send({ prompt }); }
             catch (e) { updateItem(this.repo, job.kind, job.number, (s) => { s.auto.running = null; note(s, `Auto · couldn't reach the agent: ${e.message}`); }); }
@@ -599,7 +606,7 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
         updatePr(repo, pr, (s) => { s.hidden = action === "hide"; addHistory(s, action === "hide" ? "You removed it from the board" : "You put it back on the board"); });
     } else if (action === "get-ready") {
         // Its prompt already asks for pr-review on this head, so keep-ready won't ask again for the same commit.
-        updatePr(repo, pr, (s) => { s.pending = { id: "get-ready", at: nowIso() }; s.readyAsked = { head: card.headSha || null, sha: card.readiness?.reviewHead || null, at: nowIso() }; s.monitorPending = { enable: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"], at: nowIso() }; note(s, "You asked the agent to get it ready for review and keep it ready"); });
+        updatePr(repo, pr, (s) => { s.pending = { id: "get-ready", at: nowIso() }; s.readyAsked = { head: card.headSha || null, sha: card.readiness?.reviewHead || null, at: nowIso() }; s.keepReadyOff = null; s.monitorPending = { enable: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"], at: nowIso() }; note(s, "You asked the agent to get it ready for review and keep it ready"); });
         await send(readyForReviewPrompt(card, repo, card.readiness), repo, pr, { quiet: true });
     } else if (action === "request-reviewer") {
         const who = String(extra.who || "*").replace(/[^\w.*-]/g, "").slice(0, 60) || "*";
@@ -622,6 +629,8 @@ async function runCardAction({ repo, pr, action, event, force, extra = {} }) {
         const actions = enable ? (extra.mergePr ? ["address_reviews", "fix_ci", "resolve_conflicts", "merge_pr"] : ["address_reviews", "fix_ci", "resolve_conflicts"]) : [];
         updatePr(repo, pr, (s) => {
             s.monitorPending = { enable, actions, at: nowIso() };
+            // Turning it off sticks: "Keep your PRs ready" never turns it back on for this PR.
+            if (!enable) { s.keepReadyOff = nowIso(); s.keepReadyAuto = null; } else s.keepReadyOff = null;
             note(s, enable ? "You asked to turn monitoring on" : "You asked to turn monitoring off");
         });
         await send(monitorPrompt(card, repo, enable, actions), repo, pr, { quiet: true });

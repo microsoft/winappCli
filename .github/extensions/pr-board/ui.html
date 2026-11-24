@@ -796,6 +796,8 @@ tr.dl.hit td { background: var(--yellow-muted); }
 .wc-box h4 .when { color: var(--muted); font-weight: normal; }
 .preview .unplaced { padding: var(--s2) var(--s3); border-radius: 8px; background: color-mix(in srgb, var(--orange) 10%, var(--bg)); font-size: var(--t-small); }
 .preview .unplaced ul { margin: var(--s1, 4px) 0 0; padding-left: 18px; }
+.auto-keep { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-meta); color: var(--muted); }
+.auto-keep button { padding: 0 var(--s2); min-height: 0; font-size: var(--t-meta); }
 .wc-box.stale { border-left-color: var(--muted); }
 .wc-box .wc-sup { margin: 0 0 var(--s2); }
 .wc-box .wc-old summary { cursor: pointer; color: var(--muted); font-size: var(--t-meta); }
@@ -2109,15 +2111,17 @@ function renderIssueScroll(c, force) {
 const LIFECYCLE_LABELS = ["agent-preparing", "agent-blocked", "ready-for-review"];
 const watched = (c) => !!c?.local?.sync?.agentMerge?.enabled;
 const WATCH_WHAT = { address_reviews: "new review comments", fix_ci: "failing CI", resolve_conflicts: "merge conflicts", merge_pr: "merging it when ready" };
+// "Keep your PRs ready" turned this on by itself: say so, with a one-click way out.
+const autoKeepChip = (c) => c.local?.keepReadyAuto && !c.local?.keepReadyOff ? `<span class="auto-keep" title="The board turned on Get it ready &amp; keep it ready because ${esc(c.local.keepReadyAuto.reason || "it's your PR")} (Auto, layer 5). Turning it off sticks for this PR.">${icon("sparkle", "sm")}On automatically<button class="quiet" data-act="monitor" data-enable="0" data-pr="${c.number}">Turn off</button></span>` : "";
 function watchBadge(c, { compact = false } = {}) {
   const pend = c.local?.monitorPending;
-  if (pend) return `<span class="watch pend" title="Waiting for the agent to confirm">${icon("eye", "sm")}${pend.enable ? "Turning on…" : "Turning off…"}</span>`;
+  if (pend) return `<span class="watch pend" title="Waiting for the agent to confirm">${icon("eye", "sm")}${pend.enable ? "Turning on…" : "Turning off…"}</span>${pend.enable && !compact ? autoKeepChip(c) : ""}`;
   if (!watched(c)) return "";
   const am = c.local.sync.agentMerge;
   const what = (am.actions || []).map((a) => WATCH_WHAT[a] || a.replace(/_/g, " "));
   const merges = (am.actions || []).includes("merge_pr");
   const tip = `Keeping it ready: Agent merge handles ${what.join(", ") || "reviews, CI and conflicts"} as they come in, and the board requests a Copilot review and a pr-review rerun for each new commit.${merges ? "" : " It never merges."}${c.local.sync.at ? ` Last checked ${ago(c.local.sync.at)}${ago(c.local.sync.at) === "just now" ? "" : " ago"}.` : ""}`;
-  return `<span class="watch" title="${esc(tip)}" aria-label="${esc(tip)}">${icon("eye", "sm")}${compact ? "" : "Watching"}</span>`;
+  return `<span class="watch" title="${esc(tip)}" aria-label="${esc(tip)}">${icon("eye", "sm")}${compact ? "" : "Watching"}</span>${compact ? "" : autoKeepChip(c)}`;
 }
 const GATE_ICON = { pass: "✅", pending: "⏳", fail: "❌", warn: "⚠️", decide: "⚠️", todo: "💡", info: "🏷️" };
 const warnsOf = (r) => (r?.extras || []).filter((x) => x.state === "warn" || x.state === "decide");
@@ -2853,8 +2857,8 @@ function renderOverview() {
 let autoOpen = false;
 const openSeen = new Map(); // item -> when you had last seen it, captured as you open it
 const autoOf = () => snap?.auto || null;
-const LAYER_N = { notice: 1, rereview: 2, firstReview: 3, issues: 4 };
-const LAYER_VERB = { notice: "Summarize what changed", rereview: "Re-review", firstReview: "First review", issues: "Follow up" };
+const LAYER_N = { notice: 1, rereview: 2, firstReview: 3, issues: 4, keepReady: 5 };
+const LAYER_VERB = { notice: "Summarize what changed", rereview: "Re-review", firstReview: "First review", issues: "Follow up", keepReady: "Keep it ready" };
 const autoRun = (c) => { const r = c?.local?.auto?.running; return r && Date.now() - tms(r.at) < 3 * 3600e3 ? r : null; };
 const itemLabel = (kind, n) => `${kind === "issue" ? "Issue" : "PR"} #${n}`;
 const BOT_WHO = /\[bot\]$|^(copilot-pull-request-reviewer|copilot|github-code-quality|github-actions|microsoft-github-policy-service|dependabot)$/i;
@@ -2941,7 +2945,7 @@ function renderAutoPanel() {
       <section><div class="state"><b>${s.paused ? "Paused: nothing starts on its own" : "On: the board starts work for you"}</b><span class="facts">${esc(facts)}</span></div>${cap.machineWhy ? `<div class="hint">Waiting: ${esc(cap.machineWhy)}</div>` : ""}</section>
       <section><h3>Up next</h3>${q ? `<ul>${q}</ul>` : `<div class="empty">Nothing is waiting.</div>`}</section>
       ${run ? `<section><h3>Running</h3><ul>${run}</ul></section>` : ""}
-      <section><h3>What it does on its own</h3>${a.layers.map((l) => `<label class="lay"><input type="checkbox" id="auto-layer-${l.id}" data-set="layer" data-layer="${l.id}" ${s.layers[l.id] ? "checked" : ""}><b>${l.n} · ${esc(l.title)}</b><span class="hint">${esc(l.hint)}</span></label>`).join("")}<div class="lay"><span></span><b>5 · Keep ready</b><span class="hint">Your own PRs. Turn it on per PR with Get it ready &amp; keep it ready.</span></div></section>
+      <section><h3>What it does on its own</h3>${a.layers.map((l) => `<label class="lay"><input type="checkbox" id="auto-layer-${l.id}" data-set="layer" data-layer="${l.id}" ${s.layers[l.id] ? "checked" : ""}><b>${l.n} · ${esc(l.title)}</b><span class="hint">${esc(l.hint)}</span></label>`).join("")}<label class="lay"><input type="checkbox" id="auto-reviewBots" data-set="reviewBots" ${s.reviewBots ? "checked" : ""}><b>Also first-review bot PRs</b><span class="hint">Dependabot and other bots. Off: their PRs wait for you.</span></label></section>
       <section><h3>Limits</h3><div class="limits">
         ${num("maxConcurrent", "At most this many at a time (busy sessions count)", 0, 8)}
         ${num("dailyCap", "Runs per day", 0, 200)}
@@ -2952,7 +2956,7 @@ function renderAutoPanel() {
         ${num("minFreeGB", "Skip when free memory is under", 0, 512, "GB")}
         <label>Only between</label><span>${hourSel("hoursFrom")} and ${hourSel("hoursTo")}</span>
       </div></section>
-      <section><h3>Guardrails (always on)</h3><p class="guard">Auto work never posts, approves, requests changes, merges, labels or comments on GitHub, and never pushes to someone else's branch. It drafts, and you decide. Every run is logged on the item's timeline.</p></section>
+      <section><h3>Guardrails (always on)</h3><p class="guard">Auto work never posts, approves, requests changes, merges, labels or comments on GitHub, and never pushes to someone else's branch. It drafts, and you decide. The one exception is layer 5 on your own PRs: it does what Get it ready &amp; keep it ready does (labels, fixes pushed to your branch, Agent merge), and still never merges or approves. Every run is logged on the item's timeline.</p></section>
       <section><h3>Recent runs</h3>${log ? `<ul class="log">${log}</ul>` : `<div class="empty">None yet.</div>`}</section>
     </div>
   </aside>`;

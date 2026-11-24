@@ -462,6 +462,17 @@ export function requestReviewerPrompt(card, repo, who) {
     ].join("\n");
 }
 
+// Layer 5: the board turns on "Get it ready & keep it ready" for the user's own PR by itself. Same work as the
+// button; its own guardrails, because pr-lifecycle labels the PR and pushes fixes to its (our) branch.
+export function keepReadyAutoPrompt(card, repo, readiness, job) {
+    return [
+        `[PR board] Auto: keep ${repo}#${card.number} "${card.title}" ready for review because ${job.reason} (layer 5: keep your PRs ready). ${card.url}`,
+        `Guardrails for this run: the user turned on "Keep your PRs ready" by default for their own PRs and the ones our sessions open, so do exactly what the "Get it ready & keep it ready" button asks below. Never merge, approve or post a review, keep merge_pr off, and never push to someone else's branch.`,
+        "",
+        readyForReviewPrompt(card, repo, readiness).replace(/^The PR board canvas: the user asked to /, "The PR board canvas (on the user's standing setting) asks you to "),
+    ].join("\n");
+}
+
 // Keep it ready: a new non-merge commit landed on a watched PR, so pr-review needs to run on it again.
 export function rerunReviewPrompt(card, repo, sha) {
     const s = card.local?.session;
