@@ -268,7 +268,15 @@ internal sealed unsafe partial class LoopbackAudioCapture : ILoopbackAudioSource
 
         while (true)
         {
-            _capture.GetNextPacketSize(out var next);
+            uint next;
+            try
+            {
+                _capture.GetNextPacketSize(out next);
+            }
+            catch (COMException ex)
+            {
+                throw Unavailable("audio", ex);
+            }
             if (next == 0)
             {
                 return;

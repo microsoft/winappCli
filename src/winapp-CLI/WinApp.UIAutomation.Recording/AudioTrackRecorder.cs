@@ -196,10 +196,15 @@ internal sealed class AudioTrackRecorder : IDisposable
     public double PeakLevel => _peak / 32768.0;
 
     /// <summary>Starts the stream and the background pump. Time zero on the track is <paramref name="startHns"/>.</summary>
+    /// <exception cref="RecordAudioUnavailableException">The device failed on the first read.</exception>
     public void Start(long startHns)
     {
         _startHns = startHns;
         _source.Start();
+
+        // The first read must work, so a device that fails right away fails the command instead of
+        // producing a silent track. Later failures only end the sound early.
+        Pump(firstRead: true);
         _thread = new Thread(Run) { IsBackground = true, Name = "winapp audio capture" };
         _thread.Start();
     }
@@ -228,28 +233,39 @@ internal sealed class AudioTrackRecorder : IDisposable
         Volatile.Write(ref _committedFrames, _endFrames);
         _pendingFrames = (int)Math.Clamp(_endFrames - _writtenFrames, 0, _pendingFrames);
 
-        if (Failure is null)
-        {
-            try
-            {
-                Pump();
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                Failure = ex;
-            }
-        }
+        Pump();
 
-        AppendSilence(_endFrames - _writtenFrames - _pendingFrames);
+        // A chunk at a time, so a long silent tail (after the device failed, say) never piles up.
+        var remaining = _endFrames - _writtenFrames - _pendingFrames;
+        while (remaining > 0)
+        {
+            var step = Math.Min(remaining, _flushFrames);
+            AppendSilence(step);
+            WriteCommitted(final: false);
+            remaining -= step;
+        }
         WriteCommitted(final: true);
     }
 
     /// <summary>Reads what has arrived and appends it to the track. Runs on the pump thread.</summary>
-    internal void Pump()
+    internal void Pump(bool firstRead = false)
     {
         _batch.Clear();
-        _source.Drain((pcm, frames, qpcHns, silent) =>
-            _batch.Add((silent ? null : pcm.ToArray(), frames, qpcHns)));
+        if (Failure is null)
+        {
+            try
+            {
+                _source.Drain((pcm, frames, qpcHns, silent) =>
+                    _batch.Add((silent ? null : pcm.ToArray(), frames, qpcHns)));
+            }
+            catch (Exception ex) when (!firstRead && ex is not OutOfMemoryException)
+            {
+                // The device went away. Keep the track going with silence so it still covers the
+                // video; the caller reports the failure as a warning.
+                Failure = ex;
+                _batch.Clear();
+            }
+        }
         var nowHns = _nowHns();
         var nowFrames = AudioTimeline.HnsToFrames(nowHns - _startHns, _format.SampleRate);
 
@@ -299,7 +315,8 @@ internal sealed class AudioTrackRecorder : IDisposable
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Failure = ex;
+            // The encoder refused audio. Finish surfaces the error again when it writes.
+            Failure ??= ex;
         }
     }
 
@@ -352,25 +369,30 @@ internal sealed class AudioTrackRecorder : IDisposable
     /// </summary>
     private void WriteCommitted(bool final)
     {
-        while (_pendingFrames > 0)
+        var consumed = 0;
+        while (consumed < _pendingFrames)
         {
-            var available = Math.Min(_pendingFrames, Volatile.Read(ref _committedFrames) - _writtenFrames);
+            var available = Math.Min(_pendingFrames - consumed, Volatile.Read(ref _committedFrames) - _writtenFrames);
             var count = (int)Math.Min(available, _flushFrames);
             if (count <= 0 || (count < _flushFrames && !final))
             {
-                return;
+                break;
             }
 
             var startFrame = _writtenFrames;
-            var bytes = count * _format.BlockAlign;
             _writer.WriteAudio(
-                _pending.AsSpan(0, bytes),
+                _pending.AsSpan(consumed * _format.BlockAlign, count * _format.BlockAlign),
                 AudioTimeline.FramesToHns(startFrame, _format.SampleRate),
                 AudioTimeline.FramesToHns(startFrame + count, _format.SampleRate) -
                     AudioTimeline.FramesToHns(startFrame, _format.SampleRate));
             _writtenFrames += count;
-            _pendingFrames -= count;
-            _pending.AsSpan(bytes, _pendingFrames * _format.BlockAlign).CopyTo(_pending);
+            consumed += count;
+        }
+
+        if (consumed > 0)
+        {
+            _pendingFrames -= consumed;
+            _pending.AsSpan(consumed * _format.BlockAlign, _pendingFrames * _format.BlockAlign).CopyTo(_pending);
         }
     }
     public void Dispose()

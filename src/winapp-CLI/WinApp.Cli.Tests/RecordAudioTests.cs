@@ -166,6 +166,40 @@ public sealed class RecordAudioTests
     }
 
     [TestMethod]
+    public void Recorder_FailsToStartWhenTheFirstReadFails()
+    {
+        var source = new FakeAudioSource
+        {
+            DrainFailure = new RecordAudioUnavailableException("Can't record audio: the device was removed.", "Retry."),
+        };
+        using var recorder = new AudioTrackRecorder(source, new CollectingAudioWriter(), Format, () => 0);
+
+        Assert.ThrowsExactly<RecordAudioUnavailableException>(() => recorder.Start(startHns: 0));
+    }
+
+    [TestMethod]
+    public void Recorder_FillsTheRestWithSilenceWhenTheDeviceFailsMidRecording()
+    {
+        var now = 0L;
+        var source = new FakeAudioSource();
+        var writer = new CollectingAudioWriter();
+        using var recorder = new AudioTrackRecorder(source, writer, Format, () => now);
+
+        now = Second;
+        recorder.CommitVideo(Second);
+        recorder.Pump();
+        source.DrainFailure = new InvalidOperationException("device removed");
+        now = 60 * Second;
+        recorder.Pump();
+
+        recorder.Finish(endHns: 60 * Second);
+
+        Assert.IsNotNull(recorder.Failure);
+        Assert.AreEqual(60 * Second, writer.EndHns, "The track still covers the whole video.");
+        writer.AssertContiguous();
+    }
+
+    [TestMethod]
     public void AudioProcessId_RecordsThePackagedAppInsideAnApplicationFrameHostFrame()
     {
         Assert.AreEqual(880, UiRecordingService.AudioProcessId(windowProcessId: 880, frameContentProcessId: null));
@@ -264,10 +298,17 @@ public sealed class RecordAudioTests
     {
         public Queue<(byte[] Pcm, int Frames, long QpcHns)> Packets { get; } = new();
 
+        /// <summary>Thrown by the next reads, as when the playback device goes away.</summary>
+        public Exception? DrainFailure { get; set; }
+
         public void Start() { }
 
         public void Drain(LoopbackPacketHandler onPacket)
         {
+            if (DrainFailure is { } failure)
+            {
+                throw failure;
+            }
             lock (Packets)
             {
                 while (Packets.TryDequeue(out var packet))

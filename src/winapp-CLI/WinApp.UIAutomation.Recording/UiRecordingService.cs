@@ -458,6 +458,13 @@ internal sealed partial class UiRecordingService(
                     ? sampleIndex
                     : AudioTimeline.NextVideoSlot(lastSlot, stopwatch.Elapsed.TotalMilliseconds, options.Fps);
 
+                // A frame that arrives after the deadline still lands within the requested length,
+                // so neither the video nor its sound runs past --duration-sec.
+                if (totalFrames is { } lastSlotAllowed)
+                {
+                    slot = Math.Min(slot, lastSlotAllowed - 1);
+                }
+
                 RecordFrameCursor? cursor = null;
                 RecordFrameClick[]? clicks = null;
                 if (cursorOverlay is not null)
