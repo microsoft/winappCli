@@ -16,7 +16,7 @@
     {
       "id": "r20-usercontrol-edit", "row": 20, "title": "Edit a UserControl shown on the page",
       "file": "App/ContactCard.xaml", "op": "replace", "find": "Text=\"card-v1\"", "text": "Text=\"card-v2\"",
-      "expect": { "v1": "live+note", "today": "unchanged" },
+      "expect": { "v1": "live+note", "today": "applied", "stock": "unchanged" },
       "checks": [ { "assert": "text-equals", "target": "CardText", "value": "card-v2" } ],
       "parity": true
     },
@@ -30,13 +30,13 @@
       "edits": [
         { "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <local:ContactCard x:Name=\"Card\" />", "text": "            <local:ContactCard x:Name=\"Card2\" />" }
       ],
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "applied", "stock": "unchanged" },
       "checks": [ { "assert": "property-equals", "target": "Card2", "value": "Visibility=Visible" } ]
     },
     {
       "id": "r23-window-xaml", "row": 23, "title": "Window XAML",
       "file": "App/MainWindow.xaml", "op": "replace", "find": "Margin=\"12,0,12,8\"", "text": "Margin=\"12,0,12,12\"",
-      "expect": { "v1": "restart", "today": "unchanged" },
+      "expect": { "v1": "restart", "today": "restart", "stock": "unchanged" },
       "note": "follows E4; its likely result is restart with a tip"
     },
     {
@@ -45,19 +45,19 @@
         { "file": "App/App.xaml", "op": "insert-after", "find": "            </ResourceDictionary.MergedDictionaries>", "text": "            <SolidColorBrush x:Key=\"AccentText\" Color=\"DarkGreen\" />" },
         { "file": "App/ContactsPage.xaml", "op": "replace", "find": "<TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />", "text": "<TextBlock x:Name=\"CountText\" Text=\"clicks 0\" Foreground=\"{StaticResource AccentText}\" />" }
       ],
-      "expect": { "v1": "live", "today": "unchanged" },
+      "expect": { "v1": "live", "today": "applied", "stock": "unchanged" },
       "checks": [ { "assert": "property-equals", "target": "CountText", "value": "Foreground=#FF006400" } ]
     },
     {
       "id": "r24-merged-dictionary", "row": 24, "title": "A merged dictionary: a brush the page uses",
       "file": "App/Styles.xaml", "op": "replace", "find": "Color=\"DarkRed\"", "text": "Color=\"DarkBlue\"",
-      "expect": { "v1": "live", "today": "restart" },
+      "expect": { "v1": "live", "today": "applied", "stock": "unchanged" },
       "checks": [ { "assert": "property-equals", "target": "StatusText", "value": "Foreground=#FF00008B" } ]
     },
     {
       "id": "r24-generic-xaml", "row": 24, "title": "Themes/Generic.xaml: a templated control's default style",
       "file": "App/Themes/Generic.xaml", "op": "replace", "find": "Text=\"badge-v1\"", "text": "Text=\"badge-v2\"",
-      "expect": { "v1": "live", "today": "restart" },
+      "expect": { "v1": "live", "today": "applied", "stock": "unchanged" },
       "checks": [ { "assert": "exists", "target": "badge-v2" } ]
     },
     {
@@ -68,7 +68,7 @@
     {
       "id": "r26-requested-theme", "row": 26, "title": "<Application RequestedTheme>",
       "file": "App/App.xaml", "op": "replace", "find": "    xmlns:local=\"using:TodoBench\">", "text": "    xmlns:local=\"using:TodoBench\"\n    RequestedTheme=\"Dark\">",
-      "expect": { "v1": "live+note", "today": "unchanged", "reason": "RequestedTheme" }
+      "expect": { "v1": "live+note", "today": "applied", "stock": "unchanged", "reason": "RequestedTheme" }
     },
     {
       "id": "r26-resw", "row": 26, "title": "x:Uid and a .resw string",

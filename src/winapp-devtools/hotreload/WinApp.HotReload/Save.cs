@@ -17,8 +17,8 @@ internal sealed record SaveResult(Outcome Outcome, string Detail, IReadOnlyList<
 /// <summary>
 /// One save, end to end: the XAML compiler compiles the saved XAML, its generated C# and the saved C# go through the
 /// engine seam, and the app hands WinUI the new markup and rebuilds what changed (the "reload" request). Without a
-/// WinUI that can do that (<paramref name="xaml"/> null), a XAML save restarts the app with a reason. Edits to
-/// referenced projects, the package manifest and string resources restart too.
+/// WinUI that can do that (<paramref name="xaml"/> null), a XAML save isn't applied: it says it needs a restart. Edits
+/// to referenced projects, the package manifest and string resources restart the app with a reason.
 /// </summary>
 /// <param name="reload">Sends the reload request to the app; null without live XAML.</param>
 internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompiler? xaml = null,
@@ -53,6 +53,22 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
 
     public async Task<SaveResult> RunAsync(IReadOnlyList<string> files, CancellationToken cancellationToken)
     {
+        if (xaml is null && files.Where(f => Is(f, ".xaml") && graph.LibraryOf(f) is null).ToList() is { Count: > 0 } stock)
+        {
+            // A WinUI that can't load XAML while the app runs: the save isn't applied, and says so. The rest of it is.
+            var line = $"{string.Join(", ", stock.Select(Relative))}: XAML changes need a restart on this WinUI version";
+            if (files.Except(stock).ToList() is not { Count: > 0 } rest)
+            {
+                return new SaveResult(Outcome.Unchanged, line);
+            }
+            var applied = await RunAsync(rest, cancellationToken).ConfigureAwait(false);
+            return applied.Outcome switch
+            {
+                Outcome.Applied => applied with { Notes = [.. applied.Notes ?? [], line] },
+                Outcome.Unchanged => applied with { Detail = line },
+                _ => applied,
+            };
+        }
         var documents = new Dictionary<string, XDocument>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in files.Where(f => Is(f, ".xaml") && File.Exists(f)))
         {
@@ -155,12 +171,8 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
             {
                 return $"{name}: edits to {Path.GetFileNameWithoutExtension(library)}, a project the app references, take effect when the app restarts";
             }
-            if (Is(file, ".xaml"))
+            if (Is(file, ".xaml") && xaml is not null)
             {
-                if (xaml is null)
-                {
-                    return $"{name}: XAML changes take effect when the app restarts (this app's WinUI can't reload XAML while it runs)";
-                }
                 if (!xaml.Files.ContainsKey(file))
                 {
                     return $"{name}: {(File.Exists(file) ? "a new XAML file" : "a deleted XAML file")} takes effect when the app is rebuilt";

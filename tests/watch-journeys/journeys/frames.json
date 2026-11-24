@@ -76,7 +76,7 @@
       "file": "App/DetailsPage.xaml",
       "expect": {
         "v1": "live",
-        "today": "restart"
+        "today": "applied", "stock": "unchanged"
       },
       "checks": [
         {
@@ -105,7 +105,7 @@
       "file": "App/DetailsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "restart"
+        "today": "applied", "stock": "unchanged"
       },
       "checks": [
         {
@@ -147,7 +147,7 @@
       "file": "App/ContactsPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "restart"
+        "today": "applied", "stock": "unchanged"
       },
       "checks": [
         {
@@ -172,7 +172,7 @@
       "file": "App/InnerPage.xaml",
       "expect": {
         "v1": "live+note",
-        "today": "restart",
+        "today": "applied", "stock": "unchanged",
         "reason": "InnerPage re-created"
       },
       "checks": [
