@@ -37,6 +37,23 @@ inline int ScaleDpi(int value, unsigned toDpi, unsigned fromDpi)
     return static_cast<int>(scaled >= 0 ? (scaled + fromDpi / 2) / fromDpi : -((-scaled + fromDpi / 2) / fromDpi));
 }
 
+// The invisible resize border, as last measured while the window was neither maximized nor minimized, at `dpi`.
+struct NormalFrame
+{
+    Rect insets;
+    unsigned dpi;
+};
+
+// What to remember when the window closes at `rect` (its restored rect if maximized or minimized). Windows shows the
+// invisible border only in the normal state, so without a live measurement use the one taken there last.
+inline Remembered OnClose(const Rect& rect, unsigned dpi, const Rect* liveInsets, const NormalFrame& lastNormal)
+{
+    const Rect insets = liveInsets ? *liveInsets
+        : Rect{ ScaleDpi(lastNormal.insets.left, dpi, lastNormal.dpi), ScaleDpi(lastNormal.insets.top, dpi, lastNormal.dpi),
+                ScaleDpi(lastNormal.insets.right, dpi, lastNormal.dpi), ScaleDpi(lastNormal.insets.bottom, dpi, lastNormal.dpi) };
+    return Remembered{ rect, dpi, insets };
+}
+
 // The physical rect the inspector should end up at on a monitor with work area `work` and DPI `dpi`.
 // With `remembered`, the window keeps the size the user gave it (same DIPs at the new DPI). It also returns to
 // the same spot when `restorePosition` is set, which the caller does only when that spot is still on a monitor.

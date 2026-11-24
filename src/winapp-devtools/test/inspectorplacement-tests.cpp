@@ -75,6 +75,29 @@ static void TestRestoreIsClampedOnScreen()
           "a window larger than the work area shrinks to fit");
 }
 
+static void TestMaximizedCloseKeepsTheEdgeAlignedSpot()
+{
+    // Flush with the left edge: the visible window starts at x=0, its invisible 7 px border hangs past the screen.
+    const Rect restored{ -7, 0, 893, 600 };
+    const NormalFrame normal{ { 7, 0, 7, 7 }, 96 };
+    const Rect live = normal.insets;
+    const Remembered closedNormal = OnClose(restored, 96, &live, normal);
+    Check(Same(Target(96, kWork, &kApp, &closedNormal, true), restored),
+          "closed in its normal state, the window reopens flush with the screen edge");
+    // Maximized when closed: no live border reading, so the one from the normal state is used.
+    const Remembered maximized = OnClose(restored, 96, nullptr, normal);
+    Check(Same(Target(96, kWork, &kApp, &maximized, true), restored),
+          "closed while maximized, the window reopens at its restored spot, still flush with the edge");
+    const Remembered scaled = OnClose(restored, 144, nullptr, normal);
+    Check(scaled.frame.left == 11 && scaled.frame.bottom == 11,
+          "a border measured at 100% is scaled to the DPI the window closed at");
+    // Spanning the whole work area plus its borders: it keeps its full size.
+    const Rect full{ -7, 0, kWork.right + 7, kWork.bottom + 7 };
+    const Remembered closedFull = OnClose(full, 96, nullptr, normal);
+    Check(Same(Target(96, kWork, &kApp, &closedFull, true), full),
+          "a window as large as the work area reopens without shrinking");
+}
+
 static void TestMinimumSizeStillApplies()
 {
     const Remembered tiny{ { 100, 100, 300, 200 }, 96, { 0, 0, 0, 0 } };
@@ -91,6 +114,7 @@ int RunInspectorPlacementTests()
     TestReopenKeepsTheSizeInDipsAcrossADpiChange();
     TestMissingMonitorKeepsTheSizeBesideTheApp();
     TestRestoreIsClampedOnScreen();
+    TestMaximizedCloseKeepsTheEdgeAlignedSpot();
     TestMinimumSizeStillApplies();
     return g_testFailures;
 }

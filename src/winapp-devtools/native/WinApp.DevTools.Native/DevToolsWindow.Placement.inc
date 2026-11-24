@@ -25,12 +25,35 @@ static DevToolsInspectorPlacement::Remembered g_inspectorLast{};
 static RECT ToRECT(const DevToolsInspectorPlacement::Rect& r) { return RECT{ r.left, r.top, r.right, r.bottom }; }
 static DevToolsInspectorPlacement::Rect FromRECT(const RECT& r) { return { r.left, r.top, r.right, r.bottom }; }
 
+static DevToolsInspectorPlacement::NormalFrame g_inspectorNormalFrame{};
+
+// The invisible resize border around the visible window. Meaningful only while it is neither maximized nor minimized.
+static bool ReadInspectorInsets(HWND hwnd, const RECT& window, DevToolsInspectorPlacement::Rect& insets)
+{
+    RECT visible{};
+    if (FAILED(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &visible, sizeof(visible)))) return false;
+    insets = { (std::max)(0L, visible.left - window.left), (std::max)(0L, visible.top - window.top),
+               (std::max)(0L, window.right - visible.right), (std::max)(0L, window.bottom - visible.bottom) };
+    return true;
+}
+
+static void NoteInspectorNormalFrame(HWND hwnd)
+{
+    if (!hwnd || IsIconic(hwnd) || IsZoomed(hwnd)) return;
+    RECT r{};
+    DevToolsInspectorPlacement::Rect insets{};
+    if (!GetWindowRect(hwnd, &r) || !ReadInspectorInsets(hwnd, r, insets)) return;
+    const UINT dpi = GetDpiForWindow(hwnd);
+    g_inspectorNormalFrame = { insets, dpi ? dpi : 96 };
+}
+
 static void RememberInspectorPlacement(HWND hwnd)
 {
     // A window closed while placement still has it cloaked is at a transient rect the user never saw.
     if (!hwnd || hwnd == g_placeCloakHwnd) return;
     RECT r{};
-    RECT frame{};
+    DevToolsInspectorPlacement::Rect liveInsets{};
+    bool haveLiveInsets = false;
     if (IsIconic(hwnd) || IsZoomed(hwnd)) {
         // Keep the size the window has when restored, not its minimized or maximized one.
         WINDOWPLACEMENT wp{ sizeof(WINDOWPLACEMENT) };
@@ -43,15 +66,13 @@ static void RememberInspectorPlacement(HWND hwnd)
             OffsetRect(&r, mi.rcWork.left - mi.rcMonitor.left, mi.rcWork.top - mi.rcMonitor.top);
     } else {
         if (!GetWindowRect(hwnd, &r)) return;
-        RECT visible{};
-        if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &visible, sizeof(visible))))
-            frame = RECT{ (std::max)(0L, visible.left - r.left), (std::max)(0L, visible.top - r.top),
-                          (std::max)(0L, r.right - visible.right), (std::max)(0L, r.bottom - visible.bottom) };
+        haveLiveInsets = ReadInspectorInsets(hwnd, r, liveInsets);
     }
     if (r.right <= r.left || r.bottom <= r.top) return;
     UINT dpi = GetDpiForWindow(hwnd);
     if (dpi == 0) dpi = 96;
-    g_inspectorLast = DevToolsInspectorPlacement::Remembered{ FromRECT(r), dpi, FromRECT(frame) };
+    g_inspectorLast = DevToolsInspectorPlacement::OnClose(FromRECT(r), dpi, haveLiveInsets ? &liveInsets : nullptr,
+                                                          g_inspectorNormalFrame);
     g_inspectorRemembered = true;
     DevToolsOverlayLog(L"route1.place remember (%d,%d %dx%d) dpi=%u", r.left, r.top, r.right - r.left, r.bottom - r.top, dpi);
 }
@@ -77,6 +98,11 @@ static LRESULT CALLBACK Route1MinSizeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM
         mmi->ptMinTrackSize.x = MulDiv(kMinWindowWidthDip,  (int)dpi, 96);
         mmi->ptMinTrackSize.y = MulDiv(kMinWindowHeightDip, (int)dpi, 96);
         return 0;
+    }
+    if (msg == WM_WINDOWPOSCHANGED && generation == g_route1Gen) {
+        const LRESULT result = DefSubclassProc(hwnd, msg, wp, lp);
+        NoteInspectorNormalFrame(hwnd);
+        return result;
     }
     if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, Route1MinSizeProc, 1);
     if (msg == WM_DPICHANGED || msg == WM_SETTINGCHANGE) {
