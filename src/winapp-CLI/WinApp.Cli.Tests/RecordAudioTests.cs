@@ -166,6 +166,23 @@ public sealed class RecordAudioTests
     }
 
     [TestMethod]
+    public void Recorder_PeakLevelIgnoresSoundTrimmedPastTheVideo()
+    {
+        var now = 0L;
+        var source = new FakeAudioSource();
+        using var recorder = new AudioTrackRecorder(source, new CollectingAudioWriter(), Format, () => now);
+
+        // The video reaches 1 s; a tone plays from 2 s to 2.5 s.
+        recorder.CommitVideo(Second);
+        now = 5 * Second / 2;
+        source.Packets.Enqueue((Tone(Rate / 2, 1_000), Rate / 2, 0));
+        recorder.Pump();
+        recorder.Finish(endHns: Second);
+
+        Assert.AreEqual(0, recorder.PeakLevel, "The tone isn't on the track, so the track is reported silent.");
+    }
+
+    [TestMethod]
     public void Recorder_FailsToStartWhenTheFirstReadFails()
     {
         var source = new FakeAudioSource

@@ -900,11 +900,6 @@ internal sealed partial class UiRecordingService(
     internal static Func<RecordAudioMode, int, ILoopbackAudioSource> s_openAudioSource =
         static (mode, processId) => LoopbackAudioCapture.Open(mode, processId);
 
-    /// <summary>
-    /// For an ApplicationFrameHost frame, the process that owns the app content inside it (0 when the
-    /// content is missing); null for any other window. A seam so tests need no packaged app.
-    /// </summary>
-    internal static Func<nint, int?> s_findFrameContentProcess = LoopbackAudioCapture.FindFrameContentProcess;
 
     /// <returns>The opened stream, or null when the recording has no audio.</returns>
     private static ILoopbackAudioSource? OpenAudioSource(RecordOptions options, UiTarget? uiTarget, nint rootHwnd)
@@ -924,12 +919,12 @@ internal sealed partial class UiRecordingService(
                 nameof(options));
         }
         return s_openAudioSource(
-            RecordAudioMode.App, AudioProcessId(uiTarget.ProcessId, s_findFrameContentProcess(rootHwnd)));
+            RecordAudioMode.App, AudioProcessId(uiTarget.ProcessId, LoopbackAudioCapture.FindFrameContentProcess(rootHwnd)));
     }
 
     /// <summary>The process whose sound <c>--audio app</c> records.</summary>
     /// <param name="windowProcessId">The process that owns the recorded window.</param>
-    /// <param name="frameContentProcessId">See <see cref="s_findFrameContentProcess"/>.</param>
+    /// <param name="frameContentProcessId">See <see cref="LoopbackAudioCapture.FindFrameContentProcess"/>.</param>
     /// <remarks>
     /// Packaged apps such as Calculator draw inside a frame owned by ApplicationFrameHost, which
     /// plays no sound itself, so the app's own process is recorded instead.

@@ -345,7 +345,6 @@ internal sealed class AudioTrackRecorder : IDisposable
         {
             return;
         }
-        _peak = Math.Max(_peak, AudioTimeline.Peak16(pcm));
         var bytes = Reserve(pcm.Length / _format.BlockAlign);
         pcm.CopyTo(_pending.AsSpan(bytes.Offset, bytes.Length));
     }
@@ -380,8 +379,12 @@ internal sealed class AudioTrackRecorder : IDisposable
             }
 
             var startFrame = _writtenFrames;
+            var chunk = _pending.AsSpan(consumed * _format.BlockAlign, count * _format.BlockAlign);
+
+            // Measured on what reaches the track, so sound trimmed past the video's end doesn't count.
+            _peak = Math.Max(_peak, AudioTimeline.Peak16(chunk));
             _writer.WriteAudio(
-                _pending.AsSpan(consumed * _format.BlockAlign, count * _format.BlockAlign),
+                chunk,
                 AudioTimeline.FramesToHns(startFrame, _format.SampleRate),
                 AudioTimeline.FramesToHns(startFrame + count, _format.SampleRate) -
                     AudioTimeline.FramesToHns(startFrame, _format.SampleRate));
