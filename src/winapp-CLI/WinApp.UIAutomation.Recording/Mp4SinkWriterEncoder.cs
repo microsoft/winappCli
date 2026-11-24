@@ -259,42 +259,7 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder, IAudioSampleW
             return;
         }
 
-        var length = (uint)pcm.Length;
-        PInvoke.MFCreateMemoryBuffer(length, out var buffer).ThrowOnFailure();
-        try
-        {
-            buffer.Lock(out var dest, out _, out _);
-            try
-            {
-                pcm.CopyTo(new Span<byte>(dest, pcm.Length));
-            }
-            finally
-            {
-                buffer.Unlock();
-            }
-            buffer.SetCurrentLength(length);
-
-            PInvoke.MFCreateSample(out var sample).ThrowOnFailure();
-            try
-            {
-                sample.AddBuffer(buffer);
-                sample.SetSampleTime(sampleTimeHns);
-                sample.SetSampleDuration(sampleDurationHns);
-                lock (_writeLock)
-                {
-                    ObjectDisposedException.ThrowIf(_disposed || _finalized, this);
-                    _writer.WriteSample(_audioStreamIndex, sample);
-                }
-            }
-            finally
-            {
-                ReleaseCom(sample);
-            }
-        }
-        finally
-        {
-            ReleaseCom(buffer);
-        }
+        WriteSample(_audioStreamIndex, pcm, sampleTimeHns, sampleDurationHns);
     }
 
     /// <remarks>
@@ -332,19 +297,31 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder, IAudioSampleW
             throw new ArgumentException($"Frame buffer is {bgra.Length} bytes; expected {_frameBytes}.", nameof(bgra));
         }
 
-        PInvoke.MFCreateMemoryBuffer(_frameBytes, out var buffer).ThrowOnFailure();
+        WriteSample(_streamIndex, bgra[..(int)_frameBytes], sampleTimeHns, sampleDurationHns);
+    }
+
+    /// <summary>Copies <paramref name="data"/> into a Media Foundation sample and writes it to a stream.</summary>
+    /// <remarks>
+    /// Coverage ceiling (issue #630): the per-sample Media Foundation buffer/sample COM error cleanup
+    /// arms require faulting native MF objects after creation and cannot be triggered safely with
+    /// managed fakes.
+    /// </remarks>
+    private void WriteSample(uint streamIndex, ReadOnlySpan<byte> data, long sampleTimeHns, long sampleDurationHns)
+    {
+        var length = (uint)data.Length;
+        PInvoke.MFCreateMemoryBuffer(length, out var buffer).ThrowOnFailure();
         try
         {
             buffer.Lock(out var dest, out _, out _);
             try
             {
-                bgra[..(int)_frameBytes].CopyTo(new Span<byte>(dest, (int)_frameBytes));
+                data.CopyTo(new Span<byte>(dest, data.Length));
             }
             finally
             {
                 buffer.Unlock();
             }
-            buffer.SetCurrentLength(_frameBytes);
+            buffer.SetCurrentLength(length);
 
             PInvoke.MFCreateSample(out var sample).ThrowOnFailure();
             try
@@ -354,13 +331,14 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder, IAudioSampleW
                 sample.SetSampleDuration(sampleDurationHns);
                 lock (_writeLock)
                 {
-                    _writer.WriteSample(_streamIndex, sample);
+                    ObjectDisposedException.ThrowIf(_disposed || _finalized, this);
+                    _writer.WriteSample(streamIndex, sample);
                 }
             }
             finally
             {
-                // Release the per-frame sample so its native MF buffers don't accumulate
-                // across thousands of frames.
+                // Release the per-sample objects so their native MF buffers don't accumulate
+                // across thousands of samples.
                 ReleaseCom(sample);
             }
         }

@@ -669,7 +669,8 @@ winapp ui record --on sandbox -a myapp --audio --duration-sec 10 --output sandbo
 ```
 
 `--audio` adds an AAC track (48 kHz stereo) to the same MP4, in sync with the video. Without it,
-recordings have no sound.
+recordings have no sound. Its value is optional, so put a selector before `--audio`, not right
+after it: `winapp ui record btn-save-1234 -a myapp --audio`.
 
 | You pass | What's recorded |
 |----------|-----------------|

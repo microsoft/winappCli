@@ -175,6 +175,13 @@ internal static class UiRecordOptionValidator
         return null;
     }
 
+    /// <summary>
+    /// Whether a token after <c>--audio</c> is its value. Anything else, such as a selector, is left
+    /// for the rest of the command line and the <c>--audio</c> is bare.
+    /// </summary>
+    internal static bool TryParseAudioSource(string token, out RecordAudioSource source) =>
+        Enum.TryParse(token, ignoreCase: true, out source) && Enum.IsDefined(source);
+
     /// <summary>Which sound <c>--audio</c> asks for; a bare <c>--audio</c> means app sound unless recording a desktop.</summary>
     internal static RecordAudioMode ResolveAudio(ParseResult parseResult, bool desktop)
     {
