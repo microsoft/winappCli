@@ -14,7 +14,10 @@
   ],
   "parity": {
     "root": "ContactsPage",
-    "ignore": [ "*#NoteBox*", "*#StatusText*" ]
+    "ignore": [
+      "*#NoteBox*",
+      "*#StatusText*"
+    ]
   },
   "steps": [
     {
@@ -199,7 +202,7 @@
       "expect": {
         "v1": "restart",
         "reason": "^requested \\(Ctrl\\+R\\)",
-        "today": "restart"
+        "today": "stuck|restart"
       },
       "checks": [
         {
@@ -213,7 +216,7 @@
         }
       ],
       "designTimeBuild": "during",
-      "note": "a design-time build runs while winapp rebuilds the app"
+      "note": "a design-time build runs while winapp rebuilds the app. Both write the same obj files, so the rebuild can fail (CS1697, then a CS1061 in generated code); winapp then says another build may have run at the same time, and the next save recovers (a known limit)"
     },
     {
       "id": "m8-move-after-restart",
@@ -225,7 +228,7 @@
       "text": "            <Button Content=\"Move me\" Click=\"OnMove\" />\n            <TextBlock x:Name=\"StatusText\" Text=\"ready\" />\n            <TextBlock x:Name=\"CountText\" Text=\"clicks 0\" />",
       "expect": {
         "v1": "live+note",
-        "today": "applied",
+        "today": "applied|restart",
         "stock": "not-applied"
       },
       "checks": [
@@ -240,7 +243,8 @@
         }
       ],
       "parity": true,
-      "designTimeBuild": "before"
+      "designTimeBuild": "before",
+      "note": "restart when m7's rebuild failed: this save rebuilds the app"
     }
   ]
 }

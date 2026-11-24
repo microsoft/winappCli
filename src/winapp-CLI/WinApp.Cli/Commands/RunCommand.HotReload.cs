@@ -134,7 +134,7 @@ internal partial class RunCommand
                 {
                     return null;
                 }
-                ansiConsole.WriteLine("[watch] waiting the rebuild failed; fix the errors above and save to try again");
+                ansiConsole.WriteLine("[watch] waiting the rebuild failed; fix the errors above and save. If they aren't in your code, another build (an editor's, for example) may have run at the same time: save again or press Ctrl+R");
                 try
                 {
                     var why = await WaitForSaveAsync(csproj, cancellationToken);
