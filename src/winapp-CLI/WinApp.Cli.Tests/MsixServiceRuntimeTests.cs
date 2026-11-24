@@ -717,7 +717,7 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => (Task)SignMsixMethod.Invoke(
             _msixService,
-            [outputFolder, "", true, false, "MyApp", "", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None, (string?)null])!);
+            [outputFolder, "", true, false, "MyApp", "", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None, (string?)null, WinApp.Cli.Models.IfExists.Error])!);
     }
 
     [TestMethod]
@@ -729,7 +729,7 @@ public class MsixServiceRuntimeTests : BaseCommandTests
 
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => (Task)SignMsixMethod.Invoke(
             _msixService,
-            [outputFolder, "", false, false, "MyApp", "Contoso", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None, (string?)null])!);
+            [outputFolder, "", false, false, "MyApp", "Contoso", outputMsix, (FileInfo?)null, manifest, TestTaskContext, CancellationToken.None, (string?)null, WinApp.Cli.Models.IfExists.Error])!);
     }
 
     // ---- CreateStagingSiblingPath -------------------------------------------------
