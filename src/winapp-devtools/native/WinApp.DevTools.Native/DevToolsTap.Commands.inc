@@ -14,7 +14,7 @@ static std::wstring HandleCommand(const std::wstring& line,
         out += DevToolsTrust_MutationEnabled() ? L"true" : L"false";
         out += L",\"verbs\":[\"hello\",\"ping\",\"visualtree.enumerate\",\"visualtree.appauthored\",\"property.get\",\"element.source\","
                L"\"resource.resolve\",\"highlight\",\"selection.poll\",\"overlay.show\",\"overlay.layout\",\"hotreload.setprop\","
-               L"\"hotreload.clearprop\",\"selection.arm\",\"selection.disarm\"]}";
+               L"\"hotreload.setres\",\"hotreload.clearprop\",\"selection.arm\",\"selection.disarm\"]}";
         return out;
     }
     if (line.rfind(L"perf|", 0) == 0) {
@@ -512,6 +512,20 @@ static std::wstring HandleCommand(const std::wstring& line,
             return SetLiteral(h, prop, type, value, detail.get());
         }, detail);
     }
+    if (line.rfind(L"hotreload.setres|", 0) == 0) {
+        // hotreload.setres|<target>|<prop>|<theme|static>|<key> -> assign {ThemeResource key} or {StaticResource key}
+        // on the app UI thread. Addressing is identical to hotreload.setprop.
+        auto p = Split(line, L'|');
+        if (p.size() != 5 || (p[3] != L"theme" && p[3] != L"static")) return L"ERR bad-args";
+        std::wstring prop, key;
+        if (!TryUnescapeField(p[2], prop) || !TryUnescapeField(p[4], key) || prop.empty() || key.empty())
+            return L"ERR bad-args";
+        const bool asTheme = p[3] == L"theme";
+        auto detail = std::make_shared<std::wstring>();
+        return MutatePropertyTarget(p[1], [prop, key, asTheme, detail](InstanceHandle h) {
+            return AssignResource(h, prop, key, asTheme, detail.get());
+        }, detail);
+    }
     if (line.rfind(L"hotreload.clearprop|", 0) == 0) {
         // hotreload.clearprop|<target>|<prop> -> ClearProperty on the app UI thread, the same primitive the
         // in-process window's Clear value button uses. Addressing is identical to hotreload.setprop.
@@ -620,13 +634,13 @@ static std::wstring BridgeErrToRpc(const std::wstring& idRaw, const std::wstring
     std::wstring msg = token, data;
     if (token == L"bad-args")            { code = DevToolsErr::InvalidParams;  msg = L"invalid params"; }
     else if (token.rfind(L"invalid-value|", 0) == 0 || token.rfind(L"property-write-failed|", 0) == 0 ||
-             token.rfind(L"build-failed|", 0) == 0) {
+             token.rfind(L"resource-not-found|", 0) == 0 || token.rfind(L"build-failed|", 0) == 0) {
         const auto separator = token.find(L'|');
         std::wstring decoded;
         if (TryUnescapeField(token.substr(separator + 1), decoded)) msg = std::move(decoded);
         else msg = token.substr(separator + 1);
         token.resize(separator);
-        code = token == L"invalid-value" ? DevToolsErr::InvalidParams : DevToolsErr::InternalError;
+        code = token == L"invalid-value" || token == L"resource-not-found" ? DevToolsErr::InvalidParams : DevToolsErr::InternalError;
     }
     else if (token == L"not-found")      { code = DevToolsErr::NotFound;       msg = L"handle or name not found"; }
     else if (token == L"no-tree")        { code = DevToolsErr::NoTree;         msg = L"no live visual tree"; }

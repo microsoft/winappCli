@@ -27,7 +27,7 @@ internal static class DevToolsQueryOptions
     };
     public static Option<string?> Value { get; } = new("--value")
     {
-        Description = "New literal value for a query-targeted set; omit the positional selector.",
+        Description = "New value for a query-targeted set, e.g. 200, false, #FF0067C0, or {ThemeResource key}; omit the positional selector.",
     };
 
     public static void Add(Command command, bool fields = false, bool write = false)
@@ -102,6 +102,9 @@ internal static class DevToolsQueryOptions
         DevToolsProtocolResponse? existingResponse = null)
     {
         var validation = Validate(parse, !exact, out var fields);
+        string? resourceError = null;
+        var resource = write ? ResourceReference(parse, out resourceError) : null;
+        validation ??= resourceError;
         if (validation is not null)
         {
             return Fail(validation, "bad-args");
@@ -171,6 +174,11 @@ internal static class DevToolsQueryOptions
             console.Profile.Out.Writer.WriteLine(DevToolsJson.Serialize(writer =>
             {
                 writer.WriteNumber("processId", target.Pid);
+                if (resource is not null)
+                {
+                    writer.WriteString("resourceKind", resource.RowKind);
+                    writer.WriteString("resourceKey", resource.Key);
+                }
                 writer.WriteNumber("matchCount", rows.GetArrayLength());
                 writer.WriteBoolean("hasMore", shown.Length < rows.GetArrayLength());
                 foreach (var property in result.EnumerateObject())
@@ -285,7 +293,9 @@ internal static class DevToolsQueryOptions
 
                 if (result.TryGetProperty("after", out var after))
                 {
-                    DevToolsRender.WriteTextLine(console, "After: " + FormatField(after));
+                    DevToolsRender.WriteTextLine(console, "After: " + FormatField(after) +
+                        (resource is null || result.GetProperty("status").GetString() != "applied"
+                            ? string.Empty : $" (from {resource.Markup})"));
                 }
 
                 if (write)
@@ -405,13 +415,26 @@ internal static class DevToolsQueryOptions
 
             if (write)
             {
-                writer.WriteString("value", parse.GetValue(Value));
-                if (parse.GetValue(SharedDevToolsOptions.TypeOption) is string writeType)
+                var reference = ResourceReference(parse, out _);
+                writer.WriteString("value", reference?.Key ?? parse.GetValue(Value));
+                if (reference is not null)
+                {
+                    writer.WriteString("resource", reference.Kind);
+                }
+                else if (parse.GetValue(SharedDevToolsOptions.TypeOption) is string writeType)
                 {
                     writer.WriteString("writeType", writeType);
                 }
             }
         }, cancellationToken: cancellationToken);
+    }
+
+    /// <summary>The resource reference a query-targeted set assigns, or null for a literal write.</summary>
+    internal static DevToolsResourceReference? ResourceReference(ParseResult parse, out string? error)
+    {
+        error = DevToolsResourceReference.Resolve(parse.GetValue(SharedDevToolsOptions.ResourceOption),
+            parse.GetValue(SharedDevToolsOptions.TypeOption), parse.GetValue(Value), out var reference);
+        return reference;
     }
 
     internal static bool ValidResult(JsonElement result, bool write)

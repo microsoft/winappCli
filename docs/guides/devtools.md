@@ -205,10 +205,20 @@ edit your source and are gone when the app restarts. Setting a bound property re
 its binding until you restart the app; the output warns you. `diagnose-binding` shows
 what a binding resolves to; add `--json` for every observation.
 
-For a brush, pass a fixed color, such as
-`winapp devtools set-property SaveButton Background '#FF0067C0'`.
-The CLI does not create `{ThemeResource key}` or `{StaticResource key}` references.
-To change the reference permanently, edit the XAML and rebuild the app.
+To use a resource instead of a fixed value, pass it the way you would write it in
+XAML, or pass the key with `--resource theme|static`:
+
+```powershell
+winapp devtools set-property SaveButton Background '{ThemeResource AccentFillColorDefaultBrush}'
+winapp devtools set-property SaveButton Style AccentButtonStyle --resource static
+```
+
+A `{ThemeResource}` value follows light and dark theme changes, and `get-property`
+shows the key you assigned, for example
+`Foreground: #E4000000 [DevTools ThemeResource TextFillColorPrimaryBrush]`. If the key isn't found
+from the element, its parents or the app, nothing is written and the command fails
+with `resource-not-found`. To write text such as `{ThemeResource X}` literally, add
+`--type`. To change the reference permanently, edit the XAML and rebuild the app.
 
 In the inspector, choose **ThemeResource** or **StaticResource** in the property's
 kind list to try a resource on the running app. Type a key, such as `BBAccentBrush`;

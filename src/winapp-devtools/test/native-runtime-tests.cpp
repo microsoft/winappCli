@@ -1401,6 +1401,42 @@ static void CheckMalformedMutationHandles(const std::function<void(bool, const c
     g_mutatedHandle = 0;
     check(HandleCommand(L"hotreload.clearprop|Target|Text|Tag") == L"ERR bad-args" && g_mutatedHandle == 0,
         "private clear bridge rejects extra fields");
+    // A resource write reaches the engine as hotreload.setres; a key that isn't in scope comes back as InvalidParams.
+    g_testResourceAssignment = [](InstanceHandle, const std::wstring&, const std::wstring& key, bool, std::wstring* error) {
+        if (key == L"KnownBrush") return S_OK;
+        if (error) *error = L"resource-not-found|Resource '" + key + L"' was not found.";
+        return HRESULT_FROM_WIN32(ERROR_RESOURCE_NAME_NOT_FOUND);
+    };
+    for (const auto* key : {L"KnownBrush", L"MissingBrush"}) {
+        DevToolsJson parsed;
+        const bool parsedOk = DevToolsJsonParse(HandleRpc(nullptr, DevToolsRpcParse(
+            L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"HotReload.setProperty\",\"params\":{\"name\":\"Target\","
+            L"\"prop\":\"Foreground\",\"resource\":\"theme\",\"value\":\"" + std::wstring(key) + L"\"}}")), parsed);
+        if (std::wstring(key) == L"KnownBrush")
+            check(parsedOk && parsed.Find(L"result") && !parsed.Find(L"error"), "an in-scope resource key is assigned");
+        else
+            check(parsedOk && parsed.Find(L"error") &&
+                parsed.Find(L"error")->GetInt(L"code", 0) == DevToolsErr::InvalidParams,
+                "a resource key that isn't in scope returns invalid parameters");
+    }
+    g_testResourceAssignment = nullptr;
+    // A Brush property takes a Brush or a Color resource and nothing else; value-type pairs WinUI may convert are
+    // left to the runtime.
+    const std::wstring brushProp = L"Microsoft.UI.Xaml.Media.Brush";
+    check(!ResourceTypeKnownMismatch(L"Microsoft.UI.Xaml.Media.SolidColorBrush", true, brushProp) &&
+        !ResourceTypeKnownMismatch(L"Windows.UI.Color", false, brushProp),
+        "a Brush or Color resource fits a Brush property");
+    check(ResourceTypeKnownMismatch(L"Microsoft.UI.Xaml.Style", false, brushProp) &&
+        ResourceTypeKnownMismatch(L"Microsoft.UI.Xaml.Media.FontFamily", false, brushProp) &&
+        ResourceTypeKnownMismatch(L"String", false, brushProp) &&
+        ResourceTypeKnownMismatch(L"Microsoft.UI.Xaml.Thickness", false, brushProp),
+        "a Style, FontFamily, String or Thickness resource is refused for a Brush property");
+    check(!ResourceTypeKnownMismatch(L"Double", false, L"Microsoft.UI.Xaml.GridLength") &&
+        !ResourceTypeKnownMismatch(L"Microsoft.UI.Xaml.Thickness", false, L"Double") &&
+        !ResourceTypeKnownMismatch(L"Double", false, L"Windows.UI.Text.FontWeight") &&
+        ResourceTypeKnownMismatch(L"Microsoft.UI.Xaml.Style", false, L"Double") &&
+        !ResourceTypeKnownMismatch(L"", false, brushProp),
+        "value-type pairs and unknown types are left to the runtime; a Style on a Double is refused");
     g_diag = previousDiagnostics;
 }
 

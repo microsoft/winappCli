@@ -149,13 +149,13 @@ public class DevToolsJsonParityTests
     [DataRow("{ThemeResource AccentBrush}", true)]
     [DataRow("{StaticResource AccentBrush}", false)]
     [DataRow("{StaticResource AccentBrush}", true)]
-    public async Task SetProperty_ResourceConversionFailure_ExplainsLiteralAlternative(string requested, bool json)
+    public async Task SetProperty_ResourceConversionFailure_WithType_ExplainsResourceWrite(string requested, bool json)
     {
         using var agent = new FakeDevToolsProtocolAgent()
             .Answer("Property.get", """{"props":[{"name":"Background","value":"#FF808080","valueType":"SolidColorBrush","writeType":"SolidColorBrush"}]}""")
             .Error("HotReload.setProperty", -32000, "invalid-value",
                 $"Cannot set property 'Background' to '{requested}' (type SolidColorBrush): conversion to the requested XAML type failed (0x8000FFFF)");
-        var args = new List<string> { "42", "Background", requested };
+        var args = new List<string> { "42", "Background", requested, "--type", "SolidColorBrush" };
         if (json) { args.Add("--json"); }
 
         var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args.ToArray());
@@ -171,18 +171,126 @@ public class DevToolsJsonParityTests
             Assert.AreEqual("invalid-value", error.GetProperty("token").GetString());
             message = error.GetProperty("message").GetString()!;
         }
-        Assert.Contains("does not support {ThemeResource key} or {StaticResource key}", message);
-        Assert.Contains("Use a literal value instead", message);
-        Assert.Contains("#FF0067C0", message);
-        Assert.Contains("XAML and rebuild", message);
+        Assert.Contains("written as a resource only without --type", message);
         Assert.IsFalse(message.Contains("0x8000FFFF", StringComparison.Ordinal), message);
         Assert.AreSequenceEqual(new List<string> { "Property.get", "HotReload.setProperty" }, agent.Received);
     }
 
     [TestMethod]
+    [DataRow(new[] { "42", "Background", "{ThemeResource AccentBrush}" }, "theme", "AccentBrush")]
+    [DataRow(new[] { "42", "Background", " {StaticResource ResourceKey=AccentBrush} " }, "static", "AccentBrush")]
+    [DataRow(new[] { "42", "Background", "AccentBrush", "--resource", "theme" }, "theme", "AccentBrush")]
+    [DataRow(new[] { "42", "Background", "{ThemeResource AccentBrush}", "--resource", "theme" }, "theme", "AccentBrush")]
+    public async Task SetProperty_ResourceReference_SendsKeyAndReportsIt(string[] args, string kind, string key)
+    {
+        foreach (var json in new[] { false, true })
+        {
+            var reads = 0;
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("Property.get", """{"props":[{"name":"Background","value":"#FF808080","valueType":"SolidColorBrush","writeType":"SolidColorBrush"}]}""",
+                    _ => Interlocked.Increment(ref reads) == 1)
+                .Answer("Property.get", $$"""{"props":[{"name":"Background","value":"#FF0067C0","valueType":"SolidColorBrush","writeType":"SolidColorBrush","liveResourceKind":"{{kind}}Resource","liveResourceKey":"{{key}}"}]}""")
+                .Answer("HotReload.setProperty", "null")
+                .Answer("VisualTree.enumerate", Tree);
+
+            var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, json ? [.. args, "--json"] : args);
+
+            Assert.AreEqual(0, exit, output);
+            using var request = JsonDocument.Parse(agent.ReceivedRequests.Single(line => line.Contains("HotReload.setProperty", StringComparison.Ordinal)));
+            var sent = request.RootElement.GetProperty("params");
+            Assert.AreEqual(key, sent.GetProperty("value").GetString());
+            Assert.AreEqual(kind, sent.GetProperty("resource").GetString());
+            Assert.AreEqual(string.Empty, sent.GetProperty("type").GetString());
+            if (json)
+            {
+                using var result = JsonDocument.Parse(output);
+                Assert.IsTrue(result.RootElement.GetProperty("ok").GetBoolean());
+                Assert.AreEqual(kind + "Resource", result.RootElement.GetProperty("resourceKind").GetString());
+                Assert.AreEqual(key, result.RootElement.GetProperty("resourceKey").GetString());
+                Assert.AreEqual("#FF0067C0", result.RootElement.GetProperty("after").GetString());
+                Assert.IsTrue(result.RootElement.GetProperty("matchesRequested").GetBoolean());
+            }
+            else
+            {
+                Assert.Contains($"(from {{{(kind == "theme" ? "ThemeResource" : "StaticResource")} {key}}})", output);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task SetProperty_Resource_WritesPropertyWithoutLiteralSyntax()
+    {
+        var reads = 0;
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Property.get", """{"props":[{"name":"Style","value":"{Style}","valueType":"Style"}]}""",
+                _ => Interlocked.Increment(ref reads) == 1)
+            .Answer("Property.get", """{"props":[{"name":"Style","value":"{Style}","valueType":"Style"}]}""")
+            .Answer("HotReload.setProperty", "null")
+            .Answer("VisualTree.enumerate", Tree);
+
+        var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent,
+            ["42", "Style", "AccentButtonStyle", "--resource", "static", "--json"]);
+
+        Assert.AreEqual(0, exit, output);
+        using var result = JsonDocument.Parse(output);
+        Assert.IsTrue(result.RootElement.GetProperty("ok").GetBoolean());
+        Assert.AreEqual("AccentButtonStyle", result.RootElement.GetProperty("resourceKey").GetString());
+        // The read-back doesn't report the assigned key, so the exact request can't be confirmed.
+        Assert.IsFalse(result.RootElement.GetProperty("matchesRequested").GetBoolean());
+    }
+
+    [TestMethod]
+    public async Task SetProperty_ResourceNotFound_ReportsTokenAndMessage()
+    {
+        const string message = "Resource 'Missing' was not found in this element's resources, its parents' resources, or the app's resources. Background was not changed.";
+        foreach (var json in new[] { false, true })
+        {
+            using var agent = new FakeDevToolsProtocolAgent()
+                .Answer("Property.get", """{"props":[{"name":"Background","value":"#FF808080","valueType":"SolidColorBrush","writeType":"SolidColorBrush"}]}""")
+                .Error("HotReload.setProperty", -32602, "resource-not-found", message);
+
+            var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent,
+                json ? ["42", "Background", "{ThemeResource Missing}", "--json"] : ["42", "Background", "{ThemeResource Missing}"]);
+
+            Assert.AreEqual(1, exit);
+            Assert.Contains("was not found", output);
+            if (json)
+            {
+                using var result = JsonDocument.Parse(output);
+                Assert.AreEqual("resource-not-found", result.RootElement.GetProperty("error").GetProperty("token").GetString());
+            }
+        }
+    }
+
+    [TestMethod]
+    [DataRow("theme", "String", "K", "can't be used together")]
+    [DataRow("static", null, "{ThemeResource K}", "doesn't match")]
+    [DataRow("theme", null, "two words", "needs a resource key")]
+    [DataRow("theme", null, "", "needs a resource key")]
+    [DataRow(null, null, "{ThemeResource Accent Brush}", "needs one resource key")]
+    [DataRow(null, null, "{StaticResource Key, Foo}", "needs one resource key")]
+    public async Task SetProperty_InvalidResourceArguments_FailBeforeWriting(string? resource, string? type, string value, string expected)
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Answer("Property.get", """{"props":[{"name":"Background","value":"#FF808080","valueType":"SolidColorBrush","writeType":"SolidColorBrush"}]}""")
+            .Answer("HotReload.setProperty", "null");
+        var args = new List<string> { "42", "Background", value, "--json" };
+        if (resource is not null) { args.AddRange(["--resource", resource]); }
+        if (type is not null) { args.AddRange(["--type", type]); }
+
+        var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args.ToArray());
+
+        Assert.AreEqual(1, exit);
+        Assert.Contains(expected, output);
+        using var result = JsonDocument.Parse(output);
+        Assert.AreEqual("bad-args", result.RootElement.GetProperty("error").GetProperty("token").GetString());
+        Assert.DoesNotContain("HotReload.setProperty", agent.Received);
+    }
+
+    [TestMethod]
     [DataRow("{ThemeResource AccentBrush}", "String")]
     [DataRow("{StaticResource AccentBrush}", "System.String")]
-    public async Task SetProperty_ResourceLookingString_IsWrittenLiterally(string requested, string type)
+    public async Task SetProperty_ResourceLookingString_WithType_IsWrittenLiterally(string requested, string type)
     {
         foreach (var json in new[] { false, true })
         {
@@ -194,7 +302,7 @@ public class DevToolsJsonParityTests
                 .Answer("Property.get", $$"""{"props":[{{after}}]}""")
                 .Answer("HotReload.setProperty", "null")
                 .Answer("VisualTree.enumerate", Tree);
-            var args = new List<string> { "42", "Text", requested };
+            var args = new List<string> { "42", "Text", requested, "--type", type };
             if (json) { args.Add("--json"); }
 
             var (exit, output) = await RunAsync(new DevToolsSetPropertyCommand(), agent, args.ToArray());
@@ -1048,6 +1156,7 @@ public class DevToolsJsonParityTests
                   {"name":"Foreground","value":"#C5FFFFFF","valueType":"SolidColorBrush","valueSource":"Local",
                    "editKind":"brush","valueState":"set","enumValues":["a","b"],"fields":["A","R","G","B"],
                    "writeType":"SolidColorBrush","authored":"{ThemeResource K}","authoredKind":"themeResource","authoredKey":"K",
+                   "liveResourceKind":"themeResource","liveResourceKey":"K2",
                    "origin":"ThemeResource K",
                    "chain":[{"source":"Local","value":"#C5FFFFFF","winner":true},{"source":"Default","value":"#FF000000","winner":false}],
                    "children":[{"name":"Color","value":"#C5FFFFFF","valueType":"Color","editKind":"text"}]}]}
@@ -1061,7 +1170,8 @@ public class DevToolsJsonParityTests
         foreach (var field in new[]
                  {
                      "name", "value", "valueType", "valueSource", "editKind", "valueState", "enumValues",
-                     "fields", "writeType", "authored", "authoredKind", "authoredKey", "chain", "children",
+                     "fields", "writeType", "authored", "authoredKind", "authoredKey", "liveResourceKind", "liveResourceKey",
+                     "chain", "children",
                  })
         {
             Assert.IsTrue(row.TryGetProperty(field, out _), $"'{field}' was dropped from the retained row.");

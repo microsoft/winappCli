@@ -446,6 +446,18 @@ static DevToolsAuthoredState ReadElementAuthoredContext(InstanceHandle h, const 
     return state;
 }
 
+// The element's ActualTheme (0 Default, 1 Light, 2 Dark), or -1 when it can't be read. UI thread.
+static int ElementActualTheme(InstanceHandle h)
+{
+    if (!g_diag) return -1;
+    winrt::com_ptr<IInspectable> element;
+    if (FAILED(g_diag->GetIInspectableFromHandle(h, element.put())) || !element) return -1;
+    winrt::com_ptr<IUnknown> fe;
+    if (FAILED(element->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), fe.put_void())) || !fe) return -1;
+    int theme = -1;
+    return SUCCEEDED(DevToolsGetActualTheme(fe.get(), &theme)) ? theme : -1;
+}
+
 // Read effective chain properties on the UI thread; editor metadata comes from runtime types.
 // outIndices receives, per emitted name, the chain index and declared type a later single-property read can use.
 static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>* out, std::wstring* outAuthoredState,
@@ -651,8 +663,14 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
             // but only while the value is still the one DevTools wrote. Some values have no chain text (CornerRadius,
             // a local enum), so the comparison also uses the value read live.
             const std::wstring observed = rawValue + L'\x1F' + prop.valueState + L'\x1F' + prop.value;
-            if (prop.source == L"Local" && !isBinding && DevToolsBindingRow_LiveWriteHolds(wire, name, observed)) {
+            std::wstring liveKind, liveKey;
+            const bool liveResource = prop.source == L"Local" && !isBinding &&
+                                      DevToolsBindingRow_LiveResource(wire, name, &liveKind, &liveKey);
+            if (prop.source == L"Local" && !isBinding &&
+                DevToolsBindingRow_LiveWriteHolds(wire, name, observed, liveResource ? ElementActualTheme(h) : -1)) {
                 prop.source = kDevToolsReadLiveEditSource;
+                prop.liveResourceKind = std::move(liveKind);
+                prop.liveResourceKey = std::move(liveKey);
                 liveNames.insert(name);
             } else if (prop.source == L"Local" && !isBinding && prop.authored.empty() &&
                        DevToolsRead_IsUnsetRuntimeLocal(name, prop.value)) {
@@ -669,7 +687,9 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                     const InstanceHandle child = (InstanceHandle)wcstoull(rawValue.c_str(), nullptr, 10);
                     if (child) {
                         ReadChildProps(child, expandKind,
-                                       DevToolsRead_ChildEditingIsSafe(prop.source, prop.authoredKind),
+                                       DevToolsRead_ChildEditingIsSafe(prop.source,
+                                           prop.source == kDevToolsReadLiveEditSource ? prop.liveResourceKind
+                                                                                      : prop.authoredKind),
                                        &prop.children);
                     }
                 }

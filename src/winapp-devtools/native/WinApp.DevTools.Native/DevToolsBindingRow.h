@@ -44,9 +44,18 @@ DevToolsBindingSummary DevToolsBindingRow_Summary(const std::wstring& json);
 void DevToolsBindingRow_NoteLiveWrite(unsigned long long wire, const std::wstring& prop);
 void DevToolsBindingRow_ForgetLiveWrite(unsigned long long wire, const std::wstring& prop);
 bool DevToolsBindingRow_WasWrittenLive(unsigned long long wire, const std::wstring& prop);
+// A live edit that assigned {ThemeResource key} (theme) or {StaticResource key}. The runtime keeps only the resolved
+// value, so this is the only record of which key DevTools assigned.
+void DevToolsBindingRow_NoteLiveResourceWrite(unsigned long long wire, const std::wstring& prop, bool theme,
+                                              const std::wstring& key);
+// The kind ("themeResource"/"staticResource") and key of a live resource edit that is still remembered.
+bool DevToolsBindingRow_LiveResource(unsigned long long wire, const std::wstring& prop, std::wstring* kind,
+                                     std::wstring* key);
 // Whether the live edit still owns the value. The first read after an edit records the value it observes; a later
-// read that observes anything else means the app wrote its own value, so the edit is forgotten for good.
-bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstring& prop, const std::wstring& observed);
+// read that observes anything else means the app wrote its own value, so the edit is forgotten for good. A
+// {ThemeResource} edit also keeps owning a new value read under a different element theme (ActualTheme; -1 unknown).
+bool DevToolsBindingRow_LiveWriteHolds(unsigned long long wire, const std::wstring& prop, const std::wstring& observed,
+                                       int elementTheme = -1);
 
 // Turns a working summary into "Overridden by a live edit" when a live edit put a different value on screen than
 // the binding resolves to. Returns whether it did.

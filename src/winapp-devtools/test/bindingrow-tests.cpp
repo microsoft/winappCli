@@ -206,6 +206,32 @@ static void Test_LiveEditOverridesAnXBind()
     DevToolsBindingRow_NoteLiveWrite(42, L"Content");
     Check(DevToolsBindingRow_LiveWriteHolds(42, L"Content", L"Hello"), "a new edit records its own value");
     DevToolsBindingRow_ForgetLiveWrite(42, L"Content");
+    std::wstring liveKind, liveKey;
+    DevToolsBindingRow_NoteLiveResourceWrite(42, L"Foreground", true, L"TextFillColorPrimaryBrush");
+    Check(DevToolsBindingRow_LiveResource(42, L"Foreground", &liveKind, &liveKey) && liveKind == L"themeResource" &&
+          liveKey == L"TextFillColorPrimaryBrush", "a resource edit remembers its kind and key");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#E4000000", 1), "the first read records the light value");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FFFFFFFF", 2),
+          "a theme resource keeps owning the value the new theme resolves to");
+    Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FFFF0000", 2) &&
+          !DevToolsBindingRow_LiveResource(42, L"Foreground", nullptr, nullptr),
+          "a different value under the same theme is the app's write");
+    DevToolsBindingRow_NoteLiveResourceWrite(42, L"Foreground", true, L"SomeFixedBrush");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FF102030", 1) &&
+          DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FF102030", 2),
+          "a theme resource that resolves the same in both themes keeps owning the value");
+    Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FFFF0000", 2) &&
+          !DevToolsBindingRow_LiveResource(42, L"Foreground", nullptr, nullptr),
+          "an unchanged read records the new theme, so a later app write under it is the app's");
+    DevToolsBindingRow_NoteLiveResourceWrite(42, L"Foreground", false, L"AccentBrush");
+    Check(DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FF0078D4", 1), "a static resource edit records its value");
+    Check(!DevToolsBindingRow_LiveWriteHolds(42, L"Foreground", L"#FF4CC2FF", 2),
+          "a static resource does not follow the theme, so a new value is the app's");
+    DevToolsBindingRow_NoteLiveResourceWrite(42, L"Foreground", true, L"TextFillColorPrimaryBrush");
+    DevToolsBindingRow_NoteLiveWrite(42, L"Foreground");
+    Check(DevToolsBindingRow_WasWrittenLive(42, L"Foreground") && !DevToolsBindingRow_LiveResource(42, L"Foreground", nullptr, nullptr),
+          "a literal edit replaces the remembered resource");
+    DevToolsBindingRow_ForgetLiveWrite(42, L"Foreground");
     CheckEqW(DevToolsBindingRow_SpokenStatus(L"\u2713 Works"), L"Works", "a screen reader hears the status, not the glyph");
     CheckEqW(DevToolsBindingRow_SpokenStatus(L"\u2715 Broken at Nope"), L"Broken at Nope", "including a broken one");
     const auto unanswered = DevToolsBindingRow_Summary(kUnavailable);

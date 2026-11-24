@@ -36,4 +36,16 @@ internal static class SharedDevToolsOptions
     {
         Description = "XAML type to create the value as (e.g. Double, Boolean, String, Thickness). Inferred from the value when omitted.",
     };
+
+    public static Option<string?> ResourceOption { get; } = CreateResourceOption();
+
+    private static Option<string?> CreateResourceOption()
+    {
+        var option = new Option<string?>("--resource")
+        {
+            Description = "Assign the value as a resource key: theme for {ThemeResource key}, static for {StaticResource key}.",
+        };
+        option.AcceptOnlyFromAmong("theme", "static");
+        return option;
+    }
 }

@@ -640,10 +640,19 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         // The bridge line is '|'-delimited and only the trailing value may contain '|'.
         if (HasBridgeDelimiter(name) || HasBridgeDelimiter(prop) || HasBridgeDelimiter(p.GetString(L"type")))
             return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"name, prop and type cannot contain '|'", L"bad-args");
+        // `resource` assigns {ThemeResource value} or {StaticResource value}; `value` is then the bare key.
+        const std::wstring resource = p.GetString(L"resource");
+        if (p.HasKey(L"resource") && resource != L"theme" && resource != L"static")
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"resource must be theme or static", L"bad-args");
+        if (!resource.empty() && (value.empty() || HasBridgeDelimiter(value) ||
+                                  value.find_first_of(L" \t\r\n{},") != std::wstring::npos))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams,
+                               L"a resource key cannot be empty or contain spaces, braces, commas or '|'", L"bad-args");
         std::wstring target = handle.empty() ? name : (L"#" + handle);
-        std::wstring line = L"hotreload.setprop|" + target + L"|" +
-                            BridgeEscape(prop) + L"|" + BridgeEscape(p.GetString(L"type")) +
-                            L"|" + BridgeEscape(value);
+        std::wstring line = resource.empty()
+            ? L"hotreload.setprop|" + target + L"|" + BridgeEscape(prop) + L"|" + BridgeEscape(p.GetString(L"type")) +
+              L"|" + BridgeEscape(value)
+            : L"hotreload.setres|" + target + L"|" + BridgeEscape(prop) + L"|" + resource + L"|" + BridgeEscape(value);
         std::wstring reply = HandleCommand(line);
         if (reply.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, reply);
         // Publish Property.changed with connection origin so a writer can ignore its own echo.
@@ -664,8 +673,10 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             ReleaseSRWLockShared(&g_censusLock);
         }
         std::wstring origin = conn ? (L"\"" + std::to_wstring(DevToolsEvents_ConnId(conn)) + L"\"") : std::wstring(L"null");
+        const std::wstring changedValue = resource.empty() ? value
+            : (resource == L"theme" ? L"{ThemeResource " : L"{StaticResource ") + value + L"}";
         std::wstring params = L"{\"handle\":\"" + std::to_wstring(wire) + L"\",\"name\":\"" + DevToolsJsonEscape(name) +
-                              L"\",\"prop\":\"" + DevToolsJsonEscape(prop) + L"\",\"value\":\"" + DevToolsJsonEscape(value) + L"\"}";
+                              L"\",\"prop\":\"" + DevToolsJsonEscape(prop) + L"\",\"value\":\"" + DevToolsJsonEscape(changedValue) + L"\"}";
         // Coalesce on the element's stable identity: the wire handle when we have one (so two clients editing
         // the same UNNAMED element still collapse to one keep-newest slot), else the name.
         std::wstring coalesceKey = wire ? std::to_wstring(wire) : name;
