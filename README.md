@@ -321,7 +321,7 @@ Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio
 
 ## 🤖 Using with AI Coding Agents
 
-This repo ships two plugins, each published to the GitHub Copilot, Claude Code, and Codex marketplaces on every release:
+This repo ships two plugins, each published to the GitHub Copilot, Claude Code, and Codex marketplaces on every release, and installable in Google Antigravity:
 
 - **`winappcli`** ([`plugins/winapp/`](./plugins/winapp/)): an agent plus skills for winapp commands, workflows, and troubleshooting. It conforms to the [Agent Plugins 1.0](https://agent-plugins.org/) specification.
 - **`winui`** ([`plugins/winui/`](./plugins/winui/)): skills for building, packaging, and testing WinUI 3 apps.
@@ -345,6 +345,12 @@ claude plugin install winui@winappcli
 codex plugin marketplace add microsoft/WinAppCli
 codex plugin add winappcli@winappcli
 codex plugin add winui@winappcli
+```
+
+**Google Antigravity** (skills only; the agents aren't loaded)
+```bash
+agy plugin install https://github.com/microsoft/WinAppCli/tree/main/plugins/winapp
+agy plugin install https://github.com/microsoft/WinAppCli/tree/main/plugins/winui/agent-plugin
 ```
 
 

@@ -1,12 +1,12 @@
 # WinUI plugin
 
-Build Windows desktop apps with WinUI 3 and the Windows App SDK using GitHub Copilot, Claude Code, or OpenAI Codex. Ask your agent to set up your computer, create a project, design pages with Fluent controls, build and run the app, fix build errors, write UI tests, review the code, migrate a WPF app, or package the app as a signed MSIX installer.
+Build Windows desktop apps with WinUI 3 and the Windows App SDK using GitHub Copilot, Claude Code, OpenAI Codex, or Google Antigravity. Ask your agent to set up your computer, create a project, design pages with Fluent controls, build and run the app, fix build errors, write UI tests, review the code, migrate a WPF app, or package the app as a signed MSIX installer.
 
 For example, ask: "Create a new WinUI 3 app with MVVM" or "Migrate this WPF app to WinUI 3."
 
 ## What's included
 
-- The `winui-dev` agent, which picks the right skill for each request. Codex loads the skills only, not the agent.
+- The `winui-dev` agent, which picks the right skill for each request. Codex and Antigravity load the skills only, not the agent.
 - [Skills](https://github.com/microsoft/WinAppCli/tree/main/plugins/winui/agent-plugin/skills) for setup, the build-and-run loop, XAML design, code review, UI testing, packaging, and WPF migration.
 
 ## What it does on your computer
@@ -29,7 +29,7 @@ The plugin has no MCP server and sends no data itself. When the agent signs a pa
 
 ## Install
 
-See [Using with AI coding agents](https://github.com/microsoft/WinAppCli#-using-with-ai-coding-agents) for the Copilot CLI, Claude Code, and Codex commands.
+See [Using with AI coding agents](https://github.com/microsoft/WinAppCli#-using-with-ai-coding-agents) for the Copilot CLI, Claude Code, Codex, and Antigravity commands.
 
 ## Feedback
 
