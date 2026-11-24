@@ -478,9 +478,12 @@ public class PathSafetyTests
             }
 
             string winmd = Path.Combine(first, "Api.winmd");
-            Assert.IsFalse(
-                PathSafety.RedirectsToNetwork(winmd, static info => @"Global\" + info.LinkTarget),
-                "A local chain stays allowed.");
+            // Build the targets from known paths, so the test holds where LinkTarget already adds Global\.
+            string GlobalTarget(FileSystemInfo info) =>
+                @"Global\" + (string.Equals(info.FullName, @"\\?\" + first, StringComparison.OrdinalIgnoreCase)
+                    ? Path.Combine(middle, "pkg")
+                    : real);
+            Assert.IsFalse(PathSafety.RedirectsToNetwork(winmd, GlobalTarget), "A local chain stays allowed.");
 
             var inspected = new List<string>();
             bool refused = PathSafety.RedirectsToNetwork(winmd, info =>
@@ -488,7 +491,7 @@ public class PathSafetyTests
                 inspected.Add(info.FullName);
                 return string.Equals(info.FullName, @"\\?\" + middle, StringComparison.OrdinalIgnoreCase)
                     ? @"\\server\share"
-                    : @"Global\" + info.LinkTarget;
+                    : GlobalTarget(info);
             });
             Assert.IsTrue(refused, "A network hop after a Global\\ target must still be found.");
             Assert.AreSequenceEqual(new[] { @"\\?\" + first, @"\\?\" + middle }, inspected);

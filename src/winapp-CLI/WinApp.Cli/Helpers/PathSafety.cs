@@ -235,7 +235,7 @@ internal static class PathSafety
                     // The target's parents can themselves be links. Restart from its
                     // root before probing them, keeping the original unvisited suffix.
                     string? resolved = NormalizeLocalPathWithoutProbing(
-                        Path.IsPathRooted(target) ? target : Path.Combine(Path.GetDirectoryName(current)!, target));
+                        Path.IsPathRooted(target) ? target : Path.Join(Path.GetDirectoryName(current), target));
                     string? resolvedRoot = resolved is null ? null : Path.GetPathRoot(resolved);
                     if (string.IsNullOrEmpty(resolvedRoot))
                     {
@@ -246,7 +246,7 @@ internal static class PathSafety
                         StringSplitOptions.RemoveEmptyEntries).Length;
                     // Segments after this link that came from an earlier target stay required.
                     requiredSegments = targetSegments + Math.Max(0, requiredSegments - (index + 1));
-                    path = Path.Combine(resolved, string.Join(Path.DirectorySeparatorChar, segments[(index + 1)..]));
+                    path = Path.Join(resolved, string.Join(Path.DirectorySeparatorChar, segments[(index + 1)..]));
                     redirected = true;
                     break;
                 }
