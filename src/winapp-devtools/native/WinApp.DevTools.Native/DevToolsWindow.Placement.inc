@@ -7,17 +7,81 @@
 // the same layout-priority inversion is about, just relocated. Below roughly this width the two panes
 // cannot both carry readable content, so the window refuses to go there rather than silently losing data.
 // Enforced with a WM_GETMINMAXINFO subclass because WinUI's Window exposes no minimum-size property.
-static const int kMinWindowWidthDip  = 640;
-static const int kMinWindowHeightDip = 400;
+static const int kMinWindowWidthDip  = DevToolsInspectorPlacement::kMinWidthDip;
+static const int kMinWindowHeightDip = DevToolsInspectorPlacement::kMinHeightDip;
 
 static void ResetAppVisibleModes(HWND hwnd);
 static void LiveUnwatch();
 static void SetInspectorIcon(HWND hwnd);
 
+// Store the cloaked HWND so every placement exit path can uncloak; a missed uncloak hides the inspector forever.
+static HWND g_placeCloakHwnd = nullptr;
+
+// Where the user last left the inspector in this app run, so closing and reopening it keeps its size and spot.
+// Kept in memory only: a new app run opens the inspector at its default size beside the app.
+static bool g_inspectorRemembered = false;
+static DevToolsInspectorPlacement::Remembered g_inspectorLast{};
+
+static RECT ToRECT(const DevToolsInspectorPlacement::Rect& r) { return RECT{ r.left, r.top, r.right, r.bottom }; }
+static DevToolsInspectorPlacement::Rect FromRECT(const RECT& r) { return { r.left, r.top, r.right, r.bottom }; }
+
+static DevToolsInspectorPlacement::NormalFrame g_inspectorNormalFrame{};
+
+// The invisible resize border around the visible window. Meaningful only while it is neither maximized nor minimized.
+static bool ReadInspectorInsets(HWND hwnd, const RECT& window, DevToolsInspectorPlacement::Rect& insets)
+{
+    RECT visible{};
+    if (FAILED(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &visible, sizeof(visible)))) return false;
+    insets = { (std::max)(0L, visible.left - window.left), (std::max)(0L, visible.top - window.top),
+               (std::max)(0L, window.right - visible.right), (std::max)(0L, window.bottom - visible.bottom) };
+    return true;
+}
+
+static void NoteInspectorNormalFrame(HWND hwnd)
+{
+    if (!hwnd || IsIconic(hwnd) || IsZoomed(hwnd)) return;
+    RECT r{};
+    DevToolsInspectorPlacement::Rect insets{};
+    if (!GetWindowRect(hwnd, &r) || !ReadInspectorInsets(hwnd, r, insets)) return;
+    const UINT dpi = GetDpiForWindow(hwnd);
+    g_inspectorNormalFrame = { insets, dpi ? dpi : 96 };
+}
+
+static void RememberInspectorPlacement(HWND hwnd)
+{
+    // A window closed while placement still has it cloaked is at a transient rect the user never saw.
+    if (!hwnd || hwnd == g_placeCloakHwnd) return;
+    RECT r{};
+    DevToolsInspectorPlacement::Rect liveInsets{};
+    bool haveLiveInsets = false;
+    if (IsIconic(hwnd) || IsZoomed(hwnd)) {
+        // Keep the size the window has when restored, not its minimized or maximized one.
+        WINDOWPLACEMENT wp{ sizeof(WINDOWPLACEMENT) };
+        if (!GetWindowPlacement(hwnd, &wp)) return;
+        r = wp.rcNormalPosition;
+        // rcNormalPosition is in workspace coordinates, which exclude a taskbar on the monitor's top or left.
+        // MonitorFromWindow answers with the monitor of the restored rect, even for a minimized window.
+        MONITORINFO mi{ sizeof(MONITORINFO) };
+        if (HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST); mon && GetMonitorInfo(mon, &mi))
+            OffsetRect(&r, mi.rcWork.left - mi.rcMonitor.left, mi.rcWork.top - mi.rcMonitor.top);
+    } else {
+        if (!GetWindowRect(hwnd, &r)) return;
+        haveLiveInsets = ReadInspectorInsets(hwnd, r, liveInsets);
+    }
+    if (r.right <= r.left || r.bottom <= r.top) return;
+    UINT dpi = GetDpiForWindow(hwnd);
+    if (dpi == 0) dpi = 96;
+    g_inspectorLast = DevToolsInspectorPlacement::OnClose(FromRECT(r), dpi, haveLiveInsets ? &liveInsets : nullptr,
+                                                          g_inspectorNormalFrame);
+    g_inspectorRemembered = true;
+    DevToolsOverlayLog(L"route1.place remember (%d,%d %dx%d) dpi=%u", r.left, r.top, r.right - r.left, r.bottom - r.top, dpi);
+}
+
 static LRESULT CALLBACK Route1MinSizeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
                                           UINT_PTR /*id*/, DWORD_PTR generation)
 {
     if (msg == WM_CLOSE && generation == g_route1Gen && g_route1WindowInsp) {
+        RememberInspectorPlacement(hwnd);
         ReleaseInspectorCaptionTheme();
         if (!g_flushingEditor) FlushFocusedEditor(false);
         RetirePaneEditors();
@@ -34,6 +98,11 @@ static LRESULT CALLBACK Route1MinSizeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM
         mmi->ptMinTrackSize.x = MulDiv(kMinWindowWidthDip,  (int)dpi, 96);
         mmi->ptMinTrackSize.y = MulDiv(kMinWindowHeightDip, (int)dpi, 96);
         return 0;
+    }
+    if (msg == WM_WINDOWPOSCHANGED && generation == g_route1Gen) {
+        const LRESULT result = DefSubclassProc(hwnd, msg, wp, lp);
+        NoteInspectorNormalFrame(hwnd);
+        return result;
     }
     if (msg == WM_NCDESTROY) RemoveWindowSubclass(hwnd, Route1MinSizeProc, 1);
     if (msg == WM_DPICHANGED || msg == WM_SETTINGCHANGE) {
@@ -67,9 +136,6 @@ static HWND Route1WindowHwnd()
 {
     return HwndFromWindowInsp(g_route1WindowInsp);
 }
-
-// Store the cloaked HWND so every placement exit path can uncloak; a missed uncloak hides the inspector forever.
-static HWND g_placeCloakHwnd = nullptr;
 
 // Cloak/uncloak a window via DWM. A cloaked window still composes and lays out (unlike SW_HIDE), so revealing
 // it shows a fully-rendered frame with no blank flash. Best-effort: any failure just leaves the window visible.
@@ -149,9 +215,9 @@ static void FocusInspectorAfterPick()
 static const UINT_PTR kPlaceTimerId = 0xD70;
 static VOID CALLBACK PlaceTimerProc(HWND hwnd, UINT, UINT_PTR id, DWORD);
 
-// Place a fresh inspector beside the app, clamped onscreen and scaled by DPI. Do not reposition
-// a reused window against the user's manual move. Bounded timer passes correct residual offsets
-// after WinUI's SDK-dependent placement transform; failures leave the default placement.
+// Place a fresh inspector, clamped onscreen and scaled by DPI: where the user last closed it in this app run, or
+// beside the app the first time. Do not reposition a reused window against the user's manual move. Bounded timer
+// passes correct residual offsets after WinUI's SDK-dependent placement transform; failures leave the default placement.
 static int  g_placePass  = 0;
 static int  g_placeSetX  = 0;
 static int  g_placeSetY  = 0;
@@ -160,64 +226,53 @@ static void PositionInspectorBesideApp()
 {
     HWND self = Route1WindowHwnd();
     if (!self) { UncloakPlacement(); g_placePass = 0; return; }
-    UINT dpi = GetDpiForWindow(self);
-    if (dpi == 0) dpi = 96;
-    const double s = dpi / 96.0;
-    int w = (int)(780 * s);
-    int h = (int)(620 * s);
 
     HWND app = FindTargetMainHwnd(self);
-    HMONITOR mon = MonitorFromWindow(app ? app : self, MONITOR_DEFAULTTONEAREST);
+    const DevToolsInspectorPlacement::Remembered* remembered = g_inspectorRemembered ? &g_inspectorLast : nullptr;
+    // Return to the remembered spot only while a monitor still shows it; otherwise keep its size beside the app.
+    HMONITOR mon = nullptr;
+    if (remembered) {
+        // Only the visible window counts: its invisible border may hang onto a neighbouring monitor.
+        const auto& r = remembered->rect;
+        const auto& f = remembered->frame;
+        const RECT visible{ r.left + f.left, r.top + f.top, r.right - f.right, r.bottom - f.bottom };
+        mon = MonitorFromRect(&visible, MONITOR_DEFAULTTONULL);
+    }
+    const bool restore = mon != nullptr;
+    if (!mon) mon = MonitorFromWindow(app ? app : self, MONITOR_DEFAULTTONEAREST);
+
+    // Size for the monitor the window lands on, so moving it there doesn't rescale it after the fact.
+    UINT dpi = 0, dpiY = 0;
+    if (!mon || FAILED(GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dpi, &dpiY)) || dpi == 0) dpi = GetDpiForWindow(self);
+    if (dpi == 0) dpi = 96;
+
     MONITORINFO mi{ sizeof(MONITORINFO) };
-    RECT work{ 0, 0, w, h };
+    RECT work{ 0, 0, MulDiv(DevToolsInspectorPlacement::kDefaultWidthDip, (int)dpi, 96),
+               MulDiv(DevToolsInspectorPlacement::kDefaultHeightDip, (int)dpi, 96) };
     if (mon && GetMonitorInfo(mon, &mi)) work = mi.rcWork;
 
-    const int gap  = (int)(12 * s);
-    const int edge = (int)(12 * s);
-
-    RECT safe = work;
-    if (safe.right - safe.left > w + 2 * edge && safe.bottom - safe.top > h + 2 * edge) {
-        safe.left += edge; safe.top += edge; safe.right -= edge; safe.bottom -= edge;
-    }
-
-    int x, y;
     RECT ar{};
-    if (app) {
-        GetWindowRect(app, &ar);
-        y = ar.top;
-        if (ar.right + gap + w <= safe.right)      x = ar.right + gap;
-        else if (ar.left - gap - w >= safe.left)   x = ar.left - gap - w;
-        else                                       x = safe.right - w;
-    } else {
-        x = work.left + (work.right - work.left - w) / 2;
-        y = work.top + (work.bottom - work.top - h) / 2;
-    }
-    // Clamp the TARGET fully on-screen (this is the physical rect we want to end up at). Sizes clamp against
-    // the real work area; positions clamp against the inset, which collapses to the work area when it can't fit.
-    if (w > work.right - work.left) w = work.right - work.left;
-    if (h > work.bottom - work.top) h = work.bottom - work.top;
-    if (x < safe.left) x = safe.left;
-    if (y < safe.top)  y = safe.top;
-    if (x + w > safe.right)  x = safe.right - w;
-    if (y + h > safe.bottom) y = safe.bottom - h;
-    if (x < work.left) x = work.left;
-    if (y < work.top)  y = work.top;
-    if (x + w > work.right)  x = work.right - w;
-    if (y + h > work.bottom) y = work.bottom - h;
+    const bool haveApp = app && GetWindowRect(app, &ar);
+    const DevToolsInspectorPlacement::Rect appRect = FromRECT(ar);
+    const RECT target = ToRECT(DevToolsInspectorPlacement::Target(
+        dpi, FromRECT(work), haveApp ? &appRect : nullptr, remembered, restore));
+    const int x = target.left, y = target.top;
+    const int w = target.right - target.left, h = target.bottom - target.top;
 
     if (g_placePass == 0) {
         // Seed: send the target directly. If WinUI applies no transform this is already correct; if it does,
         // the correction passes below reel it in.
         g_placeSetX = x; g_placeSetY = y;
         SetWindowPos(self, nullptr, g_placeSetX, g_placeSetY, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
-        DevToolsOverlayLog(L"route1.place seed self=%p app=%p work=(%d,%d,%d,%d) safe=(%d,%d,%d,%d) gap=%d edge=%d target=(%d,%d %dx%d) dpi=%u",
+        DevToolsOverlayLog(L"route1.place seed self=%p app=%p work=(%d,%d,%d,%d) remembered=%d restore=%d target=(%d,%d %dx%d) dpi=%u",
                       self, app, work.left, work.top, work.right, work.bottom,
-                      safe.left, safe.top, safe.right, safe.bottom, gap, edge, x, y, w, h, dpi);
+                      (int)(remembered != nullptr), (int)restore, x, y, w, h, dpi);
     } else {
         RECT cur{}; GetWindowRect(self, &cur);
         int rx = x - cur.left, ry = y - cur.top;
         int arx = rx < 0 ? -rx : rx, ary = ry < 0 ? -ry : ry;
-        if (arx <= 2 && ary <= 2) {
+        const int dw = w - (cur.right - cur.left), dh = h - (cur.bottom - cur.top);
+        if (arx <= 2 && ary <= 2 && dw <= 2 && dw >= -2 && dh <= 2 && dh >= -2) {
             DevToolsOverlayLog(L"route1.place settled at (%d,%d %dx%d) after %d pass(es)",
                           cur.left, cur.top, cur.right - cur.left, cur.bottom - cur.top, g_placePass);
             UncloakPlacement();
@@ -230,9 +285,8 @@ static void PositionInspectorBesideApp()
                       g_placePass, cur.left, cur.top, x, y, rx, ry, g_placeSetX, g_placeSetY);
     }
 
-    if (++g_placePass < kPlaceMaxPass)
-        SetTimer(self, kPlaceTimerId, 60, PlaceTimerProc);
-    else {
+    // Only the timer reveals a cloaked window, so reveal it now if there is no next pass to do it.
+    if (++g_placePass >= kPlaceMaxPass || !SetTimer(self, kPlaceTimerId, 60, PlaceTimerProc)) {
         UncloakPlacement();
         g_placePass = 0;
     }
