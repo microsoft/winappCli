@@ -36,7 +36,7 @@ internal sealed record CSharpResult(CSharpOutcome Outcome, string? Detail = null
     public static CSharpResult Error(string message) => new(CSharpOutcome.Error, message);
 }
 
-/// <summary>When no live engine can run (the SDK lacks its hot reload API, or the build is optimized): every C# save restarts.</summary>
+/// <summary>When no live engine can run (the SDK lacks its hot reload API, or the build is optimized): every save restarts.</summary>
 internal sealed class RestartingEngine(string reason) : ICSharpEngine
 {
     public string Reason => reason;

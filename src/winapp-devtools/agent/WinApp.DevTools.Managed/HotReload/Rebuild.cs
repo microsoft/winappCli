@@ -316,6 +316,7 @@ internal static class Rebuild
             {
                 return $"{name} couldn't be opened again in its Frame; it keeps what it showed until the app restarts";
             }
+            LoadTemplates(fresh);
             await LoadedAsync(fresh);
             foreach (var (frameName, navigation) in nested)
             {
@@ -473,6 +474,31 @@ internal static class Rebuild
             done.SetResult();
         }
         return done.Task;
+    }
+
+    /// <summary>
+    /// Loads each data template the new page uses once, before it lays out. A value only the runtime rejects, in a
+    /// template, otherwise fails as the list lays out its items, where WinUI ends the app; here it throws, and the
+    /// page is built again from the markup that loaded.
+    /// </summary>
+    private static void LoadTemplates(Page page)
+    {
+        var templates = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        foreach (var node in Descendants(page).Prepend(page))
+        {
+            if (node is FrameworkElement element)
+            {
+                templates.UnionWith(element.Resources.Values.OfType<DataTemplate>());
+            }
+            if ((node switch { ItemsControl items => items.ItemTemplate, ContentControl content => content.ContentTemplate, ContentPresenter presenter => presenter.ContentTemplate, _ => null }) is { } template)
+            {
+                templates.Add(template);
+            }
+        }
+        foreach (var template in templates.OfType<DataTemplate>())
+        {
+            template.LoadContent();
+        }
     }
 
     internal static IEnumerable<DependencyObject> Descendants(DependencyObject? root)

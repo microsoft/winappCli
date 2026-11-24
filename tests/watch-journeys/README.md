@@ -83,7 +83,8 @@ to make the scoreboard green: change its expectation instead, and say why.
 - `parity: true` compares the app with a clean build after the step. The journey's `parity` object sets the `root` to
   read, `navigate` steps for the clean build, `probes` run on both apps, and `ignore` patterns.
 - `setup` edits are made before the first build; `before` checks run after each launch and restart.
-- `pending` keeps a step on the scoreboard without running it.
+- `pending` keeps a step on the scoreboard without running it. `stockOnly: true` does the same with `-WinUI`, for steps
+  that check stock WinUI's behavior.
 
 The apps: `apps\winui` is a WinUI app (`App`, with `Core` and `Data` class libraries beside it) and `apps\reactor` is a
 Microsoft.UI.Reactor app. Both use the stock Windows App SDK 2.7.0 through `Microsoft.WindowsAppSDK.WinUI` and

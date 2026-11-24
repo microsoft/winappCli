@@ -6,33 +6,47 @@
   "process": "TodoBench",
   "steps": [
     {
-      "id": "r62-stock-csharp", "row": 62, "title": "Stock WinUI: a C# save",
+      "id": "r62-stock-csharp", "stockOnly": true, "row": 62, "title": "Stock WinUI: a C# save",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v1\";", "text": "return \"hello-v2\";",
       "expect": { "v1": "live", "today": "applied" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ]
     },
     {
-      "id": "r62-stock-xaml", "row": 62, "title": "Stock WinUI: a XAML save isn't applied, and says it needs a restart",
+      "id": "r62-stock-xaml", "stockOnly": true, "row": 62, "title": "Stock WinUI: a XAML save isn't applied, and says it needs a restart",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\"", "text": "Text=\"People\"",
       "expect": { "v1": "not-applied", "reason": "^ContactsPage\\.xaml: XAML changes need a restart on this WinUI version \\(press Ctrl\\+R\\)", "today": "not-applied" },
       "note": "user decision: on stock WinUI a XAML save neither restarts nor test-builds; it prints one line"
     },
     {
-      "id": "r62-stock-xaml-same-app", "row": 62, "title": "Then a C# save applies in the same app, which still shows the old XAML",
+      "id": "r62-stock-xaml-same-app", "stockOnly": true, "row": 62, "title": "Then a C# save applies in the same app, which still shows the old XAML",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v2\";", "text": "return \"hello-v3\";",
       "expect": { "v1": "live", "today": "applied" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v3" }, { "assert": "text-equals", "target": "Header", "value": "Contacts" } ]
     },
     {
-      "id": "r62-ctrl-r", "row": 62, "title": "Then Ctrl+R restarts the app, which shows the XAML change",
+      "id": "r62-ctrl-r", "stockOnly": true, "row": 62, "title": "Then Ctrl+R restarts the app, which shows the XAML change",
       "op": "key", "key": "ctrl+r",
       "expect": { "v1": "restart", "reason": "^requested \\(Ctrl\\+R\\)", "today": "restart" },
       "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" }, { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v3" } ]
     },
     {
-      "id": "r58-restart-compiler-warm", "row": 58, "title": "Restart while the XAML compiler service is warm",
-      "pending": "needs the WinUI compiler service (work session 5)",
-      "expect": { "v1": "restart", "today": "untested" }
+      "id": "r58-xaml-warms-compiler", "row": 58, "title": "A XAML save, so the XAML compiler service is running",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"clicks 0\"", "text": "Text=\"clicks none\"",
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
+      "checks": [ { "assert": "text-equals", "target": "CountText", "value": "clicks none" } ]
+    },
+    {
+      "id": "r58-restart-compiler-warm", "row": 58, "title": "Restart while the XAML compiler service is warm: the rebuild succeeds",
+      "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "public sealed partial class ContactsPage", "text": "public partial class ContactsPage",
+      "expect": { "v1": "restart", "reason": "ENC0004", "today": "restart", "stock": "restart" },
+      "checks": [ { "assert": "text-equals", "target": "CountText", "value": "clicks none" } ],
+      "note": "design: the service stops before the rebuild, so it holds no build outputs"
+    },
+    {
+      "id": "r58-xaml-after-restart", "row": 58, "title": "After the restart, XAML saves are live again",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"clicks none\"", "text": "Text=\"clicks zero\"",
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
+      "checks": [ { "assert": "text-equals", "target": "CountText", "value": "clicks zero" } ]
     },
     {
       "id": "r59-private-api-missing", "row": 59, "title": "The SDK's hot reload API fails to load (SDK 9, or a changed SDK)",

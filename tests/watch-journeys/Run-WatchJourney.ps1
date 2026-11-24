@@ -193,9 +193,10 @@ function Invoke-Journey([string]$Name) {
         $launchPid = $appPid
         foreach ($step in @($journey.steps)) {
             $row = [ordered]@{ Row = $step.row; Step = $step.id; Title = $step.title; V1 = $step.expect.v1; Today = $step.expect.today; Observed = ''; Reason = ''; Status = ''; Checks = @(); Ms = $null; SameProcess = $null; Note = $step.note }
-            if ($step.pending) {
-                $row.Status = 'pending'; $row.Reason = $step.pending
-                $rows.Add([pscustomobject]$row); Write-Host ("[{0}] {1,-28} pending: {2}" -f $Name, $step.id, $step.pending); continue
+            $pending = if ($step.pending) { $step.pending } elseif ($WinUI -and $step.stockOnly) { 'checks stock WinUI; run without -WinUI' }
+            if ($pending) {
+                $row.Status = 'pending'; $row.Reason = $pending
+                $rows.Add([pscustomobject]$row); Write-Host ("[{0}] {1,-28} pending: {2}" -f $Name, $step.id, $pending); continue
             }
             $null = Read-NewLines
             $saveStart = Get-Date

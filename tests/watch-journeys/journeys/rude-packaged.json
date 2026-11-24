@@ -31,12 +31,12 @@
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ]
     },
     {
-      "id": "r62-packaged-xaml", "row": 62, "title": "Stock WinUI, packaged: a XAML save isn't applied, and says to press Ctrl+R",
+      "id": "r62-packaged-xaml", "stockOnly": true, "row": 62, "title": "Stock WinUI, packaged: a XAML save isn't applied, and says to press Ctrl+R",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\"", "text": "Text=\"People\"",
       "expect": { "v1": "not-applied", "reason": "^ContactsPage\\.xaml: XAML changes need a restart on this WinUI version \\(press Ctrl\\+R\\)", "today": "not-applied" }
     },
     {
-      "id": "r62-packaged-ctrl-r", "row": 62, "title": "Ctrl+R relaunches the packaged app, which shows the XAML change",
+      "id": "r62-packaged-ctrl-r", "stockOnly": true, "row": 62, "title": "Ctrl+R relaunches the packaged app, which shows the XAML change",
       "op": "key", "key": "ctrl+r",
       "expect": { "v1": "restart", "reason": "^requested \\(Ctrl\\+R\\)", "today": "restart" },
       "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" }, { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v2" } ]

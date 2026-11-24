@@ -53,9 +53,10 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
 
     public async Task<SaveResult> RunAsync(IReadOnlyList<string> files, CancellationToken cancellationToken)
     {
-        if (xaml is null && files.Where(f => Is(f, ".xaml") && graph.LibraryOf(f) is null).ToList() is { Count: > 0 } stock)
+        // A WinUI that can't load XAML while the app runs: the save isn't applied, and says so. The rest of it is. (When
+        // every save restarts, for example in Release, XAML restarts too.)
+        if (xaml is null && engine is not RestartingEngine && files.Where(f => Is(f, ".xaml") && graph.LibraryOf(f) is null).ToList() is { Count: > 0 } stock)
         {
-            // A WinUI that can't load XAML while the app runs: the save isn't applied, and says so. The rest of it is.
             var line = $"{string.Join(", ", stock.Select(Relative))}: XAML changes need a restart on this WinUI version (press Ctrl+R)";
             if (files.Except(stock).ToList() is not { Count: > 0 } rest)
             {
