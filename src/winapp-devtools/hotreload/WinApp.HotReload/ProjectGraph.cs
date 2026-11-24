@@ -3,7 +3,6 @@
 
 using System.Diagnostics;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace WinApp.HotReload;
 
@@ -70,11 +69,6 @@ internal sealed class ProjectGraph
             .WithDocuments(info.Documents.DistinctBy(d => d.FilePath, StringComparer.OrdinalIgnoreCase))
             .WithCompilationOutputInfo(info.CompilationOutputInfo.WithAssemblyPath(output));
     }
-
-    /// <summary>The analyzers the edit compilation leaves out, for images the XAML compiler reads.</summary>
-    public IReadOnlyList<AnalyzerReference> ImageOnlyAnalyzers(Workspace workspace) =>
-        CommandLineProject.CreateProjectInfo("image", LanguageNames.CSharp, CompilerArguments().Where(IsExcludedAnalyzer), ProjectDirectory, workspace)
-            .AnalyzerReferences;
 
     // The CsWinRT AOT generator names its helper classes by discovery order, so adding a type renames them (a rude
     // edit). They only matter for trimmed or AOT marshalling; a Debug app falls back to reflection.
