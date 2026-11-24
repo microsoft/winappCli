@@ -8,7 +8,7 @@
     {
       "id": "p1-xaml-text", "row": 1, "title": "Change a page's text",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\"", "text": "Text=\"People\"",
-      "expect": { "v1": "live+note", "today": "unchanged" },
+      "expect": { "v1": "live+note", "today": "not-applied" },
       "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" } ]
     },
     {

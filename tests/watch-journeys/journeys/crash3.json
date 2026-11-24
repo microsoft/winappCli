@@ -43,7 +43,7 @@
     {
       "id": "r34-xaml-save", "row": 34, "title": "(the .xaml save)",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"ready\"", "text": "Text=\"steady\"",
-            "expect": { "v1": "live+note", "today": "unchanged" },
+            "expect": { "v1": "live+note", "today": "not-applied" },
             "note": "engine B on stock WinUI restarts on a XAML save, with a reason; live XAML needs the WinUI runtime hook"
     },
     {

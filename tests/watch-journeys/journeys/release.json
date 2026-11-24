@@ -16,7 +16,7 @@
     {
       "id": "r66-release-xaml", "row": 66, "title": "A XAML save in a Release build",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\"", "text": "Text=\"People\"",
-      "expect": { "v1": "restart", "today": "unchanged" },
+      "expect": { "v1": "restart", "today": "not-applied" },
       "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" } ]
     }
   ]
