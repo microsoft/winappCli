@@ -20,7 +20,7 @@
     {
       "id": "r62-stock-xaml-same-app", "row": 62, "title": "Then a C# save applies in the same app, which still shows the old XAML",
       "file": "App/ContactsPage.xaml.cs", "op": "replace", "find": "return \"hello-v2\";", "text": "return \"hello-v3\";",
-      "expect": { "v1": "live", "today": "?" },
+      "expect": { "v1": "live", "today": "applied" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v3" }, { "assert": "text-equals", "target": "Header", "value": "Contacts" } ]
     },
     {

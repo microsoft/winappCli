@@ -23,7 +23,7 @@
         { "file": "App/ContactsPage.xaml", "op": "replace", "find": "    xmlns:local=\"using:TodoBench\">", "text": "    xmlns:local=\"using:TodoBench\"\n    xmlns:toolkit=\"using:CommunityToolkit.WinUI.Controls\">" },
         { "file": "App/ContactsPage.xaml", "op": "insert-after", "find": "            <local:ContactCard x:Name=\"Card\" />", "text": "            <toolkit:Segmented x:Name=\"Picker\"><toolkit:SegmentedItem Content=\"One\" AutomationProperties.AutomationId=\"PickerOne\" /><toolkit:SegmentedItem Content=\"Two\" /></toolkit:Segmented>" }
       ],
-      "expect": { "v1": "live", "today": "restart" },
+      "expect": { "v1": "live", "today": "unchanged" },
       "checks": [ { "assert": "exists", "target": "PickerOne" } ],
       "note": "Segmented's items appear in UI Automation, the Segmented itself doesn't, so the check looks for its first item"
     },
