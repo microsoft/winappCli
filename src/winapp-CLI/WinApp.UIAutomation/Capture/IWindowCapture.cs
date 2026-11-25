@@ -24,6 +24,14 @@ public interface IFrameGrabber : IDisposable
     IReadOnlyCollection<string> Warnings => [];
 
     /// <summary>
+    /// Where the captured window's top-left corner sits in the most recently returned frame, in pixels.
+    /// Non-zero when the frame was extended to include a menu, flyout, or other popup that reaches past
+    /// the window's left or top edge. Defaults to <c>(0, 0)</c> for implementations whose frames are
+    /// exactly the window.
+    /// </summary>
+    (int X, int Y) WindowOrigin => (0, 0);
+
+    /// <summary>
     /// <see langword="true"/> once the capture session has ended — typically because the captured
     /// window closed. Callers should stop sampling and finish up.
     /// </summary>
@@ -98,6 +106,11 @@ public interface IWindowCapture
     /// Opens a persistent capture session for <paramref name="hwnd"/>. Pass <paramref name="fps"/> to
     /// hint the expected sampling rate (0 lets the implementation choose).
     /// </summary>
+    /// <remarks>
+    /// Frames can be larger than the window: when a popup the window owns reaches past its edge, the
+    /// frame grows to include it and stays that size for the rest of the session.
+    /// <see cref="IFrameGrabber.WindowOrigin"/> says where the window sits in the frame.
+    /// </remarks>
     /// <exception cref="PlatformNotSupportedException">
     /// Frame capture is not available on this system.
     /// </exception>

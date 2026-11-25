@@ -56,10 +56,11 @@ inspect and drive UI. Reference this package only when you actually want video.
 `RecordAsync` picks a capture path and reports it as `RecordCaptureResult.Mode`:
 
 - **`wgc`** — Windows Graphics Capture. The default, and the only one that reliably captures
-  occluded or GPU-composited windows.
+  occluded or GPU-composited windows. Menus, flyouts and tooltips the window owns are drawn in
+  place; when one reaches past the window's edge, the frame grows to show all of it.
 - **`printwindow`** — GDI fallback when Graphics Capture is unavailable.
 - **`screen`** — screen-DC capture, used when you set `RecordOptions.CaptureScreen`. This is the
-  only mode that includes popups and overlays drawn outside the window, and it captures whatever is
+  only mode that includes overlays from other processes, and it captures whatever is
   on screen — including other windows on top.
 
 Set `RecordOptions.FramesDirectory` to also write a frame bundle: numbered JPEGs, a `frames.ndjson`

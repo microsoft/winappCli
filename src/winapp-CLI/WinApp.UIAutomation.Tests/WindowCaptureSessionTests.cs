@@ -201,7 +201,11 @@ public class WindowCaptureSessionTests
         AssertAdvanced("popup removal");
         popups.Clear();
         AssertAdvanced("last popup removal");
-        Assert.AreSame(root.Pixels, composite.TryGetLatest()!.Value.Pixels);
+        // The popup at x = -1 grew the frame by one column, and the frame keeps that size.
+        var afterRemoval = composite.TryGetLatest()!.Value;
+        Assert.AreEqual(2, afterRemoval.Width);
+        Assert.AreEqual((1, 0), composite.WindowOrigin);
+        Assert.AreSequenceEqual(new byte[] { 0, 0, 0, 0, 0, 0, 255, 255 }, afterRemoval.Pixels);
 
         void AssertAdvanced(string change)
         {
@@ -212,6 +216,84 @@ public class WindowCaptureSessionTests
             Assert.AreEqual(version, repeated.Version, $"unchanged after {change}");
             Assert.AreSame(frame.Pixels, repeated.Pixels, $"cached after {change}");
         }
+    }
+
+    [TestMethod]
+    public void Sampling_PopupPastWindowEdge_GrowsFrameToShowAllOfIt()
+    {
+        // A 2x2 window at (100, 200). A 2x2 menu opens upward, so its top row is above the window and
+        // its right column is past the window's right edge. Before the fix those pixels were dropped.
+        byte[] red = [0, 0, 255, 255];
+        byte[] green = [0, 255, 0, 255];
+        var root = new FakeGrabber([.. red, .. red, .. red, .. red], 2, 2);
+        var menu = new FakeGrabber([.. green, .. green, .. green, .. green], 2, 2);
+        var popups = new List<WindowCaptureSession.SecondaryWindow> { new(2, new(101, 199, 103, 201)) };
+        using var composite = new WindowCaptureSession(root, () => new(100, 200, 102, 202),
+            () => popups.ToList(), _ => menu);
+
+        var frame = composite.TryGetLatest()!.Value;
+
+        Assert.AreEqual(3, frame.Width);
+        Assert.AreEqual(3, frame.Height);
+        Assert.AreEqual((0, 1), composite.WindowOrigin, "the window starts one row down, below the menu's top row");
+        byte[] empty = [0, 0, 0, 0];
+        byte[] withMenu =
+        [
+            .. empty, .. green, .. green,
+            .. red, .. green, .. green,
+            .. red, .. red, .. empty,
+        ];
+        Assert.AreSequenceEqual(withMenu, frame.Pixels);
+
+        // Closing the menu keeps the larger frame, so the video doesn't zoom back in.
+        popups.Clear();
+        frame = composite.TryGetLatest()!.Value;
+        Assert.AreEqual(3, frame.Width);
+        Assert.AreEqual(3, frame.Height);
+        Assert.AreEqual((0, 1), composite.WindowOrigin);
+        byte[] menuClosed =
+        [
+            .. empty, .. empty, .. empty,
+            .. red, .. red, .. empty,
+            .. red, .. red, .. empty,
+        ];
+        Assert.AreSequenceEqual(menuClosed, frame.Pixels);
+    }
+
+    [TestMethod]
+    public void Sampling_PopupWithoutImageYet_ReservesRoomFromItsBounds()
+    {
+        // The first recorded frame sets the video size, so it must already have room for an open menu
+        // even if the menu's own capture hasn't delivered an image yet.
+        var root = new FakeGrabber([0, 0, 255, 255]);
+        var menu = new FakeGrabber([0, 255, 0, 255]) { HasFrame = false };
+        using var composite = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
+            () => [new(2, new(0, -1, 1, 0))], _ => menu);
+
+        var frame = composite.TryGetLatest()!.Value;
+
+        Assert.AreEqual(1, frame.Width);
+        Assert.AreEqual(2, frame.Height);
+        Assert.AreEqual((0, 1), composite.WindowOrigin);
+        Assert.AreSequenceEqual(new byte[] { 0, 0, 0, 0, 0, 0, 255, 255 }, frame.Pixels);
+    }
+
+    [TestMethod]
+    public void Sampling_ClosedDrainFramesKeepGrownSize()
+    {
+        var root = new FakeGrabber([0, 0, 255, 255]);
+        var popups = new List<WindowCaptureSession.SecondaryWindow> { new(2, new(0, -1, 1, 0)) };
+        using var composite = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
+            () => popups.ToList(), _ => new FakeGrabber([0, 255, 0, 255]));
+        Assert.AreEqual(2, composite.TryGetLatest()!.Value.Height);
+
+        root.IsClosed = true;
+        root.Version++;
+        var drained = composite.TryGetLatest()!.Value;
+
+        Assert.AreEqual(2, drained.Height);
+        Assert.AreEqual((0, 1), composite.WindowOrigin);
+        Assert.AreSequenceEqual(new byte[] { 0, 0, 0, 0, 0, 0, 255, 255 }, drained.Pixels);
     }
 
     [TestMethod]
@@ -243,7 +325,8 @@ public class WindowCaptureSessionTests
         internal bool Disposed { get; private set; }
         internal long Version { get; set; } = 1;
         public bool IsClosed { get; set; }
-        public (byte[] Pixels, int Width, int Height, long Version)? TryGetLatest() => (pixels, width, height, Version);
+        internal bool HasFrame { get; set; } = true;
+        public (byte[] Pixels, int Width, int Height, long Version)? TryGetLatest() => HasFrame ? (pixels, width, height, Version) : null;
         public Task<bool> WaitForFirstFrameAsync(TimeSpan timeout, CancellationToken ct) => Task.FromResult(true);
         public void Dispose() => Disposed = true;
     }

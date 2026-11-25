@@ -174,6 +174,9 @@ internal sealed partial class UiRecordingService(
             int srcHeight;
             int captureOriginLeft;
             int captureOriginTop;
+            // Where the window sat in the first frame. A popup reaching past the window's left or top edge
+            // grows the frame on that side, so this can be non-zero.
+            (int X, int Y) initialWindowOrigin = (0, 0);
 
             if (useWgc)
             {
@@ -184,9 +187,10 @@ internal sealed partial class UiRecordingService(
                         ?? throw new InvalidOperationException("Timed out waiting for the first captured frame.");
                     srcWidth = first.Width;
                     srcHeight = first.Height;
+                    initialWindowOrigin = grabber.WindowOrigin;
                     var visibleRect = _uiAutomation.GetVisibleWindowBounds(rootHwnd, ToPointerRect(rect));
-                    captureOriginLeft = visibleRect.Left;
-                    captureOriginTop = visibleRect.Top;
+                    captureOriginLeft = visibleRect.Left - initialWindowOrigin.X;
+                    captureOriginTop = visibleRect.Top - initialWindowOrigin.Y;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -198,6 +202,7 @@ internal sealed partial class UiRecordingService(
                     EnsureWgcFallbackConsented(ex, options.CaptureScreen, _logger);
                     useScreen = true;
                     useWgc = false;
+                    initialWindowOrigin = (0, 0);
                     srcWidth = rect.right - rect.left;
                     srcHeight = rect.bottom - rect.top;
                     captureOriginLeft = rect.left;
@@ -279,11 +284,12 @@ internal sealed partial class UiRecordingService(
                             wgcCaptureHwnd = captureTargetHwnd;
                             srcWidth = retargetFirst.Width;
                             srcHeight = retargetFirst.Height;
+                            initialWindowOrigin = grabber.WindowOrigin;
                             global::Windows.Win32.PInvoke.GetWindowRect(popupHwnd, out var popupWinRect);
                             var visiblePopupRect = _uiAutomation.GetVisibleWindowBounds(
                                 captureTargetHwnd, ToPointerRect(popupWinRect));
-                            captureOriginLeft = visiblePopupRect.Left;
-                            captureOriginTop = visiblePopupRect.Top;
+                            captureOriginLeft = visiblePopupRect.Left - initialWindowOrigin.X;
+                            captureOriginTop = visiblePopupRect.Top - initialWindowOrigin.Y;
                         }
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {
@@ -297,6 +303,7 @@ internal sealed partial class UiRecordingService(
                             EnsureWgcFallbackConsented(ex, options.CaptureScreen, _logger);
                             useScreen = true;
                             useWgc = false;
+                            initialWindowOrigin = (0, 0);
                         }
                     }
                     else if (!useScreen)
@@ -399,6 +406,7 @@ internal sealed partial class UiRecordingService(
             // Window capture follows the window if it moves, so the pointer is placed relative to
             // where the window is now. Screen capture records a fixed area.
             var pointerOriginHwnd = useScreen ? 0 : (useWgc ? wgcCaptureHwnd : (nint)hwnd);
+            var currentWindowOrigin = initialWindowOrigin;
             (int Left, int Top) CurrentCaptureOrigin()
             {
                 if (pointerOriginHwnd == 0 || !_uiAutomation.TryGetWindowRect(pointerOriginHwnd, out var windowRect))
@@ -410,8 +418,14 @@ internal sealed partial class UiRecordingService(
                     return (windowRect.Left, windowRect.Top);
                 }
                 var visible = _uiAutomation.GetVisibleWindowBounds(pointerOriginHwnd, windowRect);
-                return (visible.Left, visible.Top);
+                return (visible.Left - currentWindowOrigin.X, visible.Top - currentWindowOrigin.Y);
             }
+
+            // An element crop is fixed relative to the window, so it moves with the window inside a frame
+            // that grew to include a popup. A whole-window recording always uses the whole frame.
+            (int X, int Y) WgcCropOrigin((int X, int Y) windowOrigin) => isWholeWindowWgc
+                ? (cropX, cropY)
+                : (cropX + windowOrigin.X - initialWindowOrigin.X, cropY + windowOrigin.Y - initialWindowOrigin.Y);
 
             // The capture clock starts here, after frame artifact setup has created its staging
             // directory and opened the manifest and index writers. Starting it before that setup
@@ -493,6 +507,8 @@ internal sealed partial class UiRecordingService(
                         if (closedLatest is not null)
                         {
                             var (closedSrc, closedSw, closedSh, closedVersion) = closedLatest.Value;
+                            currentWindowOrigin = grabber.WindowOrigin;
+                            var (closedCropX, closedCropY) = WgcCropOrigin(currentWindowOrigin);
 
                             if (ShouldEncodeClosedDrainFrame(closedVersion, lastEncodedVersion))
                             {
@@ -500,11 +516,11 @@ internal sealed partial class UiRecordingService(
                                 var closedCropH = isWholeWindowWgc ? closedSh : cropH;
                                 var closedFrame = ProcessFrame(
                                     closedSrc, closedSw, closedSh,
-                                    cropX, cropY, closedCropW, closedCropH,
+                                    closedCropX, closedCropY, closedCropW, closedCropH,
                                     encoderW, encoderH, displayW, displayH);
                                 await CommitFrameAsync(
                                     closedFrame,
-                                    ClampCropRect(cropX, cropY, closedCropW, closedCropH, closedSw, closedSh),
+                                    ClampCropRect(closedCropX, closedCropY, closedCropW, closedCropH, closedSw, closedSh),
                                     sharesSourceBuffer: ReferenceEquals(closedFrame, closedSrc)).ConfigureAwait(false);
                             }
                         }
@@ -528,10 +544,12 @@ internal sealed partial class UiRecordingService(
                             continue;
                         }
                         var (source, sw, sh, version) = latest.Value;
+                        currentWindowOrigin = grabber.WindowOrigin;
+                        var (wgcCropX, wgcCropY) = WgcCropOrigin(currentWindowOrigin);
 
                         sourceVersion = version;
                         frameCrop = ClampCropRect(
-                            cropX, cropY,
+                            wgcCropX, wgcCropY,
                             isWholeWindowWgc ? sw : cropW,
                             isWholeWindowWgc ? sh : cropH,
                             sw, sh);

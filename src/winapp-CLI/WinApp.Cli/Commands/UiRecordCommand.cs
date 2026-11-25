@@ -49,7 +49,8 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         : base("record", "Record the target window (or an element's region) to an H.264 MP4 video. " +
                "By default records until Ctrl+C or redirected-stdin newline/EOF. " +
                "Use --duration-sec for a timed run, --frames for timestamped JPEG evidence, " +
-               "and --capture-screen for overlays and popups.")
+               "and --capture-screen for overlays from other processes. The app's own menus and flyouts are " +
+               "recorded without it.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);

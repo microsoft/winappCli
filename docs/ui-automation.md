@@ -592,7 +592,7 @@ winapp ui record -a myapp --frames --duration-sec 10 --fps 10 --output evidence.
 # Stop an unbounded recording through stdin
 "" | winapp ui record -a myapp --json --output capture.mp4
 
-# Include screen overlays and popups
+# Include overlays from other processes (foregrounds the window)
 winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups.mp4
 
 # Show the mouse pointer and a ring at each click
@@ -667,9 +667,10 @@ look like part of the app. Recordings draw these popups over the selected window
 whenever they are open. No flag is needed.
 
 - Only visible popups that belong to the selected window and its process are included.
-- The recording keeps the selected window's size, so the part of a flyout that extends past the
-  window's edge is cut off. To record that popup in full, find its HWND with
-  `winapp ui list-windows` and record it with `-w <hwnd>`.
+- When a popup reaches past the window's edge, the video grows to show all of it. The video size
+  is set when recording starts, so a menu that opens during the recording makes the window appear
+  a little smaller from then on, with dark space around it. The frame keeps that size after the
+  menu closes. With `--cursor` and `--frames`, pointer and click positions stay correct.
 - If Windows refuses to capture a popup directly, winapp renders it with PrintWindow instead. It then
   appears as a plain rectangle, without rounded corners or transparency.
 - If a popup can't be captured, the recording continues without it and the result's `warnings`

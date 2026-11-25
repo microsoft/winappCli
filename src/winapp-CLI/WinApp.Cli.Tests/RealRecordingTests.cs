@@ -206,6 +206,75 @@ public partial class RealRecordingTests
     }
 
     [TestMethod]
+    public async Task RecordAsync_MenuOpenAboveWindow_RecordsTheWholeMenu()
+    {
+        // A 64x64 window with a 64x32 menu whose top 16 rows are above the window, like a MenuFlyout
+        // opening upward from a title-bar button. Before the fix the video was 64x64 and those rows were cut off.
+        using var fx = new UiaTestFixture();
+        var window = Enumerable.Repeat((byte)0x44, 64 * 64 * 4).ToArray();
+        var menu = Enumerable.Repeat((byte)0xEE, 64 * 32 * 4).ToArray();
+        using var grabber = new WindowCaptureSession(new FakeFrameGrabber(window, 64, 64), () => new(0, 0, 64, 64),
+            () => [new(42, new(0, -16, 64, 16))], _ => new FakeFrameGrabber(menu, 64, 32));
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        FakeVideoEncoder? encoder = null;
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) => encoder = new FakeVideoEncoder(path, width, height);
+
+        var result = await NewRecordingService(NewAutomation(), capture).RecordAsync(SessionFor(fx), null, new RecordOptions
+        {
+            OutputPath = ScratchOutput("menu-above-window.mp4"),
+            DurationSec = 1,
+            Fps = 1,
+        }, CancellationToken.None);
+
+        Assert.AreEqual(64, result.Width);
+        Assert.AreEqual(80, result.Height, "the video must include the 16 menu rows above the window");
+        Assert.IsNull(result.Warnings);
+        Assert.IsNotNull(encoder?.LastFrame);
+        Assert.AreEqual((byte)0xEE, encoder.LastFrame[0], "the first video row is the menu's top row");
+        Assert.AreEqual((byte)0x44, encoder.LastFrame[(79 * 64) * 4], "the last video row is the window");
+    }
+
+    [TestMethod]
+    public async Task RecordAsync_ElementCrop_StaysOnElementWhenMenuOpensAboveWindow()
+    {
+        // Recording the top half of a 64x64 window. After the first frame a menu opens above the window,
+        // which moves the window 16 rows down inside the captured frame. The crop must move with it,
+        // or the recording would show the menu instead of the element.
+        using var fx = new UiaTestFixture();
+        var automation = new FakeUiAutomationService();
+        Assert.IsTrue(NewAutomation().TryGetWindowRect(fx.Hwnd, out var bounds));
+        automation.FindSingleResult = new UiElement
+        {
+            WindowHandle = fx.Hwnd,
+            X = bounds.Left,
+            Y = bounds.Top,
+            Width = 64,
+            Height = 32,
+        };
+        var window = Enumerable.Repeat((byte)0x44, 64 * 64 * 4).ToArray();
+        var menu = Enumerable.Repeat((byte)0xEE, 64 * 16 * 4).ToArray();
+        FakeVideoEncoder? encoder = null;
+        using var grabber = new WindowCaptureSession(new FakeFrameGrabber(window, 64, 64), () => new(0, 0, 64, 64),
+            () => encoder?.FramesWritten > 0 ? [new(42, new(0, -16, 64, 0))] : [],
+            _ => new FakeFrameGrabber(menu, 64, 16));
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) => encoder = new FakeVideoEncoder(path, width, height);
+
+        var result = await NewRecordingService(automation, capture).RecordAsync(SessionFor(fx), "element", new RecordOptions
+        {
+            OutputPath = ScratchOutput("element-under-menu.mp4"),
+            DurationSec = 2,
+            Fps = 2,
+        }, CancellationToken.None);
+
+        Assert.IsGreaterThan(1, result.Frames);
+        Assert.AreEqual((0, 16), grabber.WindowOrigin, "the menu must have grown the frame");
+        Assert.IsNotNull(encoder?.LastFrame);
+        // The 64x32 element is centered in the 64x64 video, so its first row is video row 16.
+        Assert.AreEqual((byte)0x44, encoder.LastFrame[(16 * 64) * 4], "the element's top row, not the menu");
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task RecordAsync_StartupReadTemporarilyUnavailable_WaitsForFrame(bool retarget)
@@ -937,6 +1006,8 @@ public partial class RealRecordingTests
 
         public int FramesWritten { get; private set; }
 
+        public byte[]? LastFrame { get; private set; }
+
         public bool Completed { get; private set; }
 
         public bool Disposed { get; private set; }
@@ -955,6 +1026,7 @@ public partial class RealRecordingTests
             Assert.AreEqual(Width * Height * 4, bgra.Length);
             Assert.IsTrue(sampleDurationHns > 0);
             FramesWritten++;
+            LastFrame = bgra.ToArray();
         }
 
         public void Complete()
