@@ -237,13 +237,25 @@ than a mix of before and after. Encoding and writing the file happen after the d
 > `winapp ui list-windows -a <app>` and retry with `-w <hwnd>`, or drop `--capture-screen` to
 > composite every window from its own contents.
 
-`record` shares its turn, so same-workflow input can interleave with the capture — that is how you
-record a workflow driving an app. Two caveats:
+`record` lets you record an app while you drive it. Start the recording, then send input from
+another shell; the input runs right away and appears in the video:
 
-- A `record` with **no** workflow id is a one-shot owner, so it blocks every other workflow for its
-  whole duration. To record and click at the same time, give both commands the same
-  `WINAPP_UI_WORKFLOW_ID`.
-- On a host without frame-capture support, recording falls back to PrintWindow, whose blank-frame
+```powershell
+Start-Process winapp -ArgumentList 'ui record -a myapp --duration-sec 8 -o demo.mp4'
+Start-Sleep 3
+winapp ui invoke SettingsButton -a myapp   # runs immediately and shows up ~3s into demo.mp4
+```
+
+A window recording only needs the desktop while it starts. After the first frame it gives the turn
+back, so other commands, including other workflows', run while it records. Three cases keep the turn
+for the whole recording instead, and other commands wait until it ends:
+
+- **`--capture-screen`.** The video is whatever is on screen, so another workflow's windows would
+  land in it. To drive the app during a screen recording, run the recording and the input with the
+  same `WINAPP_UI_WORKFLOW_ID`. Without one, the recording says so when it starts.
+- **A `record` started with a `WINAPP_UI_WORKFLOW_ID`.** It shares its turn with commands that carry
+  the same id and keeps other workflows out.
+- **A host without frame-capture support.** Recording falls back to PrintWindow, whose blank-frame
   recovery can foreground the window at any moment. There the desktop is held for the **entire**
   recording and the command says so in its output; even same-workflow input will wait.
 

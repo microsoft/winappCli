@@ -139,6 +139,10 @@ internal abstract class UiCoordinatedAction(IInteractiveDesktopLock coordinator,
 
         public long WaitedMs => 0;
 
+        public bool HasWorkflowId => false;
+
+        public Task<bool> HandOffAnonymousTurnAsync(CancellationToken cancellationToken) => Task.FromResult(false);
+
         public Task<IAsyncDisposable> EnterAsync(CancellationToken cancellationToken)
             => Task.FromResult<IAsyncDisposable>(NoopScope.Instance);
 

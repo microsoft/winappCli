@@ -152,6 +152,75 @@ public partial class UiCommandTests
         Assert.AreEqual(0, _fakeDesktopLock.OpenDesktopSections, "the section must still be released");
     }
 
+    /// <summary>
+    /// A window recording with no workflow id must let other commands — the input it exists to
+    /// capture — run while it records, instead of making them wait until it ends.
+    /// </summary>
+    [TestMethod]
+    public async Task Record_WindowRecordingWithoutWorkflowId_HandsOffTheTurnAfterTheFirstFrame()
+    {
+        _fakeWindowCapture.Supported = true;
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 100, Mode = "wgc" };
+
+        // Hold the recording open after its first frame, so the hand-off can only come from the
+        // first-frame signal and not from the recording simply ending.
+        var finishRecording = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _fakeRecording.WaitAfterRecordingStarted = finishRecording.Task;
+
+        var command = GetRequiredService<UiRecordCommand>();
+        var invocation = ParseAndInvokeWithCaptureAsync(
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "handoff.mp4"), "--json"]);
+
+        var handedOffWhileRecording = await WaitForConditionAsync(
+            () => _fakeDesktopLock.HandOffs.Count > 0, TimeSpan.FromSeconds(10));
+        finishRecording.TrySetResult();
+
+        Assert.AreEqual(0, await invocation);
+        Assert.IsTrue(handedOffWhileRecording, "the turn must be handed off while the recording is still running");
+        Assert.HasCount(1, _fakeDesktopLock.HandOffs, "exactly one hand-off");
+        Assert.AreEqual(0, _fakeDesktopLock.HandOffs[0], "the turn is handed off only after the section closed");
+    }
+
+    /// <summary>
+    /// A screen recording, and a PrintWindow recording that may foreground the window at any frame,
+    /// both still need the desktop for their whole length, so they keep the turn.
+    /// </summary>
+    [TestMethod]
+    [DataRow(true, true, "screen")]
+    [DataRow(false, false, "printwindow")]
+    public async Task Record_ThatStillNeedsTheDesktop_KeepsTheTurn(bool captureScreen, bool frameCapture, string mode)
+    {
+        _fakeWindowCapture.Supported = frameCapture;
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 100, Mode = mode };
+
+        string[] args = ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, $"{mode}.mp4"), "--json"];
+        var command = GetRequiredService<UiRecordCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, captureScreen ? [.. args, "--capture-screen"] : args);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsEmpty(_fakeDesktopLock.HandOffs);
+    }
+
+    /// <summary>
+    /// A screen recording that keeps the turn says so when it starts, so the user learns how to drive
+    /// the app during it before their input silently waits.
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    public async Task Record_ScreenRecording_ExplainsHowToDriveTheAppOnlyWithoutAWorkflowId(bool hasWorkflowId, bool expectNotice)
+    {
+        _fakeDesktopLock.HasWorkflowId = hasWorkflowId;
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 2, Width = 100, Height = 100, Mode = "screen" };
+
+        var command = GetRequiredService<UiRecordCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["-a", "TestApp", "--capture-screen", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "notice.mp4")]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.AreEqual(expectNotice, TestAnsiConsole.Output.Contains("WINAPP_UI_WORKFLOW_ID"), TestAnsiConsole.Output);
+    }
+
     private static async Task<bool> WaitForConditionAsync(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

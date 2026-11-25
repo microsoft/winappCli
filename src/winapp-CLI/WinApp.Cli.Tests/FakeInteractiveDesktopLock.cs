@@ -53,6 +53,15 @@ internal sealed class FakeInteractiveDesktopLock : IInteractiveDesktopLock
     /// <summary>Milliseconds reported as queue wait, so output/telemetry paths can be exercised.</summary>
     public long WaitedMs { get; set; }
 
+    /// <summary>Whether commands run as if under a <c>WINAPP_UI_WORKFLOW_ID</c>.</summary>
+    public bool HasWorkflowId { get; set; }
+
+    /// <summary>
+    /// Every turn hand-off a body asked for, recorded as the number of desktop sections open at that
+    /// moment, so tests can assert the turn was never given away mid-section.
+    /// </summary>
+    public List<int> HandOffs { get; } = [];
+
     /// <summary>
     /// Whether the most recent coordinated body threw instead of returning an exit code.
     /// </summary>
@@ -101,6 +110,14 @@ internal sealed class FakeInteractiveDesktopLock : IInteractiveDesktopLock
         public UiTurnMode Mode { get; private set; } = mode;
 
         public long WaitedMs => owner.WaitedMs;
+
+        public bool HasWorkflowId => owner.HasWorkflowId;
+
+        public Task<bool> HandOffAnonymousTurnAsync(CancellationToken cancellationToken)
+        {
+            owner.HandOffs.Add(owner.OpenDesktopSections);
+            return Task.FromResult(!owner.HasWorkflowId);
+        }
 
         public Task<IAsyncDisposable> EnterAsync(CancellationToken cancellationToken)
         {

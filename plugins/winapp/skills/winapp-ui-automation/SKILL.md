@@ -61,9 +61,10 @@ Rules that matter when driving this from an agent:
   survived.
 - **Prefer one tight script over many round trips** for a known sequence: `winapp ui invoke View -w
   $hwnd; winapp ui search "Status bar" -w $hwnd; winapp ui click "Status bar" -w $hwnd; winapp ui yield`.
-- **`record` shares the turn with its own workflow**, so same-workflow clicks and typing are captured
-  while it runs — but only if both commands carry the same id. A `record` with no id blocks everyone
-  else for its whole duration.
+- **A window `record` lets other commands drive the app while it runs**, with or without an id —
+  start it, then click and type. Two exceptions keep everyone else waiting until it ends:
+  `--capture-screen` (another workflow's windows would land in the video), and a `record` started
+  with an id, which shares its turn only with commands carrying that same id.
 - **Ordering is owner affinity, then FIFO.** An active workflow may keep issuing commands ahead of
   others already waiting; once it yields or its grace expires, waiters are served in arrival order.
 - **Waiting is indefinite and cancellable.** After one second a notice on stderr says what holds the

@@ -49,7 +49,9 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         : base("record", "Record the target window (or an element's region) to an H.264 MP4 video. " +
                "By default records until Ctrl+C or redirected-stdin newline/EOF. " +
                "Use --duration-sec for a timed run, --frames for timestamped JPEG evidence, " +
-               "and --capture-screen for overlays and popups.")
+               "and --capture-screen for overlays and popups. " +
+               "Other winapp ui commands can drive the app while it records. With --capture-screen they wait " +
+               "until the recording ends, unless they share its WINAPP_UI_WORKFLOW_ID.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -93,9 +95,11 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         /// may interleave so a workflow can record itself driving the app.
         /// </summary>
         /// <remarks>
-        /// With no <c>WINAPP_UI_WORKFLOW_ID</c> the recording is an anonymous one-command owner, so it
-        /// blocks every other owner for its full duration — to record and click concurrently, both
-        /// commands must name the same workflow.
+        /// With no <c>WINAPP_UI_WORKFLOW_ID</c> the recording is a one-command owner that nothing else
+        /// can join. A window recording hands that turn off once its first frame lands, because it
+        /// captures the window's own pixels and needs nothing more from the desktop, so other commands
+        /// can drive the app while it records. A screen recording keeps the turn for its whole length,
+        /// because anything another workflow brings to the front would land in the video.
         /// </remarks>
         protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.TurnShared;
 
@@ -275,6 +279,15 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                         : $"{filePath}; frame artifacts: {framesDirectory}";
                     var subject = uiTarget is null ? "the guest desktop" : DescribeSubject(uiTarget);
                     ansiConsole.MarkupLine($"[grey]Recording {Markup.Escape(subject)} to {Markup.Escape(destinations)} — until {until}, {fps} fps…[/]");
+
+                    if (!turn.HasWorkflowId && (IsDesktop || captureScreen))
+                    {
+                        // A screen recording keeps the desktop to itself, so say so up front instead of
+                        // leaving the input it was meant to capture to discover it by waiting.
+                        ansiConsole.MarkupLine(
+                            "[grey]Other winapp ui commands that change the UI wait until this screen recording ends. " +
+                            "To drive the app while recording, run this command and those commands with the same WINAPP_UI_WORKFLOW_ID.[/]");
+                    }
                 }
 
                 // Stops received before the first frame wait for encoder readiness.
@@ -608,6 +621,18 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 // only on the started signal would hang forever on the second case.
                 await Task.WhenAny(startedTcs.Task, recordTask).ConfigureAwait(false);
                 await ReleaseOnceAsync().ConfigureAwait(false);
+
+                // A window recording reads only the window's own pixels, so once it has started nothing
+                // another workflow does to the desktop can change what it captures. With no workflow id
+                // nobody can join its turn either, so holding it would only make every other command —
+                // including the input this recording exists to capture — wait until it ends. A screen
+                // recording keeps its turn: another workflow's windows would land in the video.
+                // CancellationToken.None: a Ctrl+C here must still finalize the MP4, not abort the hand-off.
+                if (predictedMode == "wgc" && startedTcs.Task.IsCompleted)
+                {
+                    var handedOff = await turn.HandOffAnonymousTurnAsync(CancellationToken.None).ConfigureAwait(false);
+                    logger.LogDebug("Window recording started; UI turn handed off: {HandedOff}", handedOff);
+                }
 
                 var result = await recordTask.ConfigureAwait(false);
                 AssertPredictedMode(predictedMode, result);

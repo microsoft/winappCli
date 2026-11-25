@@ -243,8 +243,10 @@ winapp ui yield --on sandbox
 ```
 
 A named workflow retains its UI turn for four seconds after its last command; `yield`
-releases it immediately. Without an ID, each command releases its turn on completion.
-A no-ID recording therefore blocks other desktop-changing workflows for its duration.
+releases it immediately. Without an ID, each command releases its turn on completion,
+and a window recording releases its turn once it starts, so other commands can run
+while it records. A no-ID `--capture-screen` recording blocks other desktop-changing
+workflows for its duration.
 Read-only inspection does not wait. Host and guest UI turns are separate.
 
 After a pause, inspect again and reopen any menu or dialog you need: another workflow
