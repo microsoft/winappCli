@@ -115,6 +115,9 @@ winapp target record sandbox --duration-sec 20 --frames -o .\sandbox.mp4
   do not close windows or reconnect automatically to make a snapshot succeed.
 - `target screenshot`/`target record` capture the native guest desktop, not the host client window.
   `ui screenshot`/`ui record --on sandbox` capture an app window.
+- Add `--audio` to `target record` or `ui record --on sandbox` to hear Narrator and other guest
+  sound in the MP4. Start Narrator on the guest desktop (Ctrl+Win+Enter); Narrator started by
+  `target exec` ends when that command ends.
 - Outputs, including default filenames when `-o` is omitted, are delivered to the host.
   `--frames` returns a frame directory alongside the MP4 after recording finishes.
 - Use the PNG's native coordinates plus its reported screen origin for guest input.

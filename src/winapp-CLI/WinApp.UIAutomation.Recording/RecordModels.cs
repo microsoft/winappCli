@@ -46,6 +46,56 @@ public sealed class RecordOptions
     /// Ignored when <see cref="Cursor"/> is <see langword="false"/>.
     /// </summary>
     public bool ClickHighlight { get; init; } = true;
+
+    /// <summary>
+    /// Which sound to record into an AAC track alongside the video. <see cref="RecordAudioMode.None"/>
+    /// (the default) records video only.
+    /// </summary>
+    public RecordAudioMode Audio { get; init; }
+}
+
+/// <summary>Which sound a recording captures.</summary>
+public enum RecordAudioMode
+{
+    /// <summary>No audio track.</summary>
+    None = 0,
+
+    /// <summary>
+    /// Only the sound played by the recorded app's process and its child processes. Needs Windows 10
+    /// build 20348 or later.
+    /// </summary>
+    App = 1,
+
+    /// <summary>Everything the default playback device plays, including Narrator and other apps.</summary>
+    System = 2,
+}
+
+/// <summary>The audio track written into a recording.</summary>
+public sealed class RecordAudioResult
+{
+    /// <summary>"app" or "system"; see <see cref="RecordAudioMode"/>.</summary>
+    public string Mode { get; init; } = "";
+
+    /// <summary>Audio encoding, currently always "aac".</summary>
+    public string Codec { get; init; } = "aac";
+
+    /// <summary>Samples per second.</summary>
+    public int SampleRate { get; init; }
+
+    /// <summary>Number of channels.</summary>
+    public int Channels { get; init; }
+
+    /// <summary>Encoded bit rate, in bits per second.</summary>
+    public int Bitrate { get; init; }
+
+    /// <summary>Length of the audio track, in milliseconds. Matches the video length.</summary>
+    public long DurationMs { get; init; }
+
+    /// <summary>
+    /// The loudest sample on the track, from 0 (silence) to 1 (full scale). 0 means nothing audible
+    /// played while recording.
+    /// </summary>
+    public double PeakLevel { get; init; }
 }
 
 /// <summary>Result of an MP4 recording.</summary>
@@ -90,6 +140,12 @@ public sealed class RecordCaptureResult
     /// Frame image output, or <see langword="null"/> when <see cref="RecordOptions.FramesDirectory"/> was not set.
     /// </summary>
     public RecordFrameArtifactResult? FrameArtifacts { get; init; }
+
+    /// <summary>
+    /// The audio track, or <see langword="null"/> when <see cref="RecordOptions.Audio"/> was
+    /// <see cref="RecordAudioMode.None"/>.
+    /// </summary>
+    public RecordAudioResult? Audio { get; init; }
 
     /// <summary>
     /// Non-fatal problems worth surfacing, such as the capture cadence falling short of the requested rate.

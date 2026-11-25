@@ -364,12 +364,38 @@ internal sealed partial class UiRecordingService(
             }
 
             // Replacements are staged by RecordAsync; the encoder never clobbers its destination.
-            using var encoder = Mp4SinkWriterEncoder.s_createNoClobber(
-                options.OutputPath, encoderW, encoderH, options.Fps, bitrate);
+            // Audio opens first: a machine that can't record the requested sound fails before any
+            // file exists, rather than producing a silent video.
+            var audioSource = OpenAudioSource(options, uiTarget, rootHwnd);
+            IVideoEncoder createdEncoder;
+            try
+            {
+                createdEncoder = audioSource is null
+                    ? Mp4SinkWriterEncoder.s_createNoClobber(options.OutputPath, encoderW, encoderH, options.Fps, bitrate)
+                    : Mp4SinkWriterEncoder.s_createNoClobberWithAudio(
+                        options.OutputPath, encoderW, encoderH, options.Fps, bitrate, LoopbackAudioCapture.AudioFormat);
+            }
+            catch
+            {
+                audioSource?.Dispose();
+                throw;
+            }
+
+            // Declared after the encoder so it is disposed first: its pump thread writes to the encoder.
+            using var encoder = createdEncoder;
+            using var audioTrack = audioSource is null
+                ? null
+                : new AudioTrackRecorder(audioSource, (IAudioSampleWriter)encoder, LoopbackAudioCapture.AudioFormat);
 
             var frameDurationHns = 10_000_000L / options.Fps;
             var totalFrames = options.DurationSec > 0 ? (long)options.DurationSec * options.Fps : (long?)null;
             var frameIndex = 0;
+
+            // With audio, a frame's slot on the timeline follows the clock; see AudioTimeline.NextVideoSlot.
+            long lastSlot = -1;
+
+            // How many frame slots the video spans so far.
+            long TimelineFrames() => audioTrack is null ? frameIndex : lastSlot + 1;
             long lastEncodedVersion = -1;
             var startedSignaled = false;
             var targetClosed = false;
@@ -421,12 +447,23 @@ internal sealed partial class UiRecordingService(
             var stopwatch = Stopwatch.StartNew();
             var startedUtc = DateTimeOffset.UtcNow;
             cursorOverlay?.Start(Stopwatch.GetTimestamp());
+            audioTrack?.Start(AudioTimeline.TimestampToHns(Stopwatch.GetTimestamp(), Stopwatch.Frequency));
 
             // sharesSourceBuffer: the frame is the capture source's own buffer, which must not be drawn on.
             async ValueTask CommitFrameAsync(byte[] processedFrame, (int X, int Y, int Width, int Height) contentCrop, bool sharesSourceBuffer = false)
             {
                 var sampleIndex = frameIndex;
                 var elapsedMs = Math.Max(0, (long)Math.Round(stopwatch.Elapsed.TotalMilliseconds));
+                var slot = audioTrack is null
+                    ? sampleIndex
+                    : AudioTimeline.NextVideoSlot(lastSlot, stopwatch.Elapsed.TotalMilliseconds, options.Fps);
+
+                // A frame that arrives after the deadline still lands within the requested length,
+                // so neither the video nor its sound runs past --duration-sec.
+                if (totalFrames is { } lastSlotAllowed)
+                {
+                    slot = Math.Min(slot, lastSlotAllowed - 1);
+                }
 
                 RecordFrameCursor? cursor = null;
                 RecordFrameClick[]? clicks = null;
@@ -450,7 +487,7 @@ internal sealed partial class UiRecordingService(
                     {
                         SampleIndex = sampleIndex,
                         ElapsedMs = elapsedMs,
-                        MediaTimeMs = sampleIndex * 1000.0 / options.Fps,
+                        MediaTimeMs = slot * 1000.0 / options.Fps,
                         Cursor = cursor,
                         Clicks = clicks,
                     }).ConfigureAwait(false);
@@ -458,8 +495,10 @@ internal sealed partial class UiRecordingService(
 
                 encoder.WriteFrame(
                     processedFrame,
-                    sampleIndex * frameDurationHns,
+                    slot * frameDurationHns,
                     frameDurationHns);
+                lastSlot = slot;
+                audioTrack?.CommitVideo((slot + 1) * frameDurationHns);
                 frameIndex++;
                 if (!startedSignaled)
                 {
@@ -475,7 +514,7 @@ internal sealed partial class UiRecordingService(
             {
                 while (!ct.IsCancellationRequested)
                 {
-                    if (totalFrames.HasValue && frameIndex >= totalFrames.Value)
+                    if (totalFrames.HasValue && TimelineFrames() >= totalFrames.Value)
                     {
                         break;
                     }
@@ -612,7 +651,7 @@ internal sealed partial class UiRecordingService(
                         lastEncodedVersion = sourceVersion;
                     }
 
-                    var targetMs = frameIndex * 1000.0 / options.Fps;
+                    var targetMs = TimelineFrames() * 1000.0 / options.Fps;
                     var delayMs = targetMs - stopwatch.Elapsed.TotalMilliseconds;
                     if (delayMs > 1)
                     {
@@ -660,10 +699,17 @@ internal sealed partial class UiRecordingService(
                     "The input desktop became unavailable or changed geometry before a frame could be captured.");
             }
 
+            RecordAudioResult? audioResult = null;
             if (mp4Failure is null)
             {
                 try
                 {
+                    if (audioTrack is not null)
+                    {
+                        // The track ends where the last frame's slot ends, so both streams have one length.
+                        audioTrack.Finish(TimelineFrames() * frameDurationHns);
+                        audioResult = DescribeAudio(options.Audio, audioTrack);
+                    }
                     encoder.Complete();
                 }
                 catch (Exception ex) when (IsRecoverableVideoOutputFailure(ex))
@@ -789,6 +835,22 @@ internal sealed partial class UiRecordingService(
                 warnings ??= [];
                 warnings.AddRange(captureWarnings);
             }
+            if (audioTrack is not null)
+            {
+                if (audioTrack.Failure is { } audioFailure)
+                {
+                    warnings ??= [];
+                    warnings.Add(
+                        $"Audio capture stopped early ({audioFailure.Message}); the rest of the audio track is silent.");
+                }
+                else if (audioResult is { PeakLevel: 0 })
+                {
+                    warnings ??= [];
+                    warnings.Add(options.Audio == RecordAudioMode.App
+                        ? "The app played no sound while recording, so the audio track is silent. Use --audio system to include sound from other processes, such as Narrator."
+                        : "Nothing played any sound while recording, so the audio track is silent.");
+                }
+            }
             return new RecordCaptureResult
             {
                 Frames = frameIndex,
@@ -801,6 +863,7 @@ internal sealed partial class UiRecordingService(
                 CadenceRatio = cadenceRatio,
                 StopReason = stopReason,
                 FrameArtifacts = frameArtifacts,
+                Audio = audioResult,
                 Coordinates = coordinates,
                 Warnings = warnings?.ToArray(),
             };
@@ -832,6 +895,63 @@ internal sealed partial class UiRecordingService(
             or UnauthorizedAccessException
             or InvalidOperationException
             or ExternalException;
+
+    /// <summary>Opens the loopback stream for a recording; a seam so tests need no audio device.</summary>
+    internal static Func<RecordAudioMode, int, ILoopbackAudioSource> s_openAudioSource =
+        static (mode, processId) => LoopbackAudioCapture.Open(mode, processId);
+
+
+    /// <returns>The opened stream, or null when the recording has no audio.</returns>
+    private static ILoopbackAudioSource? OpenAudioSource(RecordOptions options, UiTarget? uiTarget, nint rootHwnd)
+    {
+        if (options.Audio == RecordAudioMode.None)
+        {
+            return null;
+        }
+        if (options.Audio == RecordAudioMode.System)
+        {
+            return s_openAudioSource(RecordAudioMode.System, 0);
+        }
+        if (uiTarget is null)
+        {
+            throw new ArgumentException(
+                "App audio needs an app to record; use RecordAudioMode.System for a desktop recording.",
+                nameof(options));
+        }
+        return s_openAudioSource(
+            RecordAudioMode.App, AudioProcessId(uiTarget.ProcessId, LoopbackAudioCapture.FindFrameContentProcess(rootHwnd)));
+    }
+
+    /// <summary>The process whose sound <c>--audio app</c> records.</summary>
+    /// <param name="windowProcessId">The process that owns the recorded window.</param>
+    /// <param name="frameContentProcessId">See <see cref="LoopbackAudioCapture.FindFrameContentProcess"/>.</param>
+    /// <remarks>
+    /// Packaged apps such as Calculator draw inside a frame owned by ApplicationFrameHost, which
+    /// plays no sound itself, so the app's own process is recorded instead.
+    /// </remarks>
+    /// <exception cref="RecordAudioUnavailableException">The window is a frame whose app can't be found.</exception>
+    internal static int AudioProcessId(int windowProcessId, int? frameContentProcessId) => frameContentProcessId switch
+    {
+        null => windowProcessId,
+        > 0 => frameContentProcessId.Value,
+        _ => throw new RecordAudioUnavailableException(
+            "Can't record only the app's audio: its window is hosted by ApplicationFrameHost and the app inside it couldn't be found.",
+            "Restore the app's window and retry, or use --audio system to record everything the machine plays."),
+    };
+
+    private static RecordAudioResult DescribeAudio(RecordAudioMode mode, AudioTrackRecorder track)
+    {
+        var format = LoopbackAudioCapture.AudioFormat;
+        return new RecordAudioResult
+        {
+            Mode = mode == RecordAudioMode.App ? "app" : "system",
+            SampleRate = format.SampleRate,
+            Channels = format.Channels,
+            Bitrate = Mp4SinkWriterEncoder.AacBytesPerSecond * 8,
+            DurationMs = AudioTimeline.FramesToHns(track.WrittenFrames, format.SampleRate) / 10_000,
+            PeakLevel = Math.Round(track.PeakLevel, 3),
+        };
+    }
 
     private static string GetFrameOutputRecoveryHint(bool videoPreserved)
         => videoPreserved

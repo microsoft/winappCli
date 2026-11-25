@@ -30,6 +30,7 @@ internal static class UiJsonError
     public const string CodeOutputExists = "output_exists";
     public const string CodeFrameOutputFailed = "frame_output_failed";
     public const string CodePartialOutput = "partial_output";
+    public const string CodeAudioUnavailable = "audio_unavailable";
 
     /// <summary>Write a JSON error envelope to stderr. No-op when <paramref name="json"/> is false.</summary>
     /// <param name="errorOut">

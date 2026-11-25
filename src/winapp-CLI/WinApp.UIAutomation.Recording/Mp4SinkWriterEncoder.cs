@@ -40,15 +40,23 @@ internal interface IVideoEncoder : IDisposable
     void Complete();
 }
 
-internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
+internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder, IAudioSampleWriter
 {
     // MF_VERSION for Windows 7+ (MF_SDK_VERSION 0x0002, MF_API_VERSION 0x0070).
     private const uint MF_VERSION = 0x00020070;
     private const uint MFSTARTUP_FULL = 0;
     private const uint MFVideoInterlace_Progressive = 2;
 
+    // AAC-LC at 192 kbps. The Media Foundation AAC encoder accepts 12000, 16000, 20000, or 24000 bytes/s.
+    internal const int AacBytesPerSecond = 24_000;
+
     private readonly IMFSinkWriter _writer;
     private readonly uint _streamIndex;
+    private readonly uint _audioStreamIndex;
+    private readonly PcmFormat? _audioFormat;
+
+    // The sink writer is fed from both the capture loop and the audio thread.
+    private readonly Lock _writeLock = new();
     private readonly uint _frameBytes;
     private readonly string _path;
     private readonly string _tempPath;
@@ -68,8 +76,10 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
     /// sink-writer/media-type native initialization and native failure cleanup arms that require
     /// faulting COM objects after creation.
     /// </remarks>
-    public Mp4SinkWriterEncoder(string path, int width, int height, int fps, uint bitrate, bool overwriteExisting = true)
+    public Mp4SinkWriterEncoder(
+        string path, int width, int height, int fps, uint bitrate, bool overwriteExisting = true, PcmFormat? audioFormat = null)
     {
+        _audioFormat = audioFormat;
         Width = width;
         Height = height;
         _path = path;
@@ -125,6 +135,11 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
             inType.SetUINT64(PInvoke.MF_MT_PIXEL_ASPECT_RATIO, PackU64(1, 1));
             _writer.SetInputMediaType(_streamIndex, inType, null);
 
+            if (audioFormat is { } audio)
+            {
+                _audioStreamIndex = AddAudioStream(_writer, audio);
+            }
+
             _writer.BeginWriting();
         }
         catch (Exception ex)
@@ -179,10 +194,73 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
 
     internal static volatile Action<string, string>? s_testPublishAtomic;
 
-    // Recording never replaces an existing file, so there is only one creation seam.
+    // Recording never replaces an existing file, so these are the only creation seams.
     internal static Func<string, int, int, int, uint, IVideoEncoder> s_createNoClobber =
         (path, width, height, fps, bitrate) => new Mp4SinkWriterEncoder(
             path, width, height, fps, bitrate, overwriteExisting: false);
+
+    /// <summary>Creates an encoder whose MP4 also carries an AAC track; it implements <see cref="IAudioSampleWriter"/>.</summary>
+    internal static Func<string, int, int, int, uint, PcmFormat, IVideoEncoder> s_createNoClobberWithAudio =
+        (path, width, height, fps, bitrate, audio) => new Mp4SinkWriterEncoder(
+            path, width, height, fps, bitrate, overwriteExisting: false, audioFormat: audio);
+
+    /// <summary>Adds an AAC output stream fed with <paramref name="audio"/> PCM.</summary>
+    /// <exception cref="RecordAudioUnavailableException">The AAC encoder is unavailable.</exception>
+    private static uint AddAudioStream(IMFSinkWriter writer, PcmFormat audio)
+    {
+        IMFMediaType? outType = null;
+        IMFMediaType? inType = null;
+        try
+        {
+            PInvoke.MFCreateMediaType(out outType).ThrowOnFailure();
+            outType.SetGUID(PInvoke.MF_MT_MAJOR_TYPE, PInvoke.MFMediaType_Audio);
+            outType.SetGUID(PInvoke.MF_MT_SUBTYPE, PInvoke.MFAudioFormat_AAC);
+            outType.SetUINT32(PInvoke.MF_MT_AUDIO_BITS_PER_SAMPLE, (uint)audio.BitsPerSample);
+            outType.SetUINT32(PInvoke.MF_MT_AUDIO_SAMPLES_PER_SECOND, (uint)audio.SampleRate);
+            outType.SetUINT32(PInvoke.MF_MT_AUDIO_NUM_CHANNELS, (uint)audio.Channels);
+            outType.SetUINT32(PInvoke.MF_MT_AUDIO_AVG_BYTES_PER_SECOND, AacBytesPerSecond);
+            writer.AddStream(outType, out var index);
+
+            PInvoke.MFCreateMediaType(out inType).ThrowOnFailure();
+            inType.SetGUID(PInvoke.MF_MT_MAJOR_TYPE, PInvoke.MFMediaType_Audio);
+            inType.SetGUID(PInvoke.MF_MT_SUBTYPE, PInvoke.MFAudioFormat_PCM);
+            inType.SetUINT32(PInvoke.MF_MT_AUDIO_BITS_PER_SAMPLE, (uint)audio.BitsPerSample);
+            inType.SetUINT32(PInvoke.MF_MT_AUDIO_SAMPLES_PER_SECOND, (uint)audio.SampleRate);
+            inType.SetUINT32(PInvoke.MF_MT_AUDIO_NUM_CHANNELS, (uint)audio.Channels);
+            inType.SetUINT32(PInvoke.MF_MT_AUDIO_BLOCK_ALIGNMENT, (uint)audio.BlockAlign);
+            inType.SetUINT32(PInvoke.MF_MT_AUDIO_AVG_BYTES_PER_SECOND, (uint)audio.BytesPerSecond);
+            writer.SetInputMediaType(index, inType, null);
+            return index;
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or ArgumentException)
+        {
+            throw new RecordAudioUnavailableException(
+                $"Can't record audio: the AAC audio encoder could not be initialized (HRESULT 0x{ex.HResult:X8}).",
+                "On Windows N/KN editions, install the Media Feature Pack (Settings > System > Optional features), or record without --audio.",
+                ex);
+        }
+        finally
+        {
+            ReleaseCom(outType);
+            ReleaseCom(inType);
+        }
+    }
+
+    /// <summary>Writes interleaved PCM to the audio track. Only valid when created with an audio format.</summary>
+    /// <remarks>Called from the audio thread while the capture loop writes video.</remarks>
+    public void WriteAudio(ReadOnlySpan<byte> pcm, long sampleTimeHns, long sampleDurationHns)
+    {
+        if (_audioFormat is null)
+        {
+            throw new InvalidOperationException("This recording has no audio track.");
+        }
+        if (pcm.IsEmpty)
+        {
+            return;
+        }
+
+        WriteSample(_audioStreamIndex, pcm, sampleTimeHns, sampleDurationHns);
+    }
 
     /// <remarks>
     /// Coverage ceiling (issue #630): descriptor mapping is unit-tested for ordinary HRESULTs; the
@@ -219,19 +297,31 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
             throw new ArgumentException($"Frame buffer is {bgra.Length} bytes; expected {_frameBytes}.", nameof(bgra));
         }
 
-        PInvoke.MFCreateMemoryBuffer(_frameBytes, out var buffer).ThrowOnFailure();
+        WriteSample(_streamIndex, bgra[..(int)_frameBytes], sampleTimeHns, sampleDurationHns);
+    }
+
+    /// <summary>Copies <paramref name="data"/> into a Media Foundation sample and writes it to a stream.</summary>
+    /// <remarks>
+    /// Coverage ceiling (issue #630): the per-sample Media Foundation buffer/sample COM error cleanup
+    /// arms require faulting native MF objects after creation and cannot be triggered safely with
+    /// managed fakes.
+    /// </remarks>
+    private void WriteSample(uint streamIndex, ReadOnlySpan<byte> data, long sampleTimeHns, long sampleDurationHns)
+    {
+        var length = (uint)data.Length;
+        PInvoke.MFCreateMemoryBuffer(length, out var buffer).ThrowOnFailure();
         try
         {
             buffer.Lock(out var dest, out _, out _);
             try
             {
-                bgra[..(int)_frameBytes].CopyTo(new Span<byte>(dest, (int)_frameBytes));
+                data.CopyTo(new Span<byte>(dest, data.Length));
             }
             finally
             {
                 buffer.Unlock();
             }
-            buffer.SetCurrentLength(_frameBytes);
+            buffer.SetCurrentLength(length);
 
             PInvoke.MFCreateSample(out var sample).ThrowOnFailure();
             try
@@ -239,12 +329,16 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
                 sample.AddBuffer(buffer);
                 sample.SetSampleTime(sampleTimeHns);
                 sample.SetSampleDuration(sampleDurationHns);
-                _writer.WriteSample(_streamIndex, sample);
+                lock (_writeLock)
+                {
+                    ObjectDisposedException.ThrowIf(_disposed || _finalized, this);
+                    _writer.WriteSample(streamIndex, sample);
+                }
             }
             finally
             {
-                // Release the per-frame sample so its native MF buffers don't accumulate
-                // across thousands of frames.
+                // Release the per-sample objects so their native MF buffers don't accumulate
+                // across thousands of samples.
                 ReleaseCom(sample);
             }
         }
@@ -257,12 +351,15 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
     /// <summary>Finalizes the MP4 container and atomically moves the temp file to the final path. Safe to call once; a no-op afterwards.</summary>
     public void Complete()
     {
-        if (_finalized)
+        lock (_writeLock)
         {
-            return;
+            if (_finalized)
+            {
+                return;
+            }
+            _writer.Finalize();
+            _finalized = true;
         }
-        _writer.Finalize();
-        _finalized = true;
 
         // Atomically publish the final path now that we have a fully valid MP4.
         // The temp file is now owned by _path.
@@ -323,7 +420,10 @@ internal sealed unsafe class Mp4SinkWriterEncoder : IVideoEncoder
         {
             return;
         }
-        _disposed = true;
+        lock (_writeLock)
+        {
+            _disposed = true;
+        }
 
         ReleaseCom(_writer);
 

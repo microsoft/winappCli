@@ -32,6 +32,7 @@ type UiRecordArgSpec = {
 
 export const UI_RECORD_ARG_SPECS: readonly UiRecordArgSpec[] = [
   { property: 'app', flag: '--app', kind: 'value' },
+  { property: 'audio', flag: '--audio', kind: 'value' },
   { property: 'captureScreen', flag: '--capture-screen', kind: 'boolean' },
   { property: 'className', flag: '--class-name', kind: 'value', keepEmpty: true },
   { property: 'cursor', flag: '--cursor', kind: 'boolean' },

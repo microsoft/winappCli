@@ -30,6 +30,7 @@ type TargetRecordArgSpec = {
 };
 
 export const TARGET_RECORD_ARG_SPECS: readonly TargetRecordArgSpec[] = [
+  { property: 'audio', flag: '--audio', kind: 'value' },
   { property: 'durationSec', flag: '--duration-sec', kind: 'value' },
   { property: 'expectSandbox', flag: '--expect-sandbox', kind: 'value', keepEmpty: true },
   { property: 'fps', flag: '--fps', kind: 'value' },

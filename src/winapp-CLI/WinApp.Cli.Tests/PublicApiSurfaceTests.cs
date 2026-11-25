@@ -79,6 +79,9 @@ public class PublicApiSurfaceTests
     [
         "IUiRecordingService",
         "Mp4EncoderInitializationException",
+        "RecordAudioMode",
+        "RecordAudioResult",
+        "RecordAudioUnavailableException",
         "RecordCaptureResult",
         "RecordFrameArtifactResult",
         "RecordFrameBundleManifest",

@@ -6,6 +6,16 @@ using WinApp.Cli.Helpers;
 
 namespace WinApp.Cli.Commands;
 
+/// <summary>The values <c>--audio</c> accepts.</summary>
+internal enum RecordAudioSource
+{
+    /// <summary>Only the recorded app and its child processes.</summary>
+    App,
+
+    /// <summary>Everything the machine plays.</summary>
+    System,
+}
+
 /// <summary>Why a set of recording options was rejected.</summary>
 /// <param name="Code">Machine-readable reason, one of <see cref="UiJsonError"/>'s codes.</param>
 /// <param name="Message">What is wrong, in the caller's terms.</param>
@@ -18,12 +28,14 @@ internal sealed record UiRecordOptionError(string Code, string Message, string? 
 /// <param name="MaxEdge">Longest output edge, after the frame-artifact default is applied.</param>
 /// <param name="DurationSec">Requested length, or 0 for "until stopped".</param>
 /// <param name="Fps">Requested cadence.</param>
+/// <param name="Audio">Which sound to record, after the bare <c>--audio</c> default is applied.</param>
 internal sealed record UiRecordResolvedOptions(
     string FilePath,
     string? FramesDirectory,
     int MaxEdge,
     int DurationSec,
-    int Fps);
+    int Fps,
+    RecordAudioMode Audio = RecordAudioMode.None);
 
 /// <summary>Validates recording options before taking a desktop turn or preparing a target.</summary>
 internal static class UiRecordOptionValidator
@@ -45,10 +57,15 @@ internal static class UiRecordOptionValidator
     /// </summary>
     /// <param name="parseResult">The parsed command line.</param>
     /// <param name="resolved">The validated options, or null when validation failed.</param>
+    /// <param name="desktop">
+    /// The recording is of a whole desktop rather than one app, so there is no app to take sound
+    /// from: a bare <c>--audio</c> means system sound and <c>--audio app</c> is refused.
+    /// </param>
     /// <returns>The first problem found, or null when the request is usable.</returns>
     public static UiRecordOptionError? Validate(
         ParseResult parseResult,
-        out UiRecordResolvedOptions? resolved)
+        out UiRecordResolvedOptions? resolved,
+        bool desktop = false)
     {
         ArgumentNullException.ThrowIfNull(parseResult);
 
@@ -61,6 +78,15 @@ internal static class UiRecordOptionValidator
         var output = parseResult.GetValue(SharedUiOptions.OutputOption);
         var frames = parseResult.GetValue(UiRecordCommand.FramesOption);
         var overwrite = parseResult.GetValue(UiRecordCommand.OverwriteOption);
+        var audio = ResolveAudio(parseResult, desktop);
+
+        if (audio == RecordAudioMode.App && desktop)
+        {
+            return new UiRecordOptionError(
+                UiJsonError.CodeInvalidArguments,
+                "--audio app records one app's sound, but this records the whole desktop.",
+                "Use --audio system to record everything the desktop plays.");
+        }
 
         if (durationSec < 0)
         {
@@ -145,8 +171,32 @@ internal static class UiRecordOptionValidator
             return Invalid($"Invalid output path: {ex.Message}");
         }
 
-        resolved = new UiRecordResolvedOptions(filePath, framesDirectory, maxEdge, durationSec, fps);
+        resolved = new UiRecordResolvedOptions(filePath, framesDirectory, maxEdge, durationSec, fps, audio);
         return null;
+    }
+
+    /// <summary>
+    /// Whether a token after <c>--audio</c> is its value. Anything else, such as a selector, is left
+    /// for the rest of the command line and the <c>--audio</c> is bare.
+    /// </summary>
+    internal static bool TryParseAudioSource(string token, out RecordAudioSource source) =>
+        Enum.TryParse(token, ignoreCase: true, out source) && Enum.IsDefined(source);
+
+    /// <summary>Which sound <c>--audio</c> asks for; a bare <c>--audio</c> means app sound unless recording a desktop.</summary>
+    internal static RecordAudioMode ResolveAudio(ParseResult parseResult, bool desktop)
+    {
+        var result = parseResult.GetResult(UiRecordCommand.AudioOption);
+        if (result is null || result.Implicit)
+        {
+            return RecordAudioMode.None;
+        }
+
+        return parseResult.GetValue(UiRecordCommand.AudioOption) switch
+        {
+            RecordAudioSource.App => RecordAudioMode.App,
+            RecordAudioSource.System => RecordAudioMode.System,
+            _ => desktop ? RecordAudioMode.System : RecordAudioMode.App,
+        };
     }
 
     private static UiRecordOptionError Invalid(string message) =>

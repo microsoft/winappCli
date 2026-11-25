@@ -204,6 +204,10 @@ internal sealed class UiRecordResult
     public double CadenceRatio { get; set; }
     public string StopReason { get; set; } = "";
     public RecordFrameArtifactResult? FrameArtifacts { get; set; }
+
+    /// <summary>The audio track, when <c>--audio</c> was given. Omitted for a video-only recording.</summary>
+    public RecordAudioResult? Audio { get; set; }
+
     public string[]? Warnings { get; set; }
 
     /// <summary>
@@ -226,6 +230,9 @@ internal sealed class UiRecordStartedEvent
     public string? FramesDirectory { get; set; }
     public string? FramesManifest { get; set; }
     public string? FramesIndex { get; set; }
+
+    /// <summary>"app" or "system" when the recording carries audio; omitted otherwise.</summary>
+    public string? Audio { get; set; }
 }
 
 internal sealed class UiWaitForResult

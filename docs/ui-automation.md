@@ -597,6 +597,9 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 
 # Show the mouse pointer and a ring at each click
 winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
+
+# Also record the app's sound
+winapp ui record -a myapp --audio --duration-sec 10 --output with-sound.mp4
 ```
 
 **Options:**
@@ -609,6 +612,7 @@ winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
 - `--frames` — Write timestamped JPEG evidence to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280). Frame data is capped at 1 GiB; the MP4 continues if the cap is reached.
 - `--cursor` — Draw the mouse pointer into the video, as the user sees it, with a short colored ring where each click happens (yellow for left, blue for right, purple for other buttons). Off by default.
 - `--no-click-highlight` — With `--cursor`, draw the pointer but no click rings.
+- `--audio [app|system]` — Also record sound into the MP4. See [Recording sound](#recording-sound).
 
 **Agent-readable frame artifacts:**
 
@@ -656,6 +660,37 @@ recordings and whole-desktop capture.
 The mode describes the selected window's capture backend. A WGC window recording remains
 `wgc` when an included menu or tooltip uses PrintWindow.
 
+#### Recording sound
+
+```powershell
+winapp ui record -a myapp --audio --duration-sec 10 --output with-sound.mp4
+winapp ui record -a myapp --audio system --duration-sec 10 --output with-narrator.mp4
+winapp ui record --on sandbox -a myapp --audio --duration-sec 10 --output sandbox.mp4
+```
+
+`--audio` adds an AAC track (48 kHz stereo) to the same MP4, in sync with the video. Without it,
+recordings have no sound. Its value is optional, so put a selector before `--audio`, not right
+after it: `winapp ui record btn-save-1234 -a myapp --audio`.
+
+| You pass | What's recorded |
+|----------|-----------------|
+| `--audio` or `--audio app` | Only the target app and its child processes. Needs Windows 10 build 20348 or Windows 11. |
+| `--audio system` | Everything this machine plays: Narrator, notifications, music, and other apps. |
+| `--audio` with `--on sandbox` | Everything the Sandbox plays, including Narrator, and nothing from your PC. |
+
+Narrator runs in its own process, so use `--audio system` (or the Sandbox default) to hear it.
+When nothing plays, the track is silence for those moments, so it always lasts as long as the video.
+
+With `--json`, the result has an `audio` object:
+
+```json
+"audio": { "mode": "system", "codec": "aac", "sampleRate": 48000, "channels": 2, "bitrate": 192000, "durationMs": 10000, "peakLevel": 0.96 }
+```
+
+`peakLevel` is the loudest moment, from 0 to 1. A `peakLevel` of 0 means nothing was heard, and
+`warnings` says so. If the sound can't be recorded at all (no playback device, or Windows too old
+for `app`), the command fails with `audio_unavailable` and a `recoveryHint`, and writes no video.
+
 #### Menus and flyouts in recordings
 
 ```powershell
@@ -680,7 +715,7 @@ whenever they are open. No flag is needed.
 Screenshots show the same popups as separate labeled panels instead; see [screenshot](#screenshot).
 
 **JSON output (`--json`):**
-- **stdout:** Final recording result, including cadence, stop reason, optional `frameArtifacts`, and warnings.
+- **stdout:** Final recording result, including cadence, stop reason, optional `frameArtifacts` and `audio`, and warnings.
 - **stderr:** One JSON object per line: a `recording-started` event after the first frame, followed by an error if recording later fails. Frame paths are included only when frame output is active.
 
 **Error codes:**
@@ -690,6 +725,7 @@ Screenshots show the same popups as separate labeled panels instead; see [screen
 - `output_exists` — A recording output already exists and cannot be replaced under the requested options.
 - `frame_output_failed` — Neither artifact could be preserved after frame output failed.
 - `partial_output` — Only one artifact completed; inspect `partialOutput` and `recoveryHint`.
+- `audio_unavailable` — `--audio` was given but the sound can't be recorded; no video was written. Follow `recoveryHint`.
 
 An element selector records that element's region from the window it is drawn in. For an item in a
 menu, flyout, tooltip, or teaching tip that opens in its own popup window, the recording shows the

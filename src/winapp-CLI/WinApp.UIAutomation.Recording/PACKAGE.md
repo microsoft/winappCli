@@ -69,6 +69,12 @@ Set `RecordOptions.Cursor` to draw the mouse pointer into every frame, in any ca
 short ring at each click. Set `RecordOptions.ClickHighlight` to `false` to keep the pointer without
 rings. With a frame bundle, each `frames.ndjson` line also carries `cursor` and `clicks`.
 
+Set `RecordOptions.Audio` to add an AAC track to the same MP4: `RecordAudioMode.App` records the
+target process tree (Windows 10 build 20348 or later), and `RecordAudioMode.System` records
+everything the default playback device plays. `RecordCaptureResult.Audio` describes the track. When
+the sound can't be captured, recording throws `RecordAudioUnavailableException` before any file is
+written.
+
 ## Whole-desktop recording
 
 Call `IUiRecordingService.RecordDesktopAsync(options, cancellationToken)` to record the calling
