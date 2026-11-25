@@ -161,6 +161,20 @@ public partial class TargetUiRoutingTests
     }
 
     [TestMethod]
+    public void Relay_StreamsTheDesktopNoticeButHoldsOtherDiagnostics()
+    {
+        var artifact = RecordingArtifact("notice.mp4");
+        using var errors = new StringWriter();
+        var relay = new ExecutionTargetUiRouter.ArtifactErrorRelay(errors, artifact);
+
+        relay.Write(Encoding.UTF8.GetBytes($"{UiRecordCommand.DesktopNoticePrefix}, and anything they bring on screen may appear in the video.\n"));
+        relay.Write(Encoding.UTF8.GetBytes("Recorded 10 frames\n"));
+
+        Assert.StartsWith(UiRecordCommand.DesktopNoticePrefix, errors.ToString(), "the warning must reach the host while it records");
+        Assert.DoesNotContain("Recorded 10 frames", errors.ToString());
+    }
+
+    [TestMethod]
     public async Task Router_StoppedRecordingPublishesBeforeReportingSuccessAndRemovingGuestEvidence()
     {
         await using var harness = new Harness(_guestManaged);

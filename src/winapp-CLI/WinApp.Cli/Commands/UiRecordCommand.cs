@@ -36,6 +36,9 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
 
     public string ShortDescription => "Record a window or element region to MP4";
 
+    /// <summary>How the "others can use the desktop" notice starts, so routed output can stream it.</summary>
+    internal const string DesktopNoticePrefix = "Other commands can use the desktop while this records";
+
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp ui record -a <app> --duration-sec 10 -o demo.mp4",
@@ -667,7 +670,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
             var appears = mode == "screen"
                 ? "anything they bring on screen may appear in the video"
                 : "their activity in this window may appear in the video";
-            return $"Other commands can use the desktop while this records, and {appears}. " +
+            return $"{DesktopNoticePrefix}, and {appears}. " +
                 $"Set {UiOwnerResolver.WorkflowIdVariable} on this and the commands you want to capture to keep the desktop to yourself.";
         }
 

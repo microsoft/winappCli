@@ -47,7 +47,8 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
     /// it is needed rather than only in <c>ui record --help</c>.
     /// </summary>
     internal const string RecordingHint =
-        "To record this: start 'winapp ui record' first, then run this command; its activity appears in the video. " +
+        "To record this: start 'winapp ui record' first, then run this command; its activity appears in the video " +
+        "(unless the recording says it holds the desktop). " +
         "To keep other workflows off the desktop while you record, set the same WINAPP_UI_WORKFLOW_ID on both commands.";
 
     /// <summary>Whether <paramref name="command"/> changes the app, so a recording can capture it.</summary>

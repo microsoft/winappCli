@@ -85,31 +85,23 @@ public partial class InteractiveDesktopLockTests
     [TestMethod]
     public async Task HandOff_UnderAWorkflowId_KeepsTheTurnSoOtherWorkflowsStillWait()
     {
-        FileStream? waitingLease = null;
-        try
+        await RunAsync(UiTurnMode.TurnShared, "ui record", async (turn, ct) =>
         {
-            await RunAsync(UiTurnMode.TurnShared, "ui record", async (turn, ct) =>
+            Assert.IsTrue(turn.HasWorkflowId);
+            using var waitingLease = QueueForeignWorkflow();
+
+            Assert.IsFalse(await turn.HandOffAnonymousTurnAsync(ct));
+
+            var during = ReadState();
+            Assert.AreNotEqual("a-waiting-workflow", during.Owner?.Key, "the workflow keeps its turn");
+            Assert.AreEqual(1, during.Waiters.Count, "the other workflow still waits");
+
+            // The command still holds its turn, so it may still take the desktop.
+            await using (await turn.EnterAsync(ct))
             {
-                Assert.IsTrue(turn.HasWorkflowId);
-                waitingLease = QueueForeignWorkflow();
+            }
 
-                Assert.IsFalse(await turn.HandOffAnonymousTurnAsync(ct));
-
-                var during = ReadState();
-                Assert.AreNotEqual("a-waiting-workflow", during.Owner?.Key, "the workflow keeps its turn");
-                Assert.AreEqual(1, during.Waiters.Count, "the other workflow still waits");
-
-                // The command still holds its turn, so it may still take the desktop.
-                await using (await turn.EnterAsync(ct))
-                {
-                }
-
-                return 0;
-            });
-        }
-        finally
-        {
-            waitingLease?.Dispose();
-        }
+            return 0;
+        });
     }
 }

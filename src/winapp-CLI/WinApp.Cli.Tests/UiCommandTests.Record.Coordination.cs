@@ -169,7 +169,7 @@ public partial class UiCommandTests
         var finishRecording = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _fakeRecording.WaitAfterRecordingStarted = finishRecording.Task;
 
-        string[] args = ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, $"handoff-{mode}.mp4"), "--json"];
+        string[] args = ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Join(_tempDirectory.FullName, $"handoff-{mode}.mp4"), "--json"];
         var command = GetRequiredService<UiRecordCommand>();
         var invocation = ParseAndInvokeWithCaptureAsync(command, captureScreen ? [.. args, "--capture-screen"] : args);
 
@@ -195,7 +195,7 @@ public partial class UiCommandTests
 
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(
-            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "pw-hold.mp4"), "--json"]);
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Join(_tempDirectory.FullName, "pw-hold.mp4"), "--json"]);
 
         Assert.AreEqual(0, exitCode);
         Assert.IsEmpty(_fakeDesktopLock.HandOffs);
@@ -217,7 +217,7 @@ public partial class UiCommandTests
         _fakeWindowCapture.Supported = true;
         _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 2, Width = 100, Height = 100, Mode = captureScreen ? "screen" : "wgc" };
 
-        string[] args = ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "notice.mp4")];
+        string[] args = ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Join(_tempDirectory.FullName, "notice.mp4")];
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, captureScreen ? [.. args, "--capture-screen"] : args);
 
@@ -245,7 +245,7 @@ public partial class UiCommandTests
         var command = GetRequiredService<UiRecordCommand>();
 
         var exitCode = await ParseAndInvokeWithCaptureAsync(
-            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "notice-json.mp4"), "--json"]);
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Join(_tempDirectory.FullName, "notice-json.mp4"), "--json"]);
 
         Assert.AreEqual(0, exitCode);
         using (var result = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output))
@@ -262,7 +262,7 @@ public partial class UiCommandTests
 
         ConsoleStdErr.GetStringBuilder().Clear();
         exitCode = await ParseAndInvokeWithCaptureAsync(
-            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "notice-quiet.mp4"), "--quiet"]);
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Join(_tempDirectory.FullName, "notice-quiet.mp4"), "--quiet"]);
 
         Assert.AreEqual(0, exitCode);
         Assert.DoesNotContain("Other commands can use the desktop", ConsoleStdErr.ToString());
