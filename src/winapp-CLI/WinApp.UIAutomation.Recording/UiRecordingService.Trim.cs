@@ -86,8 +86,15 @@ internal sealed partial class UiRecordingService
             return size;
         }
         var scale = Math.Sqrt(MaxEncoderMacroblocks * 256.0 / ((double)size.EncoderW * size.EncoderH));
-        // Shrink a little past the exact scale, so rounding each edge up to a whole macroblock still fits.
-        return ComputeTargetSize(width, height, Math.Max(64, (int)(Math.Max(size.EncoderW, size.EncoderH) * scale) - 32));
+        var edge = Math.Max(64, (int)(Math.Max(size.EncoderW, size.EncoderH) * scale));
+        // Rounding each edge up to a whole macroblock can still overshoot; shrink until it fits.
+        do
+        {
+            size = ComputeTargetSize(width, height, edge);
+            edge -= 16;
+        }
+        while (edge > 64 && Macroblocks(size.EncoderW, size.EncoderH) > MaxEncoderMacroblocks);
+        return size;
     }
 
     /// <summary>Maps a rectangle in a recorded frame to video pixels, rounding outward.</summary>

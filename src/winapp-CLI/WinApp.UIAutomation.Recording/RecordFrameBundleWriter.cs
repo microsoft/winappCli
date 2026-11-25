@@ -473,7 +473,9 @@ internal sealed class RecordFrameBundleWriter : IRecordFrameSink
         foreach (var path in Directory.EnumerateFiles(_framesDirectory, "*.jpg"))
         {
             byte[] pixels;
-            using (var decoded = SKBitmap.Decode(path) ?? throw new IOException($"Could not read frame image {path}."))
+            // Decode from a .NET stream: Skia's own file API doesn't handle long paths.
+            using (var file = File.OpenRead(path))
+            using (var decoded = SKBitmap.Decode(file) ?? throw new IOException($"Could not read frame image {path}."))
             using (var bgra = decoded.Copy(SKColorType.Bgra8888) ?? throw new IOException($"Could not convert frame image {path}."))
             {
                 if (bgra.Width != trim.SourceWidth || bgra.Height != trim.SourceHeight)

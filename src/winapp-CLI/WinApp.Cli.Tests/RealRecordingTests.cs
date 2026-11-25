@@ -328,6 +328,10 @@ public partial class RealRecordingTests
         Assert.AreEqual(3366.0 / 2874, (double)w / h, 0.01, "aspect ratio is kept");
         var (smallW, smallH, _, _) = UiRecordingService.ComputeEncodableTargetSize(1446, 1034, 0);
         Assert.AreEqual((1446, 1034), (smallW, smallH));
+
+        // A wide frame where a single size-reduction step still rounds up past the limit.
+        var (wideW, wideH, _, _) = UiRecordingService.ComputeEncodableTargetSize(5724, 1636, 0);
+        Assert.IsLessThanOrEqualTo(UiRecordingService.MaxEncoderMacroblocks, ((wideW + 15) / 16) * ((wideH + 15) / 16));
     }
 
     [TestMethod]
