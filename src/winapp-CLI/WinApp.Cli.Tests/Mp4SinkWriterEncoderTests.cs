@@ -39,51 +39,77 @@ public class Mp4SinkWriterEncoderTests
     }
 
     [TestMethod]
-    public void Mp4Trimmer_KeepsOnlyThePlannedAreaAtItsOriginalPosition()
+    public void Mp4Trimmer_JoinsWindowAndPaddedRecordingsIntoOneSize()
     {
-        // A 128x96 recording: a red 64x64 "window" at (32, 16) on black. Trimming to the window must give a
-        // 64x64 video that is all red, upright and unscaled.
+        // The window recording (64x64 red) covers the frames before a menu opened; the padded recording
+        // (128x96: the red window at (32, 16), a blue menu above it) covers the rest from frame 10 on. The joined
+        // video is cut to the window plus the menu, 64x80, and the early frames show the background where the
+        // menu will be.
         var dir = CreateScratchDirectory();
         try
         {
-            var source = Path.Join(dir, "padded.mp4");
-            var frame = new byte[128 * 96 * 4];
-            for (var y = 16; y < 80; y++)
+            var windowVideo = Path.Join(dir, "window.mp4");
+            var paddedVideo = Path.Join(dir, "padded.mp4");
+            using (var encoder = new Mp4SinkWriterEncoder(windowVideo, 64, 64, 1, 4_000_000))
             {
-                for (var x = 32; x < 96; x++)
-                {
-                    frame[((y * 128) + x) * 4 + 2] = 255;
-                    frame[((y * 128) + x) * 4 + 3] = 255;
-                }
+                WritePastEncoderLookahead(encoder, Fill(64, 64, (0, 0, 64, 64, Red)));
+                encoder.Complete();
             }
-            using (var encoder = new Mp4SinkWriterEncoder(source, 128, 96, 1, 4_000_000))
+            using (var encoder = new Mp4SinkWriterEncoder(paddedVideo, 128, 96, 1, 8_000_000))
             {
-                WritePastEncoderLookahead(encoder, frame);
+                WritePastEncoderLookahead(encoder, Fill(128, 96, (32, 16, 96, 80, Red), (32, 0, 96, 16, Blue)));
                 encoder.Complete();
             }
 
             var trimmed = Path.Join(dir, "trimmed.mp4");
-            Mp4Trimmer.Trim(source, trimmed, new RecordTrimPlan(128, 96, 32, 16, 64, 64, 64, 64, 64, 64), fps: 1);
+            var sources = new RecordTrimSources(paddedVideo, PaddedStartFrame: 10,
+                UiRecordingService.PlanWindowCrop(new(32, 16, 96, 80), 128, 96), Background: 0x00FF00) { WindowVideo = windowVideo };
+            Mp4Trimmer.Trim(sources, trimmed, new RecordTrimPlan(128, 96, 32, 0, 64, 80, 64, 80, 64, 80), fps: 1);
 
-            var frames = Mp4Trimmer.ReadFrames(trimmed, 64, 64).ToList();
-            Assert.HasCount(FramesPastEncoderLookahead, frames);
-            var pixels = frames[^1].Pixels;
-            foreach (var (x, y) in new[] { (2, 2), (61, 2), (2, 61), (61, 61), (32, 32) })
-            {
-                var i = ((y * 64) + x) * 4;
-                Assert.IsGreaterThan(200, pixels[i + 2], $"red at ({x}, {y})");
-                Assert.IsLessThan(50, pixels[i + 1], $"no green at ({x}, {y})");
-                Assert.IsLessThan(50, pixels[i], $"no blue at ({x}, {y})");
-            }
-            // The source file must be closed once trimming finishes, so the recorder can replace it.
-            File.Delete(source);
+            var frames = Mp4Trimmer.ReadFrames(trimmed, 64, 80).ToList();
+            Assert.HasCount(10 + FramesPastEncoderLookahead, frames);
+            AssertColor(frames[0].Pixels, 32, 4, Green, "background above the window, before the menu opened");
+            AssertColor(frames[0].Pixels, 32, 40, Red, "window, before the menu opened");
+            AssertColor(frames[^1].Pixels, 32, 4, Blue, "menu");
+            AssertColor(frames[^1].Pixels, 32, 40, Red, "window");
+            // Both recordings must be closed once joining finishes, so the recorder can replace them.
+            File.Delete(windowVideo);
+            File.Delete(paddedVideo);
         }
         finally
         {
             Directory.Delete(dir, recursive: true);
         }
+
+        static void AssertColor(byte[] pixels, int x, int y, (byte B, byte G, byte R) expected, string what)
+        {
+            var i = ((y * 64) + x) * 4;
+            Assert.IsLessThan(60, Math.Abs(pixels[i] - expected.B), $"{what}: blue");
+            Assert.IsLessThan(60, Math.Abs(pixels[i + 1] - expected.G), $"{what}: green");
+            Assert.IsLessThan(60, Math.Abs(pixels[i + 2] - expected.R), $"{what}: red");
+        }
     }
 
+    private static readonly (byte B, byte G, byte R) Red = (0, 0, 255);
+    private static readonly (byte B, byte G, byte R) Green = (0, 255, 0);
+    private static readonly (byte B, byte G, byte R) Blue = (255, 0, 0);
+
+    private static byte[] Fill(int width, int height, params (int Left, int Top, int Right, int Bottom, (byte B, byte G, byte R) Color)[] areas)
+    {
+        var pixels = new byte[width * height * 4];
+        foreach (var (left, top, right, bottom, (b, g, r)) in areas)
+        {
+            for (var y = top; y < bottom; y++)
+            {
+                for (var x = left; x < right; x++)
+                {
+                    var i = ((y * width) + x) * 4;
+                    (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]) = (b, g, r, 255);
+                }
+            }
+        }
+        return pixels;
+    }
     [TestMethod]
     public void Mp4SinkWriterEncoder_PublishAtomic_MovesNewDestination()
     {

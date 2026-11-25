@@ -166,6 +166,9 @@ internal sealed partial class UiRecordingService(
         IFrameGrabber? grabber = null;
         RecordFrameArtifactCoordinator? frameOutput = null;
         RecordCursorOverlay? cursorOverlay = null;
+        // Padded frames recorded once a popup reaches past the window, with automatic padding.
+        IVideoEncoder? paddedEncoder = null;
+        string? paddedPath = null;
         var wgcCaptureHwnd = rootHwnd;
 
         try
@@ -183,7 +186,12 @@ internal sealed partial class UiRecordingService(
             {
                 try
                 {
-                    grabber = _windowCapture.StartFrameGrabber(rootHwnd, options.Fps);
+                    // Whole-window recordings leave room around the window for popups, unless padding is 0.
+                    var popupMargin = !string.IsNullOrEmpty(elementId) ? 0
+                        : options.Padding ?? AutoPopupMargin;
+                    grabber = popupMargin > 0
+                        ? _windowCapture.StartFrameGrabber(rootHwnd, options.Fps, popupMargin, fixedMargin: options.Padding is not null)
+                        : _windowCapture.StartFrameGrabber(rootHwnd, options.Fps);
                     var first = await grabber.GetFrameAsync(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false)
                         ?? throw new InvalidOperationException("Timed out waiting for the first captured frame.");
                     srcWidth = first.Width;
@@ -334,13 +342,19 @@ internal sealed partial class UiRecordingService(
             }
 
             var mode = useScreen ? "screen" : grabber?.RootCaptureBackend ?? "printwindow";
-            // A whole-window recording with room for popups is trimmed to the area actually used once it ends.
-            // Until then the video is the window plus its empty border, scaled so the window itself meets
-            // --max-edge; the trim scales down further only if popups made the used area bigger than that.
-            var trimToContent = isWholeWindowWgc && windowInFrame is not null;
-            var (encoderW, encoderH, displayW, displayH) = trimToContent
+            // Whole-window frames can carry an empty border around the window for its popups. The border is
+            // scaled with the window, so --max-edge applies to the window itself, not to the border.
+            var padded = isWholeWindowWgc && windowInFrame is not null;
+            // Automatic padding records the window as usual and, only once a popup reaches past the window,
+            // also records the padded frames; the two are joined and trimmed to the used area at the end.
+            var autoPadding = padded && options.Padding is null;
+            int? background = isWholeWindowWgc ? options.BackgroundColor : null;
+            var (encoderW, encoderH, displayW, displayH) = padded
                 ? ComputePaddedTargetSize(cropW, cropH, windowInFrame!.Value, options.MaxEdge)
                 : ComputeTargetSize(cropW, cropH, options.MaxEdge);
+            var windowCrop = autoPadding
+                ? PlanWindowCrop(MapToVideo(windowInFrame!.Value, cropW, cropH, encoderW, encoderH, displayW, displayH), encoderW, encoderH)
+                : null;
             var coordinates = desktopBounds is { } sourceBounds
                 ? DescribeCoordinates(sourceBounds, encoderW, encoderH, displayW, displayH)
                 : null;
@@ -360,10 +374,7 @@ internal sealed partial class UiRecordingService(
                 }
                 ct.ThrowIfCancellationRequested();
             }
-            // A recording that will be trimmed is encoded twice, so the first pass gets more bits to keep text sharp.
-            var bitrate = trimToContent
-                ? IntermediateBitrate(encoderW, encoderH, options.Fps)
-                : VideoBitrate(encoderW, encoderH, options.Fps);
+            var bitrate = VideoBitrate(windowCrop?.OutputWidth ?? encoderW, windowCrop?.OutputHeight ?? encoderH, options.Fps);
 
             // Last foreground check before any file exists. The earlier one ran right after the
             // activation delay; selector resolution between the two can take long enough for another
@@ -383,8 +394,12 @@ internal sealed partial class UiRecordingService(
             }
 
             // Replacements are staged by RecordAsync; the encoder never clobbers its destination.
+            // With automatic padding this records just the window, which is the final video unless a popup
+            // reaches past the window.
             using var encoder = Mp4SinkWriterEncoder.s_createNoClobber(
-                options.OutputPath, encoderW, encoderH, options.Fps, bitrate);
+                options.OutputPath, windowCrop?.OutputWidth ?? encoderW, windowCrop?.OutputHeight ?? encoderH, options.Fps, bitrate);
+            paddedPath = Path.Join(Path.GetDirectoryName(Path.GetFullPath(options.OutputPath)), $".{Guid.NewGuid():N}.padded.mp4");
+            var paddedStartFrame = 0;
 
             var frameDurationHns = 10_000_000L / options.Fps;
             var totalFrames = options.DurationSec > 0 ? (long)options.DurationSec * options.Fps : (long?)null;
@@ -432,17 +447,26 @@ internal sealed partial class UiRecordingService(
                 return (visible.Left - initialWindowOrigin.X, visible.Top - initialWindowOrigin.Y);
             }
 
-            // The part of the video that ever showed the window or a popup, in video pixels.
+            // The part of the padded video that ever showed the window or a popup, in video pixels.
             PointerRect? usedArea = null;
             void TrackUsedArea(int sourceWidth, int sourceHeight)
             {
-                if (!trimToContent)
+                if (!autoPadding)
                 {
                     return;
                 }
                 var content = grabber!.ContentBounds ?? new PointerRect(0, 0, sourceWidth, sourceHeight);
                 var inVideo = MapToVideo(content, sourceWidth, sourceHeight, encoderW, encoderH, displayW, displayH);
                 usedArea = usedArea is { } soFar ? Union(soFar, inVideo) : inVideo;
+
+                // The first time a popup reaches past the window, start recording the padded frames too.
+                if (paddedEncoder is null && grabber.WindowBounds is { } window && !Contains(window, content))
+                {
+                    paddedStartFrame = frameIndex;
+                    paddedEncoder = Mp4SinkWriterEncoder.s_createNoClobber(
+                        paddedPath!, encoderW, encoderH, options.Fps, IntermediateBitrate(encoderW, encoderH, options.Fps));
+                    _logger.LogDebug("A popup reached past the window at frame {Frame}; recording the padded frames too", frameIndex);
+                }
             }
 
             // The capture clock starts here, after frame artifact setup has created its staging
@@ -488,10 +512,18 @@ internal sealed partial class UiRecordingService(
                     }).ConfigureAwait(false);
                 }
 
-                encoder.WriteFrame(
-                    processedFrame,
-                    sampleIndex * frameDurationHns,
-                    frameDurationHns);
+                if (windowCrop is not null)
+                {
+                    encoder.WriteFrame(windowCrop.Apply(processedFrame), sampleIndex * frameDurationHns, frameDurationHns);
+                    paddedEncoder?.WriteFrame(processedFrame, sampleIndex * frameDurationHns, frameDurationHns);
+                }
+                else
+                {
+                    encoder.WriteFrame(
+                        processedFrame,
+                        sampleIndex * frameDurationHns,
+                        frameDurationHns);
+                }
                 frameIndex++;
                 if (!startedSignaled)
                 {
@@ -530,15 +562,15 @@ internal sealed partial class UiRecordingService(
                             {
                                 var closedCropW = isWholeWindowWgc ? closedSw : cropW;
                                 var closedCropH = isWholeWindowWgc ? closedSh : cropH;
+                                TrackUsedArea(closedSw, closedSh);
                                 var closedFrame = ProcessFrame(
                                     closedSrc, closedSw, closedSh,
                                     cropX, cropY, closedCropW, closedCropH,
-                                    encoderW, encoderH, displayW, displayH);
+                                    encoderW, encoderH, displayW, displayH, background);
                                 await CommitFrameAsync(
                                     closedFrame,
                                     ClampCropRect(cropX, cropY, closedCropW, closedCropH, closedSw, closedSh),
                                     sharesSourceBuffer: ReferenceEquals(closedFrame, closedSrc)).ConfigureAwait(false);
-                                TrackUsedArea(closedSw, closedSh);
                             }
                         }
                         targetClosed = true;
@@ -572,7 +604,7 @@ internal sealed partial class UiRecordingService(
                             source, sw, sh, frameCrop.X, frameCrop.Y,
                             frameCrop.Width,
                             frameCrop.Height,
-                            encoderW, encoderH, displayW, displayH);
+                            encoderW, encoderH, displayW, displayH, background);
                         sharesSourceBuffer = ReferenceEquals(frame, source);
                         TrackUsedArea(sw, sh);
                     }
@@ -706,32 +738,42 @@ internal sealed partial class UiRecordingService(
                 }
             }
 
-            // Cut the empty border around the window and its popups, once, now that the whole recording is known.
-            var trim = trimToContent && usedArea is { } used
-                ? PlanTrim(used, encoderW, encoderH, options.MaxEdge)
-                : null;
+            // Join the window recording and the padded frames recorded after a popup reached past the window,
+            // then cut the result once to the window plus those popups. Without such a popup the window
+            // recording is already the final video and nothing is re-encoded.
+            RecordTrimPlan? trim = null;
             string? trimWarning = null;
-            if (trim is not null && mp4Failure is null)
+            if (paddedEncoder is not null && mp4Failure is null)
             {
                 try
                 {
-                    // The finished file stays open until its writer is released.
+                    paddedEncoder.Complete();
+                    trim = PlanTrim(usedArea!.Value, encoderW, encoderH, options.MaxEdge);
+                    // The finished files stay open until their writers are released.
                     encoder.Dispose();
+                    paddedEncoder.Dispose();
                     var trimClock = Stopwatch.StartNew();
-                    TrimRecording(options.OutputPath, trim, options.Fps);
+                    TrimRecording(options.OutputPath, trim!, options.Fps, new RecordTrimSources(
+                        paddedPath!, paddedStartFrame, windowCrop!, background ?? 0));
                     _logger.LogDebug("Trimmed {Frames} frames to {Width}x{Height} in {Ms} ms",
-                        frameIndex, trim.OutputWidth, trim.OutputHeight, trimClock.ElapsedMilliseconds);
+                        frameIndex, trim!.OutputWidth, trim.OutputHeight, trimClock.ElapsedMilliseconds);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException && IsRecoverableVideoOutputFailure(ex))
                 {
-                    _logger.LogDebug(ex, "Could not trim the recording to its used area");
-                    trimWarning = "The recording could not be trimmed to the window and its menus, so it keeps an " +
-                        $"empty border around the window: {ex.Message}";
+                    _logger.LogDebug(ex, "Could not add the menus that reached past the window");
+                    trimWarning = "A menu or other popup reached past the window, but the recording could not be " +
+                        $"widened to show it, so it is cut off at the window's edge: {ex.Message}";
                     trim = null;
                 }
             }
-            var videoWidth = trim?.OutputWidth ?? encoderW;
-            var videoHeight = trim?.OutputHeight ?? encoderH;
+            if (options.Padding > 0 && !useWgc && !useScreen && string.IsNullOrEmpty(elementId))
+            {
+                trimWarning = "--padding needs Windows Graphics Capture, which isn't available here, so only the window was recorded.";
+            }
+            // Frame images are padded frames; cut them to whatever the final video shows.
+            var frameTrim = trim ?? windowCrop;
+            var videoWidth = trim?.OutputWidth ?? windowCrop?.OutputWidth ?? encoderW;
+            var videoHeight = trim?.OutputHeight ?? windowCrop?.OutputHeight ?? encoderH;
 
             var elapsedMs = captureElapsedMs;
             var achievedFps = frameIndex * 1000.0 / elapsedMs;
@@ -766,7 +808,7 @@ internal sealed partial class UiRecordingService(
                             VideoFrameCount = frameIndex,
                             // Reserve canonical .frames for successful MP4 pairs.
                             PublicationDirectory = $"{options.FramesDirectory}.partial-{Guid.NewGuid():N}",
-                            Trim = trim,
+                            Trim = frameTrim,
                         }).ConfigureAwait(false);
                 }
 
@@ -806,7 +848,7 @@ internal sealed partial class UiRecordingService(
                         VideoStatus = "complete",
                         VideoFrameCount = frameIndex,
                         VideoFileSize = fileSize,
-                        Trim = trim,
+                        Trim = frameTrim,
                     }).ConfigureAwait(false);
             }
 
@@ -892,6 +934,11 @@ internal sealed partial class UiRecordingService(
             }
             grabber?.Dispose();
             cursorOverlay?.Dispose();
+            paddedEncoder?.Dispose();
+            if (paddedPath is not null && File.Exists(paddedPath))
+            {
+                File.Delete(paddedPath);
+            }
         }
     }
 

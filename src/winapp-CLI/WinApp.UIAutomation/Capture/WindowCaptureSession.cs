@@ -48,14 +48,6 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
     private PointerRect? _latestWindowBounds;
     private PointerRect? _latestContentBounds;
 
-    /// <summary>
-    /// How far, in pixels, a recording leaves room for menus and flyouts past each edge of the window. Typical
-    /// WinUI menus, dropdowns and teaching tips are 100-400 pixels tall, and they open next to the control
-    /// that shows them, so this covers them. Each side is also limited to the monitor edge, since a popup
-    /// can't open beyond the screen.
-    /// </summary>
-    internal const int DefaultPopupMargin = 400;
-
     internal readonly record struct CanvasMargins(int Left, int Top, int Right, int Bottom)
     {
         internal bool IsEmpty => Left == 0 && Top == 0 && Right == 0 && Bottom == 0;
@@ -78,14 +70,19 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
             () => _discover().Any(p => p.Handle == handle), expectedPid);
     }
 
+    // popupMargin: empty space kept past each window edge for popups (0 for frames that are exactly the window).
+    // fixedMargin: keep that space on every side even past the monitor edge, so every session has the same border.
     internal static WindowCaptureSession Start(HWND hwnd, ILogger logger, int fps,
-        Func<HWND, ILogger, int, IFrameGrabber>? startWindow = null, bool includeSecondaryWindows = true)
+        Func<HWND, ILogger, int, IFrameGrabber>? startWindow = null, bool includeSecondaryWindows = true,
+        int popupMargin = 0, bool fixedMargin = false)
     {
         startWindow ??= (window, log, rate) => WgcCapture.StartSingleWindowGrabber(window, log, rate);
         var pid = RealOwnedWindowFinder.s_getWindowProcessId(hwnd);
         var targetWindow = StartWindowCapture(hwnd, logger, fps, startWindow,
             () => IsEligibleSecondaryWindow(hwnd, pid), pid);
-        var margins = includeSecondaryWindows ? MarginsWithinMonitor(hwnd, DefaultPopupMargin) : default;
+        var margins = popupMargin <= 0 ? default
+            : fixedMargin ? new CanvasMargins(popupMargin, popupMargin, popupMargin, popupMargin)
+            : MarginsWithinMonitor(hwnd, popupMargin);
         return new(targetWindow,
             () => GetBounds(hwnd), includeSecondaryWindows ? () => Discover(hwnd, pid, logger, margins: margins) : () => [],
             secondaryHandle => startWindow(new HWND(secondaryHandle), logger, fps),

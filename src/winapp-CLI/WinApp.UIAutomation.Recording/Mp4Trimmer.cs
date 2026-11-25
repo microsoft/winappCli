@@ -36,15 +36,24 @@ internal static unsafe partial class Mp4Trimmer
     private static readonly Guid IidImf2DBuffer = new("7DC9D5F9-9ED9-44EC-9BBF-0600BB589FBB");
     private static readonly StrategyBasedComWrappers s_comWrappers = new();
 
-    public static void Trim(string sourcePath, string destinationPath, RecordTrimPlan plan, int fps)
+    public static void Trim(RecordTrimSources sources, string destinationPath, RecordTrimPlan plan, int fps)
     {
         using var encoder = new Mp4SinkWriterEncoder(
             destinationPath, plan.OutputWidth, plan.OutputHeight, fps,
             UiRecordingService.VideoBitrate(plan.OutputWidth, plan.OutputHeight, fps), overwriteExisting: false);
         var frameDuration = 10_000_000L / fps;
-        foreach (var (pixels, time) in ReadFrames(sourcePath, plan.SourceWidth, plan.SourceHeight))
+        var index = 0L;
+        if (sources.PaddedStartFrame > 0)
         {
-            encoder.WriteFrame(plan.Apply(pixels), time, frameDuration);
+            var window = sources.WindowCrop;
+            foreach (var (pixels, _) in ReadFrames(sources.WindowVideo, window.OutputWidth, window.OutputHeight).Take(sources.PaddedStartFrame))
+            {
+                encoder.WriteFrame(plan.Apply(sources.ToPadded(pixels)), index++ * frameDuration, frameDuration);
+            }
+        }
+        foreach (var (pixels, _) in ReadFrames(sources.PaddedVideo, plan.SourceWidth, plan.SourceHeight))
+        {
+            encoder.WriteFrame(plan.Apply(pixels), index++ * frameDuration, frameDuration);
         }
         encoder.Complete();
     }

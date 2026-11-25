@@ -2463,6 +2463,8 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.m
 - `--frames` - Write timestamped JPEGs, `frames.ndjson`, and `manifest.json` to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280), with a 1 GiB frame-data cap.
 - `--cursor` - Draw the mouse pointer into the video, with a short ring where each click happens. With `--frames`, `frames.ndjson` also records the pointer position and clicks.
 - `--no-click-highlight` - With `--cursor`, draw the pointer but no click rings.
+- `--padding auto|<px>` - Empty space around the window for menus and flyouts that reach past its edge: `auto` (default) adds it only when a popup needs it, a number keeps that many pixels on every side, `0` records only the window.
+- `--background <color>` - Color of that empty space: `#RRGGBB` or `black` (default), `white`, `green`, `blue`, `magenta`. Use `#00FF00` to key it out in a video editor.
 
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
 stop reason, optional `frameArtifacts`, and warnings.

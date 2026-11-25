@@ -558,11 +558,6 @@ public class WindowCaptureSessionLifecycleTests
                 {
                     var frame = grabber.TryGetLatest()!.Value;
                     (pixels, width, height) = (frame.Pixels, frame.Width, frame.Height);
-                    // Recording frames keep an empty border for popups; check the window's own area.
-                    if (grabber.WindowBounds is { } window)
-                    {
-                        (pixels, width, height) = CropTo(pixels, width, window);
-                    }
                 }
                 if (InteriorIsGreen(pixels, width, height))
                 {
@@ -607,17 +602,6 @@ public class WindowCaptureSessionLifecycleTests
                 }
             }
             return true;
-        }
-
-        static (byte[] Pixels, int Width, int Height) CropTo(byte[] pixels, int width, PointerRect area)
-        {
-            var (cropWidth, cropHeight) = (area.Right - area.Left, area.Bottom - area.Top);
-            var cropped = new byte[cropWidth * cropHeight * 4];
-            for (var y = 0; y < cropHeight; y++)
-            {
-                Buffer.BlockCopy(pixels, ((area.Top + y) * width + area.Left) * 4, cropped, y * cropWidth * 4, cropWidth * 4);
-            }
-            return (cropped, cropWidth, cropHeight);
         }
     }
 

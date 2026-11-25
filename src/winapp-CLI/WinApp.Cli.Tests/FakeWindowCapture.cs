@@ -42,6 +42,15 @@ internal sealed class FakeWindowCapture : IWindowCapture
             ? StartGrabberCallback(hwnd, fps)
             : throw new PlatformNotSupportedException("No frame grabber configured for this test.");
 
+    /// <summary>The border the last bordered capture asked for, as (margin, fixed); null when none was asked for.</summary>
+    public (int Margin, bool Fixed)? RequestedBorder { get; private set; }
+
+    public IFrameGrabber StartFrameGrabber(nint hwnd, int fps, int popupMargin, bool fixedMargin)
+    {
+        RequestedBorder = (popupMargin, fixedMargin);
+        return StartFrameGrabber(hwnd, fps);
+    }
+
     public byte[] CaptureWindowPixels(nint hwnd, int width, int height)
     {
         CapturedWithBlankRetry.Add(hwnd);
