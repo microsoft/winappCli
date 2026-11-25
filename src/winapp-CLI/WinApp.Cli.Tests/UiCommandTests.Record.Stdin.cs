@@ -14,22 +14,77 @@ public partial class UiCommandTests
 {
     private sealed class SignalingStringReader(string text, Action onRead) : StringReader(text)
     {
-        public override string? ReadLine() { onRead(); return base.ReadLine(); }
+        public override int Read()
+        {
+            var c = base.Read();
+            if (c is -1 or '\n')
+            {
+                onRead();
+            }
+            return c;
+        }
     }
 
     private sealed class SignalingEofReader(Action onRead) : TextReader
     {
-        public override string? ReadLine() { onRead(); return null; }
+        public override int Read() { onRead(); return -1; }
     }
 
     private sealed class EofReader : TextReader
     {
-        public override string? ReadLine() => null;
+        public override int Read() => -1;
     }
 
     private sealed class ThrowingStdinReader : TextReader
     {
-        public override string? ReadLine() => throw new IOException("stdin pipe broke");
+        public override int Read() => throw new IOException("stdin pipe broke");
+    }
+
+    [TestMethod]
+    public void StdinStopMonitor_CtrlCCharacter_StopsRecording()
+    {
+        // A terminal that pipes stdin sends Ctrl+C as U+0003 instead of a console signal, and the
+        // pipe stays open afterwards.
+        using var reader = new BlockingAfterTextReader("\u0003");
+        using var stopped = new ManualResetEventSlim();
+        _ = Task.Run(() => StdinStopMonitor.MonitorCore(reader, Task.CompletedTask, stopped.Set));
+        Assert.IsTrue(stopped.Wait(TimeSpan.FromSeconds(5)), "Ctrl+C typed into a piped terminal should trigger stop");
+        reader.Release();
+    }
+
+    [TestMethod]
+    public void StdinStopMonitor_PartialLine_KeepsRecording()
+    {
+        using var reader = new BlockingAfterTextReader("abc");
+        var monitor = Task.Run(() => StdinStopMonitor.MonitorCore(reader, Task.CompletedTask, () => { }));
+        Assert.IsFalse(monitor.Wait(TimeSpan.FromMilliseconds(200)), "text without a newline must not stop the recording");
+        reader.Release();
+        Assert.IsTrue(monitor.Wait(TimeSpan.FromSeconds(5)));
+    }
+
+    /// <summary>Returns some text, then blocks like an open pipe until released.</summary>
+    private sealed class BlockingAfterTextReader(string text) : TextReader
+    {
+        private readonly ManualResetEventSlim _released = new();
+        private int _index;
+
+        public void Release() => _released.Set();
+
+        public override int Read()
+        {
+            if (_index < text.Length)
+            {
+                return text[_index++];
+            }
+            _released.Wait();
+            return -1;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            _released.Dispose();
+            base.Dispose(disposing);
+        }
     }
 
     [TestMethod]
