@@ -572,7 +572,7 @@ static bool Route1Resolve(InstanceHandle wire, const std::wstring& prop, const s
     if (FAILED(hr)) { Log(L"route1.resolve '%s' <- %s hr=0x%08X", prop.c_str(), resourceName.c_str(), hr); return false; }
     Log(L"route1.resolve '%s' <- %s OK", prop.c_str(), resourceName.c_str());
     // Recorded like Resource.assign, so a protocol edit after this one can undo back to the key.
-    SessionEditNoteResource((unsigned long long)wire, prop, resourceName, asTheme, ReadEditedRow_ui(ih, prop).value);
+    SessionEditNoteResource_ui(ih, (unsigned long long)wire, prop, resourceName, asTheme, ReadEditedRow_ui(ih, prop).value);
     return true;
 }
 

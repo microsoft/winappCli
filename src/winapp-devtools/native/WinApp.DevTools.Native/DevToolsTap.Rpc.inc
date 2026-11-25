@@ -389,6 +389,11 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
                 return DevToolsRpcResult(id, L"{\"path\":\"" + DevToolsJsonEscape(proposed->str) +
                     L"\",\"expressionSource\":\"proposed\",\"state\":\"bad-path\",\"reason\":\"" + DevToolsJsonEscape(why) +
                     L"\",\"segments\":[],\"resolves\":false,\"verdict\":\"" + DevToolsJsonEscape(why) + L"\"}");
+            // The same rule Binding.install refuses by: a walk would print values below the secret segment.
+            if (DevToolsPathNamesSecret(proposed->str))
+                return DevToolsRpcError(id, DevToolsErr::RefusedUnsafe,
+                    L"'" + proposed->str + L"' reads a secret; DevTools does not walk or bind a path through it.",
+                    L"refused-secret");
         }
         std::wstring reply = CmdBindingWalk(wire, prop, proposed ? proposed->str : std::wstring());
         if (reply.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, reply);

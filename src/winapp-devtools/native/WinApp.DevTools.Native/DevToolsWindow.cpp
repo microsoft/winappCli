@@ -34,6 +34,7 @@
 #include "DevToolsPerf.h"
 #include "DevToolsResourceInline.h"
 #include "DevToolsResourceKeys.h"
+#include "DevToolsEditUndo.h"
 #include <algorithm>
 #include "DevToolsSink.h"
 #include "DevToolsProtocol.h"

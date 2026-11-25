@@ -350,7 +350,7 @@ winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 1
 - `Binding.walk handle=123 prop=Text path=Vm.Title` checks a path before you install it. It
   takes `handle` only, not `name`. `resolves` says whether the path resolves against the
   DataContext, and `verdict` says why not. A path whose last property exists but is null
-  resolves.
+  resolves. A path through a password fails with `refused-secret`, as `Binding.install` does.
 - `Binding.install` replaces the property's binding with a new `{Binding}` on the
   DataContext. Use it to switch an `{x:Bind}` property to `{Binding}`; the app's compiled
   bindings can still overwrite the property when they next update. Converter, source and

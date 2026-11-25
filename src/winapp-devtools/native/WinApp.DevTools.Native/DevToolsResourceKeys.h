@@ -118,6 +118,49 @@ inline void DevToolsResourceKeys_Collect(const winrt::Windows::Foundation::IInsp
         DevToolsResourceKeys_CollectDictionary(DevToolsX::Application::Current().Resources(), want, theme, out);
 }
 
+// The value `key` holds where {ThemeResource} would look it up from `selected`, in the element's theme: each
+// dictionary's own entries, then its theme dictionary, then its merged dictionaries, from the element up to the
+// application. Null when it is not found within the scan's limits. UI thread only.
+inline winrt::Windows::Foundation::IInspectable DevToolsResourceKeys_FindIn(const DevToolsX::ResourceDictionary& dictionary,
+                                                                           const std::wstring& key, const wchar_t* theme,
+                                                                           DevToolsResourceKeyList& seen)
+{
+    if (!dictionary || !seen.dictionaries.insert(winrt::get_abi(dictionary)).second || seen.dictionaries.size() > 128)
+        return nullptr;
+    for (const auto& entry : dictionary) {
+        if (++seen.entries > 4096) return nullptr;
+        const auto name = entry.Key().try_as<winrt::Windows::Foundation::IPropertyValue>();
+        if (name && name.Type() == winrt::Windows::Foundation::PropertyType::String && std::wstring(name.GetString()) == key)
+            return entry.Value();
+    }
+    const auto themes = dictionary.ThemeDictionaries();
+    auto themeKey = winrt::box_value(theme);
+    if (!themes.HasKey(themeKey)) themeKey = winrt::box_value(L"Default");
+    if (themes.HasKey(themeKey))
+        if (auto found = DevToolsResourceKeys_FindIn(themes.Lookup(themeKey).try_as<DevToolsX::ResourceDictionary>(), key, theme, seen))
+            return found;
+    const auto merged = dictionary.MergedDictionaries();
+    for (uint32_t i = merged.Size(); i > 0; --i)
+        if (auto found = DevToolsResourceKeys_FindIn(merged.GetAt(i - 1), key, theme, seen)) return found;
+    return nullptr;
+}
+
+inline winrt::Windows::Foundation::IInspectable DevToolsResourceKeys_Find(const winrt::Windows::Foundation::IInspectable& selected,
+                                                                         const std::wstring& key)
+{
+    auto node = selected ? selected.try_as<DevToolsX::DependencyObject>() : nullptr;
+    if (!node) return nullptr;
+    const auto selectedFe = selected.try_as<DevToolsX::FrameworkElement>();
+    const auto actual = selectedFe ? selectedFe.ActualTheme() : DevToolsX::ElementTheme::Default;
+    const wchar_t* theme = DevToolsResourceKeys_Theme(actual, DevToolsResourceKeys_HighContrast());
+    DevToolsResourceKeyList seen;
+    for (size_t ancestors = 0; node && ancestors < 128; ++ancestors) {
+        const auto fe = node.try_as<DevToolsX::FrameworkElement>();
+        if (fe) if (auto found = DevToolsResourceKeys_FindIn(fe.Resources(), key, theme, seen)) return found;
+        node = fe && fe.Parent() ? fe.Parent() : DevToolsXM::VisualTreeHelper::GetParent(node);
+    }
+    return DevToolsResourceKeys_FindIn(DevToolsX::Application::Current().Resources(), key, theme, seen);
+}
 inline void DevToolsResourceKeys_Add(const std::wstring& key, DevToolsResourceKeyList& out)
 {
     if (!key.empty() && out.seen.insert(key).second) out.keys.push_back(key);

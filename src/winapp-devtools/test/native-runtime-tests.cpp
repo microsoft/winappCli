@@ -1548,6 +1548,12 @@ static void CheckBindingEdits(const std::function<void(bool,const char*)>& check
     tree.bound=false;
 
     check(token(call(L"Binding.walk",target+L",\"path\":5"))==L"bad-args", "Binding.walk refuses a path that is not a string");
+    for (const wchar_t* secretPath : {L"Creds.Password.Value", L"AdminPassword.Value", L"Settings[DbPassword]"}) {
+        auto secretWalk=call(L"Binding.walk",target+L",\"path\":\""+secretPath+L"\"");
+        check(token(secretWalk)==L"refused-secret" && secretWalk.Find(L"error")->GetInt(L"code",0)==DevToolsErr::RefusedUnsafe &&
+            !secretWalk.Find(L"result"),
+            "Binding.walk refuses a proposed path through a secret before walking it, as Binding.install does");
+    }
     auto badPath=call(L"Binding.walk",target+L",\"path\":\"Vm..Title\"");
     check(badPath.Find(L"result") && badPath.Find(L"result")->GetString(L"state")==L"bad-path" &&
         !badPath.Find(L"result")->GetBool(L"resolves",true),

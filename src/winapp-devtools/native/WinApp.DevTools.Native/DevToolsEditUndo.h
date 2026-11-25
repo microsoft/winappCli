@@ -24,12 +24,16 @@ struct DevToolsSessionEdit
     std::wstring path, mode;
     std::wstring after;              // resource: the value the key produced
     std::wstring bindingId;          // binding: the runtime handle of the expression DevTools installed
+    int          elementTheme = -1;  // resource: the element's ActualTheme when the key was assigned
 };
 
-// What the property holds now, beyond its row: the runtime identity of its binding.
+// What the property holds now, beyond its row: the runtime identity of its binding, the element's theme, and
+// whether its value is the one its authored resource key gives (1), is not (0), or DevTools could not tell (-1).
 struct DevToolsEditObserved
 {
     std::wstring bindingId;
+    int          elementTheme = -1;
+    int          authoredKeyMatch = -1;
 };
 
 struct DevToolsEditPrior
@@ -75,7 +79,8 @@ inline std::wstring DevToolsLossyTextReason(const DevToolsReadProp& row)
 
 // Session records come first because the runtime forgets a resource key and does not mark who installed a binding.
 // A binding record counts only while the very expression DevTools installed is still there; a resource record while
-// the value is what the key produced. A later literal write or clear forgets the record.
+// the value is what the key produced, or the element's theme changed since (a theme key follows the theme). A later
+// literal write or clear forgets the record. An authored key counts unless its value is known to differ now.
 inline DevToolsEditPrior DevToolsClassifyPrior(const DevToolsReadProp& row, const DevToolsSessionEdit* session,
                                                const DevToolsEditObserved& observed = {})
 {
@@ -83,7 +88,9 @@ inline DevToolsEditPrior DevToolsClassifyPrior(const DevToolsReadProp& row, cons
     const bool bound = DevToolsRowIsBound(row);
     const bool local = row.source == L"Local" || row.source == kDevToolsReadLiveEditSource;
     if (session) {
-        if (session->resource && !bound && local && row.value == session->after) {
+        const bool themeMoved = session->theme && session->elementTheme >= 0 && observed.elementTheme >= 0 &&
+                                observed.elementTheme != session->elementTheme;
+        if (session->resource && !bound && local && (row.value == session->after || themeMoved)) {
             prior.kind = DevToolsPriorKind::Resource; prior.key = session->key; prior.theme = session->theme;
             return prior;
         }
@@ -94,7 +101,7 @@ inline DevToolsEditPrior DevToolsClassifyPrior(const DevToolsReadProp& row, cons
     }
     if (bound) { prior.kind = DevToolsPriorKind::Binding; return prior; }
     if (row.source == L"Local" && row.authoredKind == L"xBind") { prior.kind = DevToolsPriorKind::XBind; return prior; }
-    if (row.source == L"Local" && !row.authoredKey.empty() &&
+    if (row.source == L"Local" && !row.authoredKey.empty() && observed.authoredKeyMatch != 0 &&
         (row.authoredKind == L"staticResource" || row.authoredKind == L"themeResource")) {
         prior.kind = DevToolsPriorKind::Resource; prior.key = row.authoredKey;
         prior.theme = row.authoredKind == L"themeResource";

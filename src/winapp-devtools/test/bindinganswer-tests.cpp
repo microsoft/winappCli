@@ -103,6 +103,14 @@ static void Test_AnEditAnswersWithTheCallsThatUndoIt()
     const auto authored = DevToolsClassifyPrior(Row(L"Local", L"#FF0078D4", L"", L"themeResource", L"AccentBrush"), nullptr);
     Check(BContains(Undo(authored), L"\"method\":\"Resource.assign\"") && BContains(Undo(authored), L"\"key\":\"AccentBrush\"") &&
           BContains(Undo(authored), L"\"theme\":true"), "an authored {ThemeResource} is re-assigned by key, not as a colour");
+    DevToolsEditObserved changedInCode; changedInCode.authoredKeyMatch = 0;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF0000FF", L"", L"staticResource", L"OkBrush"), nullptr, changedInCode)),
+                    L"\"value\":\"#FF0000FF\""),
+          "but once app code set another value, undo puts back that value, not the key's");
+    DevToolsEditObserved unknownKey; unknownKey.authoredKeyMatch = -1;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF0078D4", L"", L"themeResource", L"AccentBrush"), nullptr, unknownKey)),
+                    L"\"key\":\"AccentBrush\""),
+          "CONTROL: when DevTools cannot read the key's value to compare, it keeps the authored key");
 
     DevToolsSessionEdit assigned; assigned.resource = true; assigned.key = L"Danger"; assigned.after = L"#FFC42B1C";
     const auto session = DevToolsClassifyPrior(Row(L"Local", L"#FFC42B1C"), &assigned);
@@ -112,9 +120,14 @@ static void Test_AnEditAnswersWithTheCallsThatUndoIt()
           "and is forgotten once the property no longer shows that resource");
 
     DevToolsSessionEdit themed; themed.resource = true; themed.theme = true; themed.key = L"AccentText";
-    themed.after = L"#FF99EBFF";
-    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF0000FF"), &themed)), L"\"value\":\"#FF0000FF\""),
-          "a literal written after a theme key, with a value the key never produced, is undone as that literal");
+    themed.after = L"#FF99EBFF"; themed.elementTheme = 2;
+    DevToolsEditObserved light; light.elementTheme = 1;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF003E92", L"", L"themeResource", L"Secondary"), &themed, light)),
+                    L"\"key\":\"AccentText\""),
+          "a theme key this session assigned survives a theme change that changes its value");
+    DevToolsEditObserved dark; dark.elementTheme = 2;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF0000FF"), &themed, dark)), L"\"value\":\"#FF0000FF\""),
+          "CONTROL: in the same theme, a value the key never produced is undone as that value");
 
     auto boundRow = Row(L"Binding", L"Title", L"binding");
     boundRow.binding = L"{Binding Vm.Title, Mode=OneWay}";
@@ -152,7 +165,8 @@ static void Test_AnEditAnswersWithTheCallsThatUndoIt()
           "undoing a {Binding} installed over an {x:Bind} clears it first, so the rebind cannot write through it");
 
     Check(DevToolsPathNamesSecret(L"Password") && DevToolsPathNamesSecret(L"Vm.Login.UserPassword") &&
-          DevToolsPathNamesSecret(L"Accounts[0].Password") && DevToolsPathNamesSecret(L"Vm.Password.Length"),
+          DevToolsPathNamesSecret(L"Accounts[0].Password") && DevToolsPathNamesSecret(L"Vm.Password.Length") &&
+          DevToolsPathNamesSecret(L"Creds.Password.Value"),
           "a binding path that reads a secret anywhere along it is recognised");
     Check(DevToolsPathNamesSecret(L"Credentials[Password]") && DevToolsPathNamesSecret(L"Vm.Settings['DbPassword']") &&
           DevToolsPathNamesSecret(L"Items[Password].Name"),

@@ -31,13 +31,30 @@ static void SessionEditForget(unsigned long long wire, const std::wstring& prop)
     g_sessionEdits.erase({ wire, prop });
 }
 
-// Records a key assigned to `prop` (by Resource.assign or the in-app inspector), so a later protocol edit can undo
-// back to the key rather than the value it produced.
-static void SessionEditNoteResource(unsigned long long wire, const std::wstring& prop, const std::wstring& key,
-                                    bool theme, const std::wstring& after)
+// UI thread. The element's ActualTheme, or -1 when it has none.
+static int ElementTheme_ui(InstanceHandle ih)
+{
+    int theme = -1;
+    IInspectable* insp = nullptr;
+    if (g_diag && SUCCEEDED(g_diag->GetIInspectableFromHandle(ih, &insp)) && insp) {
+        void* fe = nullptr;
+        if (SUCCEEDED(insp->QueryInterface(DevToolsIid<DevToolsX::IFrameworkElement>(), &fe)) && fe) {
+            if (FAILED(DevToolsGetActualTheme(fe, &theme))) theme = -1;
+            reinterpret_cast<IUnknown*>(fe)->Release();
+        }
+        insp->Release();
+    }
+    return theme;
+}
+
+// UI thread. Records a key assigned to `prop` (by Resource.assign or the in-app inspector), so a later protocol edit
+// can undo back to the key rather than the value it produced, even after a theme change alters that value.
+static void SessionEditNoteResource_ui(InstanceHandle ih, unsigned long long wire, const std::wstring& prop,
+                                       const std::wstring& key, bool theme, const std::wstring& after)
 {
     DevToolsSessionEdit record;
     record.resource = true; record.key = key; record.theme = theme; record.after = after;
+    record.elementTheme = ElementTheme_ui(ih);
     SessionEditNote(wire, prop, record);
 }
 
@@ -85,8 +102,8 @@ static std::wstring EditTargetFromParams(const std::wstring& id, const DevToolsJ
     return refused.empty() ? std::wstring() : BridgeErrToRpc(id, refused);
 }
 
-// The runtime handle of the property's binding expression, or empty when it has none. A restore or another install
-// creates a new expression, so the handle tells the expression DevTools installed apart.
+// The runtime handle of the property's binding expression (empty when it has none) and the element's ActualTheme.
+// A restore or another install creates a new expression, so the handle tells the expression DevTools installed apart.
 static DevToolsEditObserved ObserveEditTarget_ui(InstanceHandle ih, const std::wstring& prop)
 {
     DevToolsEditObserved observed;
@@ -101,7 +118,39 @@ static DevToolsEditObserved ObserveEditTarget_ui(InstanceHandle ih, const std::w
         }
     }
     FreePropChain(sc, s, pc, v);
+    observed.elementTheme = ElementTheme_ui(ih);
     return observed;
+}
+
+// UI thread. Whether the property's local value is still the one its authored {StaticResource}/{ThemeResource} key
+// gives: the same object, or for a value type the same text. App code may have set something else since. 1 yes,
+// 0 no, -1 when DevTools cannot find the key's value to compare.
+static int AuthoredKeyMatch_ui(InstanceHandle ih, const std::wstring& prop, const DevToolsReadProp& row)
+{
+    const unsigned int idx = FindPropIndex(ih, prop);
+    if (idx == 0xFFFFFFFF || !g_diag) return -1;
+    winrt::Windows::Foundation::IInspectable resource{ nullptr };
+    try {
+        winrt::com_ptr<IInspectable> raw;
+        g_diag->GetIInspectableFromHandle(ih, raw.put());
+        winrt::Windows::Foundation::IInspectable selected{ nullptr };
+        if (raw) winrt::copy_from_abi(selected, raw.get());
+        resource = DevToolsResourceKeys_Find(selected, row.authoredKey);
+    } catch (const winrt::hresult_error&) {
+        return -1;
+    }
+    if (!resource) return -1;
+    const PriorLocalValue local = ReadPriorLocalValue(ih, idx);
+    if (!local.had || !local.restorable) return -1;
+    if (local.object) {
+        winrt::com_ptr<IInspectable> current;
+        if (FAILED(g_diag->GetIInspectableFromHandle(local.object, current.put())) || !current) return -1;
+        return current.as<::IUnknown>().get() == resource.as<::IUnknown>().get() ? 1 : 0;
+    }
+    std::wstring text;
+    if (ReadInspectableValue(static_cast<IInspectable*>(winrt::get_abi(resource)), prop, row.type, &text, nullptr) != S_OK)
+        return -1;
+    return DevToolsRead_NormalizeColor(text) == DevToolsRead_NormalizeColor(row.value) ? 1 : 0;
 }
 
 // Reads the property's current row and classifies what an edit would replace. Empty on success.
@@ -122,6 +171,9 @@ static std::wstring ReadEditPrior(const std::wstring& id, unsigned long long wir
         if (FAILED(read)) return read;
         for (auto& r : props) if (r.name == prop) { st->row = std::move(r); st->found = true; break; }
         st->observed = ObserveEditTarget_ui(ih, prop);
+        if (st->found && !st->row.authoredKey.empty() &&
+            (st->row.authoredKind == L"staticResource" || st->row.authoredKind == L"themeResource"))
+            st->observed.authoredKeyMatch = AuthoredKeyMatch_ui(ih, prop, st->row);
         return S_OK;
     }, &completed);
     if (completed && st->error) return BridgeErrToRpc(id, std::wstring(L"ERR ") + st->error);
@@ -237,7 +289,7 @@ static DevToolsRollback RollBackEdit(unsigned long long wire, const std::wstring
         case DevToolsPriorKind::Resource:
             out.restored = EditStepOnUi(wire, [wire, prop, prior](InstanceHandle ih) {
                 const HRESULT hr = ResolveResourceApply(ih, prop, prior.key, prior.theme);
-                if (SUCCEEDED(hr)) SessionEditNoteResource(wire, prop, prior.key, prior.theme, ReadEditedRow_ui(ih, prop).value);
+                if (SUCCEEDED(hr)) SessionEditNoteResource_ui(ih, wire, prop, prior.key, prior.theme, ReadEditedRow_ui(ih, prop).value);
                 return hr;
             });
             break;
@@ -376,7 +428,7 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
             // Like the window: a key by key, a literal by its text. The old value object may already be released.
             if (prior.kind == DevToolsPriorKind::Resource) {
                 out->restored = SUCCEEDED(ResolveResourceApply(ih, prop, prior.key, prior.theme));
-                if (out->restored) SessionEditNoteResource(wire, prop, prior.key, prior.theme, ReadEditedRow_ui(ih, prop).value);
+                if (out->restored) SessionEditNoteResource_ui(ih, wire, prop, prior.key, prior.theme, ReadEditedRow_ui(ih, prop).value);
             } else if (prior.kind == DevToolsPriorKind::Literal) {
                 out->restored = SUCCEEDED(SetLiteral(ih, prop, prior.writeType, prior.value));
             }
@@ -388,7 +440,7 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
         out->applied = true;
         DevToolsBindingRow_ForgetLiveWrite(wire, prop);
         out->after = ReadEditedRow_ui(ih, prop);
-        SessionEditNoteResource(wire, prop, key, theme, out->after.value);
+        SessionEditNoteResource_ui(ih, wire, prop, key, theme, out->after.value);
         return S_OK;
     }, &completed);
     if (completed && out->error) { ReleaseHeldOriginal(wire, prop, prior); return BridgeErrToRpc(id, std::wstring(L"ERR ") + out->error); }

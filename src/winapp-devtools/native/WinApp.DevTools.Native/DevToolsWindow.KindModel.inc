@@ -959,7 +959,9 @@ static void ValidateOnType(const std::wstring& prop, const std::wstring& text)
         g_validateVerdict.clear();
         g_validateBad = false;
     } else {
-        const std::wstring why = DevToolsPathSyntax_Reason(text);
+        std::wstring why = DevToolsPathSyntax_Reason(text);
+        if (why.empty() && DevToolsPathNamesSecret(text))
+            why = L"This path reads a secret; DevTools does not walk or bind a path through it.";
         g_validateBad = !why.empty();
         g_validateVerdict = why.empty() ? std::wstring(L"Checking \u2026") : why;
     }
