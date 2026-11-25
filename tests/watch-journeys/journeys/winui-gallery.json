@@ -90,9 +90,9 @@
       "id": "g20-after-compiler-restart", "row": 65, "title": "The page saved again after the XAML compiler service restarted",
       "killCompiler": true,
       "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": ">Filter by (hr1)...</TextBlock>", "text": ">Filter by (hr20)...</TextBlock>",
-      "expect": { "v1": "live+note", "today": "restart", "stock": "not-applied", "reason": "ENC0020" },
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ],
-      "note": "last, because the app restarts after it: a new compiler service numbers the x:Bind classes of templates added during the session differently from the service that added them (ListViewPage_obj73_Bindings becomes obj70), so the running app sees a renamed class (ENC0020). Live once the service keeps the session's numbering across a restart"
+      "note": "a new compiler service continues the session from obj\\...\\XamlHotReload\\session (from 19017d95d); before that it numbered the x:Bind classes of templates added during the session differently (ENC0020, restart). The check also covers typed text after the outer page (ItemPage) was rebuilt by g08"
     }
   ]
 }

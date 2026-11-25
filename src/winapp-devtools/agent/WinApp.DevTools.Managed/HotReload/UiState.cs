@@ -33,14 +33,18 @@ internal static class UiState
         public string? FocusedKey { get; set; }
     }
 
-    /// <summary>Records each control's starting values, to tell later what the user changed.</summary>
+    /// <summary>
+    /// Records each control's starting values, to tell later what the user changed. A control keeps the first one: a
+    /// page that loads after its values were put back (a Frame its new outer page navigated by itself) would otherwise
+    /// take the user's values as where it starts, and not carry them on the next save.
+    /// </summary>
     public static void CaptureBaseline(DependencyObject? root)
     {
         foreach (var (element, _) in Keys(root))
         {
-            if (Read(element) is { } state)
+            if (!Baselines.TryGetValue(element, out _) && Read(element) is { } state)
             {
-                Baselines.AddOrUpdate(element, state);
+                Baselines.Add(element, state);
                 if (element is Selector { Items.Count: 0 } selector)
                 {
                     BaselineWhenFilled(selector);

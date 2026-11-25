@@ -9,9 +9,9 @@
       "id": "b1-plain-build-then-save", "row": 63, "title": "dotnet build by hand, then a XAML save",
       "buildBefore": "plain",
       "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\"", "text": "Text=\"People\"",
-      "expect": { "v1": "live", "today": "not-applied", "stock": "not-applied", "reason": "removed the hot reload state" },
+      "expect": { "v1": "live", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v1" } ],
-      "note": "a build without EnableXamlHotReloadCodegen deletes obj\\...\\XamlHotReload\\ (the fork will leave it alone); until then nothing is applied and winapp says why"
+      "note": "a build without EnableXamlHotReloadCodegen leaves obj\\...\\XamlHotReload\\ alone (from 48d662797); on an older package it deleted it, and winapp said nothing was applied and why"
     },
     {
       "id": "b2-ctrl-r", "row": 63, "title": "Ctrl+R restarts from winapp's own build, with the save",
