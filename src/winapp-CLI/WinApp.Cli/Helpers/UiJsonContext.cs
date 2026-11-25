@@ -207,6 +207,12 @@ internal sealed class UiRecordResult
     public string[]? Warnings { get; set; }
 
     /// <summary>
+    /// Set when this recording had no workflow id and let other commands use the desktop while it
+    /// recorded, so their activity may appear in the video. Omitted otherwise.
+    /// </summary>
+    public string? DesktopNotice { get; set; }
+
+    /// <summary>
     /// Which execution target, and which incarnation of it, produced the recording.
     /// </summary>
     /// <remarks>
@@ -226,6 +232,9 @@ internal sealed class UiRecordStartedEvent
     public string? FramesDirectory { get; set; }
     public string? FramesManifest { get; set; }
     public string? FramesIndex { get; set; }
+
+    /// <summary>The same notice as <see cref="UiRecordResult.DesktopNotice"/>, known when recording starts.</summary>
+    public string? DesktopNotice { get; set; }
 }
 
 internal sealed class UiWaitForResult

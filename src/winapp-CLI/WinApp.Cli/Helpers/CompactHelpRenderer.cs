@@ -185,6 +185,11 @@ internal static partial class CompactHelpRenderer
             AppendSection("Options:", options.Select(o => (FormatOption(o, detailed), DescribeOption(o, detailed))).ToList());
 
             _sb.AppendLine();
+            if (UiCommand.IsInputCommand(command))
+            {
+                AppendParagraph(UiCommand.RecordingHint);
+                _sb.AppendLine();
+            }
             // Saved-comment reads always run locally and reject --on.
             _sb.AppendLine(Muted(command is DevToolsCommentsListCommand or DevToolsCommentsGetCommand || !AcceptsOn(command)
                 ? LocalGlobalOptionsLine : GlobalOptionsLine));

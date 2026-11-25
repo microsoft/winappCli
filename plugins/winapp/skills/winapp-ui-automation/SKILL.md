@@ -61,9 +61,13 @@ Rules that matter when driving this from an agent:
   survived.
 - **Prefer one tight script over many round trips** for a known sequence: `winapp ui invoke View -w
   $hwnd; winapp ui search "Status bar" -w $hwnd; winapp ui click "Status bar" -w $hwnd; winapp ui yield`.
-- **`record` shares the turn with its own workflow**, so same-workflow clicks and typing are captured
-  while it runs — but only if both commands carry the same id. A `record` with no id blocks everyone
-  else for its whole duration.
+- **A `record` with no id lets anyone act while it runs.** It gives up the desktop after its first
+  frame (window or `--capture-screen`), so your clicks and typing are captured — and so is any other
+  workflow's activity. It prints a notice saying so (`desktopNotice` under `--json`). To keep the
+  desktop to yourself, set one `WINAPP_UI_WORKFLOW_ID` on the recording **and** every command it
+  should capture, **before** you start the recording: you usually run it in the background and will
+  not see its output in time. A recording with an id shares only with that id; other workflows wait.
+  On a PrintWindow-fallback host the recording holds the desktop for its whole length either way.
 - **Ordering is owner affinity, then FIFO.** An active workflow may keep issuing commands ahead of
   others already waiting; once it yields or its grace expires, waiters are served in arrival order.
 - **Waiting is indefinite and cancellable.** After one second a notice on stderr says what holds the

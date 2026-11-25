@@ -274,8 +274,10 @@ internal sealed class ExecutionTargetUiRouter(
                 {
                     var line = _line.ToString();
                     _line.Clear();
-                    if (IsStartedEvent(line))
+                    if (IsStartedEvent(line) || line.StartsWith(UiRecordCommand.DesktopNoticePrefix, StringComparison.Ordinal))
                     {
+                        // The notice warns that others may appear in the video from now on, so it can't wait
+                        // until the recording has been delivered.
                         output.Write(RewriteOutputPaths(line, artifact));
                         output.Flush();
                     }

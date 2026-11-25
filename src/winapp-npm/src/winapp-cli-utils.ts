@@ -76,7 +76,8 @@ export interface CallWinappCliOptions {
    * desktop reserved between invocations for a short idle grace, may overlap with each other (a
    * recording and the clicks it is recording), and are never interleaved with another workflow's input.
    *
-   * Without it each call is a self-contained one-shot that releases the desktop the moment it finishes.
+   * Without it each call is a self-contained one-shot that releases the desktop the moment it finishes,
+   * and a recording releases it after its first frame, so other calls can act while it records.
    *
    * Applied to the spawned child only; `process.env` is never modified.
    */

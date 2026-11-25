@@ -45,6 +45,31 @@ internal interface IUiTurn : IDesktopSection
 
     /// <summary>Milliseconds spent queued before execution began. Zero when the turn was free.</summary>
     long WaitedMs { get; }
+
+    /// <summary>
+    /// Whether this command runs under a <c>WINAPP_UI_WORKFLOW_ID</c> that other commands can share.
+    /// </summary>
+    bool HasWorkflowId { get; }
+
+    /// <summary>
+    /// Gives the turn back to waiting workflows while this command keeps running, without the desktop.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only for a command with no workflow id. Such a command is a one-shot owner: no other command
+    /// can ever join its turn, so once it has finished with the desktop, keeping the turn only blocks
+    /// everyone else. A command under a workflow id keeps its turn — that is what lets the workflow's
+    /// own commands interleave and keeps other workflows out — so this returns false and changes
+    /// nothing.
+    /// </para>
+    /// <para>
+    /// After a hand-off the command can no longer enter a desktop section: it holds no turn, so taking
+    /// <c>active.lock</c> would act on the desktop outside arbitration. Must not be called while a
+    /// section is open.
+    /// </para>
+    /// </remarks>
+    /// <returns>True when the turn was handed off.</returns>
+    Task<bool> HandOffAnonymousTurnAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>What an explicit early release did.</summary>

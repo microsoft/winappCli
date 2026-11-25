@@ -320,7 +320,8 @@ function generate(schema) {
   L('   * whether or not this is set. A workflow id adds *continuity*: calls sharing one keep the desktop');
   L('   * reserved between invocations for a short idle grace, may overlap with each other (a recording and');
   L('   * the clicks it is recording), and are never interleaved with another workflow\'s input. Without it,');
-  L('   * each call is a self-contained one-shot that releases the desktop as soon as it finishes.');
+  L('   * each call is a self-contained one-shot that releases the desktop as soon as it finishes, and a');
+  L('   * recording releases it after its first frame, so other calls can act while it records.');
   L('   *');
   L('   * Applied to the spawned child process only; `process.env` is never modified.');
   L('   */');

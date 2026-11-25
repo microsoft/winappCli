@@ -42,6 +42,20 @@ internal class UiCommand : Command, IShortDescription, ITargetAwareCommand, ICom
         ("Workflow coordination", [typeof(UiYieldCommand)]),
     ];
 
+    /// <summary>
+    /// Shown in the help of every command that drives the app, so the way to record it is found where
+    /// it is needed rather than only in <c>ui record --help</c>.
+    /// </summary>
+    internal const string RecordingHint =
+        "To record this: start 'winapp ui record' first, then run this command; its activity appears in the video " +
+        "(unless the recording says it holds the desktop). " +
+        "To keep other workflows off the desktop while you record, set the same WINAPP_UI_WORKFLOW_ID on both commands.";
+
+    /// <summary>Whether <paramref name="command"/> changes the app, so a recording can capture it.</summary>
+    internal static bool IsInputCommand(Command command) =>
+        HelpCategories.Where(c => c.Category is "Act" or "Gestures")
+            .Any(c => c.CommandTypes.Contains(command.GetType()));
+
     public UiCommand(
         UiStatusCommand statusCommand,
         UiInspectCommand inspectCommand,

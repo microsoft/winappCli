@@ -373,7 +373,10 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         private readonly SemaphoreSlim _sectionGate = new(1, 1);
 
         private IParticipantLease? _lease;
-        private FileStream? _activeLock;        private bool _detached;
+        private FileStream? _activeLock;
+        private bool _detached;
+        private bool _handedOff;
+        private long? _turnAgeAtHandOffMs;
         private bool _recoveredFromCorruption;
         private long? _ticket;
         private UiTurnAction _turnAction = UiTurnAction.New;
@@ -845,6 +848,13 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
             // other winapp processes from acting on the desktop at the same time.
             await _sectionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
+            if (_handedOff)
+            {
+                _sectionGate.Release();
+                throw new InvalidOperationException(
+                    "This command handed off its UI turn and can no longer take the desktop.");
+            }
+
             try
             {
                 _activeLock = await coordinator
@@ -858,6 +868,44 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
             }
 
             return new SectionScope(this);
+        }
+
+        public bool HasWorkflowId => owner.HasContinuity;
+
+        public async Task<bool> HandOffAnonymousTurnAsync(CancellationToken cancellationToken)
+        {
+            // A detached observation holds no turn, and a workflow's turn is shared with its own later
+            // commands, so neither has anything to hand off.
+            if (owner.HasContinuity || _lease is null)
+            {
+                return false;
+            }
+
+            // The gate guarantees no section is open, so the turn is never given away while this command
+            // is still acting on the desktop.
+            await _sectionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (_handedOff)
+                {
+                    return false;
+                }
+
+                _handedOff = true;
+
+                // Measured before the hand-off so telemetry reports how long this command held the turn,
+                // not how long the recording ran afterwards without it.
+                _turnAgeAtHandOffMs = MeasureTurnAgeMs();
+
+                // The same removal as completing the command: the entry goes, the anonymous owner gets no
+                // grace, and the next waiter is promoted and woken. The body keeps running with no turn.
+                Complete(renewGrace: false);
+                return true;
+            }
+            finally
+            {
+                _sectionGate.Release();
+            }
         }
 
         private async Task ReleaseAllSectionsAsync()
@@ -978,6 +1026,11 @@ internal sealed class InteractiveDesktopLock : IInteractiveDesktopLock
         /// </summary>
         private long MeasureTurnAgeMs()
         {
+            if (_turnAgeAtHandOffMs is { } frozen)
+            {
+                return frozen;
+            }
+
             if (_turnStartedTick64 is not { } startedTick)
             {
                 return 0;
