@@ -76,6 +76,14 @@
       "note": "needs the fork's fix for re-applied templates (d4fed9595): Gallery's OpacityMaskView binds a Border's Child, and the old Border kept it",
       "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
       "checks": [ { "assert": "property-equals", "target": "HrFilterLabel", "value": "Foreground=#FFFF8C00" }, { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ]
+    },
+    {
+      "id": "g20-after-compiler-restart", "row": 65, "title": "The page saved again after the XAML compiler service restarted",
+      "killCompiler": true,
+      "file": "WinUIGallery/Samples/ListView/ListViewPage.xaml", "op": "replace", "find": ">Filter by (hr1)...</TextBlock>", "text": ">Filter by (hr20)...</TextBlock>",
+      "expect": { "v1": "live+note", "today": "restart|error", "stock": "not-applied", "reason": "ENC0020|Substitutions" },
+      "checks": [ { "assert": "text-equals", "target": "FilterByFirstName", "value": "Ka" } ],
+      "note": "last, because the page may not load again after it: a new compiler service doesn't continue the session's numbering. After this journey's x:Bind saves it renames a bindings class (ENC0020, restart); after text-only saves its XamlTypeInfo.g.cs renumbers ControlExample's members and the page fails to load ('Collection property ControlExample.Substitutions is null'). Live once the fork keeps the numbering across a restart"
     }
   ]
 }

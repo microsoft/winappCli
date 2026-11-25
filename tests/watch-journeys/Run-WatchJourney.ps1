@@ -229,6 +229,16 @@ function Invoke-Journey([string]$Name) {
             # An editor's design-time build (VS Code C# Dev Kit, Visual Studio) into the same obj folder.
             $designTime = $null
             if ($step.designTimeBuild -eq 'before') { $null = Invoke-DesignTimeBuild; $null = Read-NewLines }
+            if ($step.killCompiler) {
+                # The XAML compiler service ends during the session (a crash, or winapp stopping it after a compiler
+                # failure): only this journey's, found under its winapp process.
+                $tree = @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, Name)
+                $ids = [System.Collections.Generic.HashSet[uint32]]@([uint32]$process.Id)
+                do { $added = 0; foreach ($p in $tree) { if ($ids.Contains($p.ParentProcessId) -and $ids.Add($p.ProcessId)) { $added++ } } } while ($added)
+                $compilers = @($tree | Where-Object { $_.Name -eq 'XamlCompiler.exe' -and $ids.Contains($_.ProcessId) })
+                if (-not $compilers) { throw 'killCompiler: no XAML compiler service is running under this journey.' }
+                $compilers | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+            }
             $saveStart = Get-Date
             if ($step.op -eq 'key') {
                 if ($step.key -ne 'ctrl+r') { throw "Unknown key '$($step.key)'." }

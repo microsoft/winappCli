@@ -92,6 +92,8 @@ to make the scoreboard green: change its expectation instead, and say why.
   Ctrl+R rebuilds the app; `"afterBuild"` starts one the moment winapp's rebuild prints `Built`. The journey-level
   `designTimeBuildAfterLaunch: true` does the same after the launch build. `xaml-moves-design-time` is `xaml-moves`
   with all of these.
+- `killCompiler: true` ends the journey's XAML compiler service (`XamlCompiler.exe --serve`) before the step's save, the
+  way a crash or winapp's restart after a compiler failure does.
 
 The apps: `apps\winui` is a WinUI app (`App`, with `Core` and `Data` class libraries beside it) and `apps\reactor` is a
 Microsoft.UI.Reactor app. Both use the stock Windows App SDK 2.7.0 through `Microsoft.WindowsAppSDK.WinUI` and
