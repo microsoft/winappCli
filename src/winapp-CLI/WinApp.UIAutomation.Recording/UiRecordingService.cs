@@ -174,9 +174,10 @@ internal sealed partial class UiRecordingService(
             int srcHeight;
             int captureOriginLeft;
             int captureOriginTop;
-            // Where the window sat in the first frame. A popup reaching past the window's left or top edge
-            // grows the frame on that side, so this can be non-zero.
+            // Where the window sits in each frame. Window frames have a fixed empty border around the window
+            // that leaves room for its popups, so this can be non-zero; it never changes during a recording.
             (int X, int Y) initialWindowOrigin = (0, 0);
+            PointerRect? windowInFrame = null;
 
             if (useWgc)
             {
@@ -187,7 +188,8 @@ internal sealed partial class UiRecordingService(
                         ?? throw new InvalidOperationException("Timed out waiting for the first captured frame.");
                     srcWidth = first.Width;
                     srcHeight = first.Height;
-                    initialWindowOrigin = grabber.WindowOrigin;
+                    windowInFrame = grabber.WindowBounds;
+                    initialWindowOrigin = windowInFrame is { } w ? (w.Left, w.Top) : (0, 0);
                     var visibleRect = _uiAutomation.GetVisibleWindowBounds(rootHwnd, ToPointerRect(rect));
                     captureOriginLeft = visibleRect.Left - initialWindowOrigin.X;
                     captureOriginTop = visibleRect.Top - initialWindowOrigin.Y;
@@ -203,6 +205,7 @@ internal sealed partial class UiRecordingService(
                     useScreen = true;
                     useWgc = false;
                     initialWindowOrigin = (0, 0);
+                    windowInFrame = null;
                     srcWidth = rect.right - rect.left;
                     srcHeight = rect.bottom - rect.top;
                     captureOriginLeft = rect.left;
@@ -284,7 +287,7 @@ internal sealed partial class UiRecordingService(
                             wgcCaptureHwnd = captureTargetHwnd;
                             srcWidth = retargetFirst.Width;
                             srcHeight = retargetFirst.Height;
-                            initialWindowOrigin = grabber.WindowOrigin;
+                            initialWindowOrigin = grabber.WindowBounds is { } w ? (w.Left, w.Top) : (0, 0);
                             global::Windows.Win32.PInvoke.GetWindowRect(popupHwnd, out var popupWinRect);
                             var visiblePopupRect = _uiAutomation.GetVisibleWindowBounds(
                                 captureTargetHwnd, ToPointerRect(popupWinRect));
@@ -331,7 +334,13 @@ internal sealed partial class UiRecordingService(
             }
 
             var mode = useScreen ? "screen" : grabber?.RootCaptureBackend ?? "printwindow";
-            var (encoderW, encoderH, displayW, displayH) = ComputeTargetSize(cropW, cropH, options.MaxEdge);
+            // A whole-window recording with room for popups is trimmed to the area actually used once it ends.
+            // Until then the video is the window plus its empty border, scaled so the window itself meets
+            // --max-edge; the trim scales down further only if popups made the used area bigger than that.
+            var trimToContent = isWholeWindowWgc && windowInFrame is not null;
+            var (encoderW, encoderH, displayW, displayH) = trimToContent
+                ? ComputePaddedTargetSize(cropW, cropH, windowInFrame!.Value, options.MaxEdge)
+                : ComputeTargetSize(cropW, cropH, options.MaxEdge);
             var coordinates = desktopBounds is { } sourceBounds
                 ? DescribeCoordinates(sourceBounds, encoderW, encoderH, displayW, displayH)
                 : null;
@@ -351,7 +360,10 @@ internal sealed partial class UiRecordingService(
                 }
                 ct.ThrowIfCancellationRequested();
             }
-            var bitrate = (uint)Math.Clamp((long)encoderW * encoderH * options.Fps / 8, 1_000_000, 24_000_000);
+            // A recording that will be trimmed is encoded twice, so the first pass gets more bits to keep text sharp.
+            var bitrate = trimToContent
+                ? IntermediateBitrate(encoderW, encoderH, options.Fps)
+                : VideoBitrate(encoderW, encoderH, options.Fps);
 
             // Last foreground check before any file exists. The earlier one ran right after the
             // activation delay; selector resolution between the two can take long enough for another
@@ -406,7 +418,6 @@ internal sealed partial class UiRecordingService(
             // Window capture follows the window if it moves, so the pointer is placed relative to
             // where the window is now. Screen capture records a fixed area.
             var pointerOriginHwnd = useScreen ? 0 : (useWgc ? wgcCaptureHwnd : (nint)hwnd);
-            var currentWindowOrigin = initialWindowOrigin;
             (int Left, int Top) CurrentCaptureOrigin()
             {
                 if (pointerOriginHwnd == 0 || !_uiAutomation.TryGetWindowRect(pointerOriginHwnd, out var windowRect))
@@ -418,14 +429,21 @@ internal sealed partial class UiRecordingService(
                     return (windowRect.Left, windowRect.Top);
                 }
                 var visible = _uiAutomation.GetVisibleWindowBounds(pointerOriginHwnd, windowRect);
-                return (visible.Left - currentWindowOrigin.X, visible.Top - currentWindowOrigin.Y);
+                return (visible.Left - initialWindowOrigin.X, visible.Top - initialWindowOrigin.Y);
             }
 
-            // An element crop is fixed relative to the window, so it moves with the window inside a frame
-            // that grew to include a popup. A whole-window recording always uses the whole frame.
-            (int X, int Y) WgcCropOrigin((int X, int Y) windowOrigin) => isWholeWindowWgc
-                ? (cropX, cropY)
-                : (cropX + windowOrigin.X - initialWindowOrigin.X, cropY + windowOrigin.Y - initialWindowOrigin.Y);
+            // The part of the video that ever showed the window or a popup, in video pixels.
+            PointerRect? usedArea = null;
+            void TrackUsedArea(int sourceWidth, int sourceHeight)
+            {
+                if (!trimToContent)
+                {
+                    return;
+                }
+                var content = grabber!.ContentBounds ?? new PointerRect(0, 0, sourceWidth, sourceHeight);
+                var inVideo = MapToVideo(content, sourceWidth, sourceHeight, encoderW, encoderH, displayW, displayH);
+                usedArea = usedArea is { } soFar ? Union(soFar, inVideo) : inVideo;
+            }
 
             // The capture clock starts here, after frame artifact setup has created its staging
             // directory and opened the manifest and index writers. Starting it before that setup
@@ -507,8 +525,6 @@ internal sealed partial class UiRecordingService(
                         if (closedLatest is not null)
                         {
                             var (closedSrc, closedSw, closedSh, closedVersion) = closedLatest.Value;
-                            currentWindowOrigin = grabber.WindowOrigin;
-                            var (closedCropX, closedCropY) = WgcCropOrigin(currentWindowOrigin);
 
                             if (ShouldEncodeClosedDrainFrame(closedVersion, lastEncodedVersion))
                             {
@@ -516,12 +532,13 @@ internal sealed partial class UiRecordingService(
                                 var closedCropH = isWholeWindowWgc ? closedSh : cropH;
                                 var closedFrame = ProcessFrame(
                                     closedSrc, closedSw, closedSh,
-                                    closedCropX, closedCropY, closedCropW, closedCropH,
+                                    cropX, cropY, closedCropW, closedCropH,
                                     encoderW, encoderH, displayW, displayH);
                                 await CommitFrameAsync(
                                     closedFrame,
-                                    ClampCropRect(closedCropX, closedCropY, closedCropW, closedCropH, closedSw, closedSh),
+                                    ClampCropRect(cropX, cropY, closedCropW, closedCropH, closedSw, closedSh),
                                     sharesSourceBuffer: ReferenceEquals(closedFrame, closedSrc)).ConfigureAwait(false);
+                                TrackUsedArea(closedSw, closedSh);
                             }
                         }
                         targetClosed = true;
@@ -544,12 +561,10 @@ internal sealed partial class UiRecordingService(
                             continue;
                         }
                         var (source, sw, sh, version) = latest.Value;
-                        currentWindowOrigin = grabber.WindowOrigin;
-                        var (wgcCropX, wgcCropY) = WgcCropOrigin(currentWindowOrigin);
 
                         sourceVersion = version;
                         frameCrop = ClampCropRect(
-                            wgcCropX, wgcCropY,
+                            cropX, cropY,
                             isWholeWindowWgc ? sw : cropW,
                             isWholeWindowWgc ? sh : cropH,
                             sw, sh);
@@ -559,6 +574,7 @@ internal sealed partial class UiRecordingService(
                             frameCrop.Height,
                             encoderW, encoderH, displayW, displayH);
                         sharesSourceBuffer = ReferenceEquals(frame, source);
+                        TrackUsedArea(sw, sh);
                     }
                     else if (initialDesktopFrame is { } initialFrame)
                     {
@@ -690,6 +706,33 @@ internal sealed partial class UiRecordingService(
                 }
             }
 
+            // Cut the empty border around the window and its popups, once, now that the whole recording is known.
+            var trim = trimToContent && usedArea is { } used
+                ? PlanTrim(used, encoderW, encoderH, options.MaxEdge)
+                : null;
+            string? trimWarning = null;
+            if (trim is not null && mp4Failure is null)
+            {
+                try
+                {
+                    // The finished file stays open until its writer is released.
+                    encoder.Dispose();
+                    var trimClock = Stopwatch.StartNew();
+                    TrimRecording(options.OutputPath, trim, options.Fps);
+                    _logger.LogDebug("Trimmed {Frames} frames to {Width}x{Height} in {Ms} ms",
+                        frameIndex, trim.OutputWidth, trim.OutputHeight, trimClock.ElapsedMilliseconds);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException && IsRecoverableVideoOutputFailure(ex))
+                {
+                    _logger.LogDebug(ex, "Could not trim the recording to its used area");
+                    trimWarning = "The recording could not be trimmed to the window and its menus, so it keeps an " +
+                        $"empty border around the window: {ex.Message}";
+                    trim = null;
+                }
+            }
+            var videoWidth = trim?.OutputWidth ?? encoderW;
+            var videoHeight = trim?.OutputHeight ?? encoderH;
+
             var elapsedMs = captureElapsedMs;
             var achievedFps = frameIndex * 1000.0 / elapsedMs;
             var cadenceRatio = achievedFps / options.Fps;
@@ -723,6 +766,7 @@ internal sealed partial class UiRecordingService(
                             VideoFrameCount = frameIndex,
                             // Reserve canonical .frames for successful MP4 pairs.
                             PublicationDirectory = $"{options.FramesDirectory}.partial-{Guid.NewGuid():N}",
+                            Trim = trim,
                         }).ConfigureAwait(false);
                 }
 
@@ -762,6 +806,7 @@ internal sealed partial class UiRecordingService(
                         VideoStatus = "complete",
                         VideoFrameCount = frameIndex,
                         VideoFileSize = fileSize,
+                        Trim = trim,
                     }).ConfigureAwait(false);
             }
 
@@ -807,11 +852,16 @@ internal sealed partial class UiRecordingService(
                 warnings ??= [];
                 warnings.AddRange(captureWarnings);
             }
+            if (trimWarning is not null)
+            {
+                warnings ??= [];
+                warnings.Add(trimWarning);
+            }
             return new RecordCaptureResult
             {
                 Frames = frameIndex,
-                Width = encoderW,
-                Height = encoderH,
+                Width = videoWidth,
+                Height = videoHeight,
                 FileSize = fileSize,
                 Mode = mode,
                 ElapsedMs = elapsedMs,

@@ -24,12 +24,17 @@ public interface IFrameGrabber : IDisposable
     IReadOnlyCollection<string> Warnings => [];
 
     /// <summary>
-    /// Where the captured window's top-left corner sits in the most recently returned frame, in pixels.
-    /// Non-zero when the frame was extended to include a menu, flyout, or other popup that reaches past
-    /// the window's left or top edge. Defaults to <c>(0, 0)</c> for implementations whose frames are
-    /// exactly the window.
+    /// Where the captured window sits in the most recently returned frame, in frame pixels. Set when frames
+    /// include an empty border around the window that leaves room for its menus, flyouts and other popups.
+    /// <see langword="null"/> for implementations whose frames are exactly the window.
     /// </summary>
-    (int X, int Y) WindowOrigin => (0, 0);
+    PointerRect? WindowBounds => null;
+
+    /// <summary>
+    /// The part of the most recently returned frame that shows the window or one of its popups, in frame
+    /// pixels. Everything outside it is empty border. <see langword="null"/> when the whole frame is content.
+    /// </summary>
+    PointerRect? ContentBounds => null;
 
     /// <summary>
     /// <see langword="true"/> once the capture session has ended — typically because the captured
@@ -107,9 +112,10 @@ public interface IWindowCapture
     /// hint the expected sampling rate (0 lets the implementation choose).
     /// </summary>
     /// <remarks>
-    /// Frames can be larger than the window: when a popup the window owns reaches past its edge, the
-    /// frame grows to include it and stays that size for the rest of the session.
-    /// <see cref="IFrameGrabber.WindowOrigin"/> says where the window sits in the frame.
+    /// Frames can be larger than the window: they include a fixed empty border, up to the monitor's edge,
+    /// so popups the window owns that reach past its edge are drawn in full. The border's size never changes
+    /// during the session. <see cref="IFrameGrabber.WindowBounds"/> and <see cref="IFrameGrabber.ContentBounds"/>
+    /// say which part of each frame is in use.
     /// </remarks>
     /// <exception cref="PlatformNotSupportedException">
     /// Frame capture is not available on this system.

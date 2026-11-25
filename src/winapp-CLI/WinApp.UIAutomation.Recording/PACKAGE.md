@@ -57,7 +57,8 @@ inspect and drive UI. Reference this package only when you actually want video.
 
 - **`wgc`** — Windows Graphics Capture. The default, and the only one that reliably captures
   occluded or GPU-composited windows. Menus, flyouts and tooltips the window owns are drawn in
-  place; when one reaches past the window's edge, the frame grows to show all of it.
+  place. Whole-window recordings leave room for popups that reach past the window's edge, then are
+  re-encoded once, when they finish, to just the window and the popups that appeared.
 - **`printwindow`** — GDI fallback when Graphics Capture is unavailable.
 - **`screen`** — screen-DC capture, used when you set `RecordOptions.CaptureScreen`. This is the
   only mode that includes overlays from other processes, and it captures whatever is

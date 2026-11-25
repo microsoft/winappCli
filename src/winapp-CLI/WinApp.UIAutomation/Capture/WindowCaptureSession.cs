@@ -16,9 +16,9 @@ namespace Microsoft.Windows.SDK.BuildTools.WinApp.UIAutomation;
 /// in the same process whose Win32 owner chain leads to the selected window are included.
 /// Uses Windows graphics capture first and <see cref="WindowCaptureFallback"/> when Windows rejects a popup.
 /// A popup that cannot be captured is left out and reported in <see cref="Warnings"/>. Does not create or display UI.
-/// When a popup reaches past the window's edge, the frame grows to include all of it and keeps that size for the
-/// rest of the session, so a menu opening and closing changes the frame size at most once.
-/// <see cref="WindowOrigin"/> reports where the window sits in the grown frame.
+/// When started with margins, every frame is the window plus a fixed empty border, so a popup that reaches past
+/// the window's edge is drawn in full without the frame ever changing size. <see cref="WindowBounds"/> and
+/// <see cref="ContentBounds"/> say which part of the latest frame holds the window and which part holds anything at all.
 /// </summary>
 internal sealed partial class WindowCaptureSession : IFrameGrabber
 {
@@ -33,6 +33,7 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
     private readonly Dictionary<nint, IFrameGrabber> _secondaryWindowSessions = [];
     private readonly HashSet<nint> _failedSecondaryWindows = [];
     private readonly HashSet<nint> _reportedSecondaryWindows = [];
+    private readonly HashSet<nint> _reportedClippedWindows = [];
     private readonly List<string> _warnings = [];
     private readonly Lock _lock = new();
     private bool _disposed;
@@ -42,10 +43,18 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
     private PointerRect _lastComposedTargetWindowBounds;
     private SecondaryWindowFrameInput[] _lastComposedSecondaryInputs = [];
     private (byte[] Pixels, int Width, int Height, long Version)? _latestCombinedFrame;
-    // Space added around the window for popups that reached past its edges. Only ever grows.
-    private CanvasMargins _margins;
-    private CanvasMargins _lastComposedMargins;
-    private (int X, int Y) _latestWindowOrigin;
+    // Empty space kept around the window so popups that reach past its edges fit. Fixed for the session.
+    private readonly CanvasMargins _margins;
+    private PointerRect? _latestWindowBounds;
+    private PointerRect? _latestContentBounds;
+
+    /// <summary>
+    /// How far, in pixels, a recording leaves room for menus and flyouts past each edge of the window. Typical
+    /// WinUI menus, dropdowns and teaching tips are 100-400 pixels tall, and they open next to the control
+    /// that shows them, so this covers them. Each side is also limited to the monitor edge, since a popup
+    /// can't open beyond the screen.
+    /// </summary>
+    internal const int DefaultPopupMargin = 400;
 
     internal readonly record struct CanvasMargins(int Left, int Top, int Right, int Bottom)
     {
@@ -54,13 +63,15 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
 
     internal WindowCaptureSession(IFrameGrabber targetCapture, Func<PointerRect> targetWindowBounds,
         Func<List<SecondaryWindow>> discover, Func<nint, IFrameGrabber> start,
-        Func<bool>? isCaptureTargetValid = null, ILogger? logger = null, int? expectedPid = null)
+        Func<bool>? isCaptureTargetValid = null, ILogger? logger = null, int? expectedPid = null,
+        CanvasMargins margins = default)
     {
         _targetWindowCapture = targetCapture;
         _targetWindowBounds = targetWindowBounds;
         _discover = discover;
         _isCaptureTargetValid = isCaptureTargetValid ?? (() => true);
         _logger = logger ?? NullLogger.Instance;
+        _margins = margins;
         // Injected discovery, like native discovery, supplies already-classified eligible windows.
         _start = handle => StartWindowCapture(new HWND(handle), _logger, 0,
             (window, _, _) => start((nint)window),
@@ -74,11 +85,44 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
         var pid = RealOwnedWindowFinder.s_getWindowProcessId(hwnd);
         var targetWindow = StartWindowCapture(hwnd, logger, fps, startWindow,
             () => IsEligibleSecondaryWindow(hwnd, pid), pid);
+        var margins = includeSecondaryWindows ? MarginsWithinMonitor(hwnd, DefaultPopupMargin) : default;
         return new(targetWindow,
-            () => GetBounds(hwnd), includeSecondaryWindows ? () => Discover(hwnd, pid, logger) : () => [],
+            () => GetBounds(hwnd), includeSecondaryWindows ? () => Discover(hwnd, pid, logger, margins: margins) : () => [],
             secondaryHandle => startWindow(new HWND(secondaryHandle), logger, fps),
-            isCaptureTargetValid: () => IsWindowFromExpectedProcess(hwnd, pid), logger: logger, expectedPid: pid);
+            isCaptureTargetValid: () => IsWindowFromExpectedProcess(hwnd, pid), logger: logger, expectedPid: pid,
+            margins: margins);
     }
+
+    private static unsafe CanvasMargins MarginsWithinMonitor(HWND hwnd, int margin)
+    {
+        try
+        {
+            var window = GetBounds(hwnd);
+            var monitor = PInvoke.MonitorFromWindow(hwnd, global::Windows.Win32.Graphics.Gdi.MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
+            var info = new global::Windows.Win32.Graphics.Gdi.MONITORINFO { cbSize = (uint)sizeof(global::Windows.Win32.Graphics.Gdi.MONITORINFO) };
+            if (monitor.IsNull || !PInvoke.GetMonitorInfo(monitor, ref info))
+            {
+                return new(margin, margin, margin, margin);
+            }
+            var screen = info.rcMonitor;
+            return ComputeMargins(window, new(screen.left, screen.top, screen.right, screen.bottom), margin);
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            return default;
+        }
+    }
+
+    /// <summary>
+    /// Room for popups past each edge of <paramref name="window"/>: at most <paramref name="margin"/>, and no
+    /// further than the edge of <paramref name="monitor"/>.
+    /// </summary>
+    internal static CanvasMargins ComputeMargins(PointerRect window, PointerRect monitor, int margin)
+        => new(
+            Math.Clamp(window.Left - monitor.Left, 0, margin),
+            Math.Clamp(window.Top - monitor.Top, 0, margin),
+            Math.Clamp(monitor.Right - window.Right, 0, margin),
+            Math.Clamp(monitor.Bottom - window.Bottom, 0, margin));
 
     internal static IFrameGrabber StartWindowCapture(HWND hwnd, ILogger logger, int fps,
         Func<HWND, ILogger, int, IFrameGrabber> startWindow, Func<bool> isFallbackEligible, int? expectedPid = null)
@@ -151,13 +195,24 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
         }
     }
 
-    public (int X, int Y) WindowOrigin
+    public PointerRect? WindowBounds
     {
         get
         {
             lock (_lock)
             {
-                return _latestWindowOrigin;
+                return _latestWindowBounds;
+            }
+        }
+    }
+
+    public PointerRect? ContentBounds
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _latestContentBounds;
             }
         }
     }
@@ -208,17 +263,30 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
         return _latestCombinedFrame;
     }
 
-    // Publishes the window without popups, keeping any space already added for earlier popups.
+    // Publishes the window without popups, on the same canvas as every other frame.
     private void PublishWindowOnly((byte[] Pixels, int Width, int Height, long Version) frame)
     {
         var (pixels, width, height) = PlaceOnCanvas(frame.Pixels, frame.Width, frame.Height, _margins);
-        _lastComposedMargins = _margins;
-        _latestWindowOrigin = (_margins.Left, _margins.Top);
+        var window = WindowRectOnCanvas(frame.Width, frame.Height);
+        PublishBounds(window, window);
         _latestCombinedFrame = (pixels, width, height, ++_combinedFrameVersion);
     }
 
+    private PointerRect WindowRectOnCanvas(int width, int height)
+        => new(_margins.Left, _margins.Top, _margins.Left + width, _margins.Top + height);
+
+    // Bounds are only reported when the frame has margins; a window-only frame is all window.
+    private void PublishBounds(PointerRect window, PointerRect content)
+    {
+        _latestWindowBounds = _margins.IsEmpty ? null : window;
+        _latestContentBounds = _margins.IsEmpty ? null : content;
+    }
+
+    internal static PointerRect Union(PointerRect a, PointerRect b)
+        => new(Math.Min(a.Left, b.Left), Math.Min(a.Top, b.Top), Math.Max(a.Right, b.Right), Math.Max(a.Bottom, b.Bottom));
+
     /// <summary>
-    /// Copies the window image onto a transparent canvas with <paramref name="margins"/> around it.
+    /// Copies the window image onto an empty (transparent black) canvas with <paramref name="margins"/> around it.
     /// Returns the window's own buffer when there are no margins.
     /// </summary>
     internal static (byte[] Pixels, int Width, int Height) PlaceOnCanvas(byte[] window, int width, int height, CanvasMargins margins)
@@ -237,18 +305,6 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
         }
         return (canvas, canvasWidth, canvasHeight);
     }
-
-    /// <summary>
-    /// Grows <paramref name="margins"/> so a popup at (<paramref name="left"/>, <paramref name="top"/>),
-    /// relative to the window's top-left corner, fits on the canvas. Never shrinks them.
-    /// </summary>
-    internal static CanvasMargins GrowMargins(CanvasMargins margins, int windowWidth, int windowHeight,
-        int left, int top, int popupWidth, int popupHeight)
-        => new(
-            Math.Max(margins.Left, -left),
-            Math.Max(margins.Top, -top),
-            Math.Max(margins.Right, left + popupWidth - windowWidth),
-            Math.Max(margins.Bottom, top + popupHeight - windowHeight));
 
     private (byte[] Pixels, int Width, int Height, long Version)? Sample()
     {
@@ -339,18 +395,7 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
         {
             return null;
         }
-        for (var i = 0; i < secondaryWindows.Count; i++)
-        {
-            // Before a popup's first image arrives, its window bounds say how much room it needs, so the
-            // first frame of a recording already has room for a menu that was open when it started.
-            var popupBounds = secondaryWindows[i].Bounds;
-            var popupWidth = secondaryWindowFrames[i].Pixels is null ? popupBounds.Right - popupBounds.Left : secondaryWindowFrames[i].Width;
-            var popupHeight = secondaryWindowFrames[i].Pixels is null ? popupBounds.Bottom - popupBounds.Top : secondaryWindowFrames[i].Height;
-            _margins = GrowMargins(_margins, result.Width, result.Height,
-                popupBounds.Left - bounds.Left, popupBounds.Top - bounds.Top, popupWidth, popupHeight);
-        }
         if (_latestCombinedFrame is not null && result.Version == _lastComposedTargetWindowVersion &&
-            _margins == _lastComposedMargins &&
             bounds == _lastComposedTargetWindowBounds && inputs.SequenceEqual(_lastComposedSecondaryInputs))
         {
             return _latestCombinedFrame;
@@ -361,6 +406,8 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
         {
             pixels = (byte[])result.Pixels.Clone();
         }
+        var windowOnCanvas = WindowRectOnCanvas(result.Width, result.Height);
+        var content = windowOnCanvas;
         // Discovery is topmost-first. Paint the lowest owned secondaryWindow first.
         for (var i = secondaryWindows.Count - 1; i >= 0; i--)
         {
@@ -370,16 +417,26 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
             {
                 continue;
             }
+            var left = secondaryWindow.Bounds.Left - bounds.Left + _margins.Left;
+            var top = secondaryWindow.Bounds.Top - bounds.Top + _margins.Top;
             IncludeSecondaryWindowInWindowImage(pixels, canvasWidth, canvasHeight,
-                secondaryFrame.Pixels, secondaryFrame.Width, secondaryFrame.Height,
-                secondaryWindow.Bounds.Left - bounds.Left + _margins.Left,
-                secondaryWindow.Bounds.Top - bounds.Top + _margins.Top);
+                secondaryFrame.Pixels, secondaryFrame.Width, secondaryFrame.Height, left, top);
+            var popup = new PointerRect(left, top, left + secondaryFrame.Width, top + secondaryFrame.Height);
+            var visible = new PointerRect(Math.Max(0, popup.Left), Math.Max(0, popup.Top),
+                Math.Min(canvasWidth, popup.Right), Math.Min(canvasHeight, popup.Bottom));
+            if (visible.Right > visible.Left && visible.Bottom > visible.Top)
+            {
+                content = Union(content, visible);
+            }
+            if (visible != popup && _reportedClippedWindows.Add(secondaryWindow.Handle))
+            {
+                _warnings.Add($"A popup window (HWND {secondaryWindow.Handle}) reached past the recorded area and is partly cut off.");
+            }
         }
         _lastComposedTargetWindowVersion = result.Version;
         _lastComposedTargetWindowBounds = bounds;
         _lastComposedSecondaryInputs = inputs;
-        _lastComposedMargins = _margins;
-        _latestWindowOrigin = (_margins.Left, _margins.Top);
+        PublishBounds(windowOnCanvas, content);
         _latestCombinedFrame = (pixels, canvasWidth, canvasHeight, ++_combinedFrameVersion);
         return _latestCombinedFrame;
     }
@@ -454,18 +511,21 @@ internal sealed partial class WindowCaptureSession : IFrameGrabber
         => IsWindow((nint)window) && RealOwnedWindowFinder.s_getWindowProcessId(window) == pid;
 
     internal static List<SecondaryWindow> Discover(HWND targetWindow, int pid, ILogger logger,
-        Func<HWND, PointerRect>? getBounds = null)
+        Func<HWND, PointerRect>? getBounds = null, CanvasMargins margins = default)
     {
         if (!IsWindowFromExpectedProcess(targetWindow, pid))
         {
             throw new CaptureTargetClosedException();
         }
         getBounds ??= hwnd => GetBounds(hwnd, requireNonEmpty: false);
-        var targetBounds = getBounds(targetWindow);
-        if (targetBounds.Right <= targetBounds.Left || targetBounds.Bottom <= targetBounds.Top)
+        var windowBounds = getBounds(targetWindow);
+        if (windowBounds.Right <= windowBounds.Left || windowBounds.Bottom <= windowBounds.Top)
         {
             throw new InvalidOperationException("The selected capture window has empty bounds.");
         }
+        // A popup only needs to touch the recorded area, which includes the margins around the window.
+        var targetBounds = new PointerRect(windowBounds.Left - margins.Left, windowBounds.Top - margins.Top,
+            windowBounds.Right + margins.Right, windowBounds.Bottom + margins.Bottom);
         var result = new List<SecondaryWindow>();
         var window = HWND.Null;
         while (!(window = RealOwnedWindowFinder.s_findNextTopLevelWindow(window)).IsNull)

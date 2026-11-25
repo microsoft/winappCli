@@ -19,6 +19,14 @@ MF_MT_FRAME_RATE
 MF_MT_PIXEL_ASPECT_RATIO
 MF_MT_DEFAULT_STRIDE
 
+// Media Foundation source reader, for trimming a finished recording
+MFCreateSourceReaderFromURL
+IMFSourceReader
+MFCreateAttributes
+IMF2DBuffer
+MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING
+MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS
+
 // Window state and geometry for capture retargeting
 GetWindowRect
 GetAncestor

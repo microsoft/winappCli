@@ -39,6 +39,52 @@ public class Mp4SinkWriterEncoderTests
     }
 
     [TestMethod]
+    public void Mp4Trimmer_KeepsOnlyThePlannedAreaAtItsOriginalPosition()
+    {
+        // A 128x96 recording: a red 64x64 "window" at (32, 16) on black. Trimming to the window must give a
+        // 64x64 video that is all red, upright and unscaled.
+        var dir = CreateScratchDirectory();
+        try
+        {
+            var source = Path.Join(dir, "padded.mp4");
+            var frame = new byte[128 * 96 * 4];
+            for (var y = 16; y < 80; y++)
+            {
+                for (var x = 32; x < 96; x++)
+                {
+                    frame[((y * 128) + x) * 4 + 2] = 255;
+                    frame[((y * 128) + x) * 4 + 3] = 255;
+                }
+            }
+            using (var encoder = new Mp4SinkWriterEncoder(source, 128, 96, 1, 4_000_000))
+            {
+                WritePastEncoderLookahead(encoder, frame);
+                encoder.Complete();
+            }
+
+            var trimmed = Path.Join(dir, "trimmed.mp4");
+            Mp4Trimmer.Trim(source, trimmed, new RecordTrimPlan(128, 96, 32, 16, 64, 64, 64, 64, 64, 64), fps: 1);
+
+            var frames = Mp4Trimmer.ReadFrames(trimmed, 64, 64).ToList();
+            Assert.HasCount(FramesPastEncoderLookahead, frames);
+            var pixels = frames[^1].Pixels;
+            foreach (var (x, y) in new[] { (2, 2), (61, 2), (2, 61), (61, 61), (32, 32) })
+            {
+                var i = ((y * 64) + x) * 4;
+                Assert.IsGreaterThan(200, pixels[i + 2], $"red at ({x}, {y})");
+                Assert.IsLessThan(50, pixels[i + 1], $"no green at ({x}, {y})");
+                Assert.IsLessThan(50, pixels[i], $"no blue at ({x}, {y})");
+            }
+            // The source file must be closed once trimming finishes, so the recorder can replace it.
+            File.Delete(source);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void Mp4SinkWriterEncoder_PublishAtomic_MovesNewDestination()
     {
         var dir = CreateScratchDirectory();

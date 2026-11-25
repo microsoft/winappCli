@@ -487,6 +487,58 @@ public partial class UiCommandTests
             Logger = logger ?? NullLogger.Instance,
         };
 
+    [TestMethod]
+    public async Task RecordFrameBundleWriter_TrimCutsImagesAndMovesPointerPositions()
+    {
+        // 64x64 frames whose top-left 32x32 is the used area. After the trim, images are 32x32 and a pointer
+        // at (40, 10) in the recorded frame is outside the video.
+        var finalDirectory = Path.Join(_tempDirectory.FullName, "trimmed.frames");
+        var writer = new RecordFrameBundleWriter(CreateFrameConfiguration(finalDirectory));
+        var pixels = new byte[64 * 64 * 4];
+        await writer.WriteAsync(pixels, new RecordFrameSample
+        {
+            SampleIndex = 0,
+            Cursor = new RecordFrameCursor { X = 10, Y = 12, Visible = true, InFrame = true },
+            Clicks = [new RecordFrameClick { X = 40, Y = 10 }],
+        }, CancellationToken.None);
+        await writer.WriteAsync(pixels, new RecordFrameSample
+        {
+            SampleIndex = 1,
+            Cursor = new RecordFrameCursor { X = 40, Y = 10, Visible = true, InFrame = true },
+        }, CancellationToken.None);
+
+        var trim = new RecordTrimPlan(64, 64, 0, 0, 32, 32, 32, 32, 32, 32);
+        await writer.CompleteAsync(new RecordFrameCompletion
+        {
+            Status = "complete",
+            StopReason = "duration_elapsed",
+            StartedUtc = DateTimeOffset.UtcNow,
+            ElapsedMs = 200,
+            AchievedFps = 10,
+            CadenceRatio = 1,
+            VideoStatus = "complete",
+            VideoFrameCount = 2,
+            Trim = trim,
+        });
+        await writer.DisposeAsync();
+
+        var image = Directory.GetFiles(Path.Join(finalDirectory, "frames"), "*.jpg").Single();
+        using var decoded = SKBitmap.Decode(image);
+        Assert.AreEqual((32, 32), (decoded.Width, decoded.Height));
+        var manifest = JsonSerializer.Deserialize<JsonElement>(
+            await File.ReadAllTextAsync(Path.Join(finalDirectory, "manifest.json")));
+        Assert.AreEqual(32, manifest.GetProperty("frames").GetProperty("width").GetInt32());
+        Assert.AreEqual(32, manifest.GetProperty("frames").GetProperty("height").GetInt32());
+
+        var entries = (await File.ReadAllLinesAsync(Path.Join(finalDirectory, "frames.ndjson")))
+            .Select(line => JsonSerializer.Deserialize<JsonElement>(line)).ToArray();
+        Assert.HasCount(2, entries);
+        var inside = entries[0].GetProperty("cursor");
+        Assert.AreEqual((10, 12, true), (inside.GetProperty("x").GetInt32(), inside.GetProperty("y").GetInt32(), inside.GetProperty("inFrame").GetBoolean()));
+        Assert.AreEqual(40, entries[0].GetProperty("clicks")[0].GetProperty("x").GetInt32());
+        Assert.IsFalse(entries[1].GetProperty("cursor").GetProperty("inFrame").GetBoolean(), "the pointer was outside the trimmed area");
+    }
+
     private static RecordFrameSample Sample(int index, long elapsedMs, double mediaTimeMs)
         => new()
         {

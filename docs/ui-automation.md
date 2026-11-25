@@ -667,10 +667,15 @@ look like part of the app. Recordings draw these popups over the selected window
 whenever they are open. No flag is needed.
 
 - Only visible popups that belong to the selected window and its process are included.
-- When a popup reaches past the window's edge, the video grows to show all of it. The video size
-  is set when recording starts, so a menu that opens during the recording makes the window appear
-  a little smaller from then on, with dark space around it. The frame keeps that size after the
-  menu closes. With `--cursor` and `--frames`, pointer and click positions stay correct.
+- A popup that reaches past the window's edge is recorded in full. While recording, winapp leaves
+  up to 400 pixels of empty space around the window (less near the edge of the screen). When the
+  recording stops, it cuts the video down once to the window plus any popup that appeared. The
+  video is one size from start to end and the window is never scaled down to make room. Areas
+  next to a popup that the window doesn't cover are black. With `--frames`, the images and the
+  pointer positions are cut the same way.
+- Cutting the video means encoding it a second time, which takes a few seconds per minute of
+  recording after it stops. A popup that reaches more than 400 pixels past the window is cut off,
+  and the result's `warnings` says so.
 - If Windows refuses to capture a popup directly, winapp renders it with PrintWindow instead. It then
   appears as a plain rectangle, without rounded corners or transparency.
 - If a popup can't be captured, the recording continues without it and the result's `warnings`
