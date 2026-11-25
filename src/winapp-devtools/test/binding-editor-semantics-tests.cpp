@@ -692,6 +692,21 @@ int main()
               SessionAssignFind(L"Background")->detail == L"{StaticResource EarlierBrush}",
               "failed lookup restores the earlier resource key and kind without recording the bad key");
         SessionAssignErase(L"Background");
+        DevToolsCardRow boundRow = row;
+        boundRow.binding = L"{Binding Accent}";
+        g_ctx.resolveFn = [](InstanceHandle, const std::wstring&, const std::wstring&, bool) { return true; };
+        check(ApplyResourceKey(boundRow, L"Background", L"ValidBrush", false, row.value, error) &&
+              BindingLost(L"Background") && !DirtyFind(L"Background"),
+              "a key that replaced a binding offers Restore binding, not a Restore of the binding's last value");
+        g_bindingLost.clear();
+        SessionAssignErase(L"Background");
+        g_ctx.resolveFn = [](InstanceHandle, const std::wstring&, const std::wstring&, bool) { return false; };
+        check(!ApplyResourceKey(boundRow, L"Background", L"MissingBrush", false, row.value, error) &&
+              error.find(L"Restore binding") != std::wstring::npos && BindingLost(L"Background"),
+              "a failed key over a binding says the binding was removed and how to get it back");
+        g_bindingLost.clear();
+        DirtyErase(L"Background");
+        SessionAssignErase(L"Background");
         PendingKindErase(L"Background");
         g_ctx.writeFn = nullptr;
         g_ctx.resolveFn = nullptr;

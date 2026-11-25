@@ -128,6 +128,16 @@ static void Test_AnEditAnswersWithTheCallsThatUndoIt()
     DevToolsEditObserved dark; dark.elementTheme = 2;
     Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF0000FF"), &themed, dark)), L"\"value\":\"#FF0000FF\""),
           "CONTROL: in the same theme, a value the key never produced is undone as that value");
+    themed.highContrast = 0;
+    DevToolsEditObserved contrast; contrast.elementTheme = 2; contrast.highContrast = 1;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF00FFFF"), &themed, contrast)), L"\"key\":\"AccentText\""),
+          "a theme key this session assigned survives turning High Contrast on");
+    DevToolsEditObserved lookedUp; lookedUp.sessionKeyMatch = 1;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF123456"), &assigned, lookedUp)), L"\"key\":\"Danger\""),
+          "a session key whose value the property still holds counts even when the produced text differs");
+    DevToolsEditObserved overwritten; overwritten.sessionKeyMatch = 0;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FFC42B1C"), &assigned, overwritten)), L"HotReload.setProperty"),
+          "a session key is not used once app code set another value, even one with the same text");
 
     auto boundRow = Row(L"Binding", L"Title", L"binding");
     boundRow.binding = L"{Binding Vm.Title, Mode=OneWay}";

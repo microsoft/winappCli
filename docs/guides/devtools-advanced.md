@@ -340,13 +340,15 @@ winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 1
 
 - `Resource.list handle=123 prop=Foreground` lists the keys whose values fit the property:
   the ones in scope from the element up to the application, then keys its XAML uses, then
-  the WinUI theme brushes. `partial: true` means some dictionaries couldn't be read.
+  the WinUI theme brushes. `partial: true` means some dictionaries couldn't be read or the
+  list hit its size limit.
 - `Resource.assign` sets a `{StaticResource}` key, or a `{ThemeResource}` key with
   `theme:=true`. An unknown key fails with `resource-not-found` and puts back the previous
   value; `error.data.restored` says whether that worked. Over a binding DevTools can't save
   (for example in a C++ app, which has no managed agent), it only tries keys it finds in the
   resource dictionaries in scope. Any other key fails with `resource-unconfirmed` and
-  changes nothing; clear the property first to assign it anyway.
+  changes nothing; clear the property first to assign it anyway. Over a TwoWay `{x:Bind}`,
+  the new value can reach the app's data, which undo doesn't put back; `warning` says so.
 - `Binding.walk handle=123 prop=Text path=Vm.Title` checks a path before you install it. It
   takes `handle` only, not `name`. `resolves` says whether the path resolves against the
   DataContext, and `verdict` says why not. A path whose last property exists but is null
@@ -355,7 +357,8 @@ winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 1
   DataContext. Use it to switch an `{x:Bind}` property to `{Binding}`; the app's compiled
   bindings can still overwrite the property when they next update. Converter, source and
   other options are not kept; `warning` lists them. A path that reads a password, or whose
-  value prints one (such as a record with a `Password` member), fails with
+  value prints one (such as a record with a `Password` member, or a dictionary with a
+  `Password` key), fails with
   `refused-secret`. DevTools puts the previous value back when it can; the message says
   if it couldn't, or if it had to refresh the page's compiled bindings to do it.
 - `Binding.writeSource` writes through a TwoWay `{Binding}` to its source and keeps the

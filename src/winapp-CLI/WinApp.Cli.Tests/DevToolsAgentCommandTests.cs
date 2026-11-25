@@ -348,6 +348,36 @@ public class DevToolsAgentCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Call_PointsANameTakingMethodAtNameForABadHandle()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Error("Resource.assign", -32602, "bad-args", "handle must be a canonical non-zero decimal string.");
+        var console = new TestConsole();
+        var handler = new DevToolsCallCommand.Handler(agent.Resolver(), console);
+        Assert.AreEqual(1, await handler.InvokeAsync(
+            new DevToolsCallCommand().Parse(["Resource.assign", "handle=SaveButton", "prop=Text", "key=K", "--json"])));
+        using var result = JsonDocument.Parse(console.Output);
+        var message = result.RootElement.GetProperty("error").GetProperty("message").GetString()!;
+        Assert.Contains("name=<x:Name>", message);
+        Assert.DoesNotContain("do not use the selector or name", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
+    [DataRow("mode must be OneWay, OneTime or TwoWay.", "mode=Both", false)]
+    [DataRow("theme must be a boolean.", "theme=true", true)]
+    public async Task Call_AddsTheTypeHintOnlyForATypeMismatch(string refusal, string argument, bool hinted)
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Error("Binding.install", -32602, "bad-args", refusal);
+        var console = new TestConsole();
+        var handler = new DevToolsCallCommand.Handler(agent.Resolver(), console);
+        Assert.AreEqual(1, await handler.InvokeAsync(
+            new DevToolsCallCommand().Parse(["Binding.install", "handle=1", "prop=Text", argument, "--json"])));
+        using var result = JsonDocument.Parse(console.Output);
+        var message = result.RootElement.GetProperty("error").GetProperty("message").GetString()!;
+        Assert.AreEqual(hinted, message.Contains("name:=value", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public async Task Call_JsonKeepsTheAppsErrorData()
     {
         using var agent = new FakeDevToolsProtocolAgent()

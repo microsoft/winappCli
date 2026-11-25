@@ -452,6 +452,7 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
     if (!g_ctx.resolveFn) { error = L"This build cannot assign resources."; SetStatusText(error); return false; }
     if (key.empty()) { error = L"Type a resource key first."; SetStatusText(error); return false; }
     CheckEditRecordsNow(g_selWire);
+    const DevToolsKind was = CurrentKindOf(r, path);
     // CHECK THE RETURNED VALUE, not just that the call was made. The runtime's own return says nothing
     // -- IVisualTreeService3::ResolveResource answers S_OK for a key the app does not have -- so what is
     // being checked here is the tap's verdict, which is built from the diagnostics callback the failure
@@ -462,18 +463,24 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
         RebaselineRecords(g_selWire);
         const bool restored = RestoreAfterFailedResolve(r, path, preVal);
         RebaselineRecords(g_selWire);
+        // A failed lookup removes a binding; only Restore binding can put it back.
+        const bool bindingLost = was == DevToolsKind::Binding || was == DevToolsKind::XBind;
+        if (bindingLost) { DirtyErase(path); NoteBindingLost(path); }
         // SAY WHICH KEY, AND WHAT IT COST. The box takes free text against the APP's dictionary, so the
         // useful sentence separates "you typed it wrong" from "this app has no such resource" -- and then
         // says whether the value survived, which is not the same question and has a different answer.
         error = L"Resource '" + key + L"' was not found or could not be assigned to " + path + L". "
-              + (restored ? std::wstring(L"The previous value was restored. Check the key and resource type.")
-                          : std::wstring(L"The previous value could not be restored; set the property again."));
+              + (bindingLost ? std::wstring(L"Its binding was removed; use Restore binding to put it back.")
+                 : restored ? std::wstring(L"The previous value was restored. Check the key and resource type.")
+                            : std::wstring(L"The previous value could not be restored; set the property again."));
         SetStatusText(error);
         return false;
     }
     // Record the original before the session witness changes, so a first edit that assigns a resource still
     // remembers what the property was before it. Undo also clears the session assignment witness.
     NoteChange(path, preVal, std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}");
+    // A key over a binding replaced it, as a literal does: offer Restore binding, not a Restore of its last value.
+    if (was == DevToolsKind::Binding || was == DevToolsKind::XBind) { DirtyErase(path); NoteBindingLost(path); }
     NoteSessionAssign(path, asTheme ? DevToolsKind::Theme : DevToolsKind::Static,
                       std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}");
     if (EditRecord* rec = DirtyFind(path)) rec->themeAssigned = asTheme;

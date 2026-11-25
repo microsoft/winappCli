@@ -58,6 +58,15 @@ internal sealed class BindingCaptureStore
 
     internal void Hold(FrameworkElement element, string property, BindingBase? original) => Set(element, HeldKey(property), original);
 
+    // What a DevTools edit is about to replace, unless an earlier edit already saved the property's original. The
+    // user's own capture (Set) is a separate slot and is left alone. True when this call saved it.
+    internal bool HoldOriginal(FrameworkElement element, string property, BindingBase? original)
+    {
+        if (TryGetHeld(element, property, out _)) return false;
+        Hold(element, property, original);
+        return true;
+    }
+
     internal bool TryGetHeld(FrameworkElement element, string property, out BindingBase? original)
         => TryGet(element, HeldKey(property), out original);
 

@@ -424,10 +424,19 @@ struct SessionAssign
     std::wstring detail;
 };
 static std::vector<SessionAssign> g_sessionAssign;
+static DevToolsWindowSessionKeyFn g_sessionKeyFn;
+// The window's own record first, then a key a protocol client (Resource.assign) put on the selection, so the window
+// offers to edit and undo that key rather than the XAML's. The fallback's storage lasts until the next call.
 static const SessionAssign* SessionAssignFind(const std::wstring& p)
 {
     for (const auto& e : g_sessionAssign) if (e.prop == p) return &e;
-    return nullptr;
+    std::wstring key;
+    bool theme = false;
+    if (!g_sessionKeyFn || !g_selWire || !g_sessionKeyFn(g_selWire, p, &key, &theme) || key.empty()) return nullptr;
+    static SessionAssign assigned;
+    assigned = { p, theme ? DevToolsKind::Theme : DevToolsKind::Static,
+                 std::wstring(theme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}" };
+    return &assigned;
 }
 static void NoteSessionAssign(const std::wstring& p, DevToolsKind k, const std::wstring& detail)
 {

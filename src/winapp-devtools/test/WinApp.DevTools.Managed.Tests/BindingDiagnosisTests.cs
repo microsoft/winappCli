@@ -293,4 +293,43 @@ public sealed class BindingDiagnosisTests
             typeof(string), "Text", () => ""));
         Assert.IsTrue(result.RootElement.GetProperty("redacted").GetBoolean(), result.RootElement.GetRawText());
     }
+
+    private sealed class CredentialSource
+    {
+        public Dictionary<string, string> Creds { get; } = new() { ["User"] = "ada", ["Password"] = "hunter2" };
+        public Dictionary<string, string> Labels { get; } = new() { ["Title"] = "Home" };
+        public List<KeyValuePair<string, string>> Pairs { get; } = [new("DbPassword", "hunter2")];
+    }
+
+    [TestMethod]
+    [DataRow("Creds")]
+    [DataRow("Creds.Values")]
+    [DataRow("Pairs")]
+    public void ADictionaryKeyedPasswordIsRedacted_EvenThroughOneOfItsMembers(string path)
+    {
+        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate(path, new CredentialSource(), "Source", "{Binding}", "OneWay",
+            typeof(object), "ItemsSource", () => null));
+        Assert.IsTrue(result.RootElement.GetProperty("redacted").GetBoolean(), result.RootElement.GetRawText());
+        Assert.IsFalse(result.RootElement.GetRawText().Contains("hunter2", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ADictionaryWithoutAPasswordKeyIsShown()
+    {
+        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate("Labels", new CredentialSource(), "Source", "{Binding}", "OneWay",
+            typeof(object), "ItemsSource", () => null));
+        Assert.IsFalse(result.RootElement.TryGetProperty("redacted", out _), result.RootElement.GetRawText());
+    }
+
+    [TestMethod]
+    public void WriteSourceTextsAreBudgetedInUtf8Bytes()
+    {
+        // 6000 CJK characters are 18000 UTF-8 bytes: within a character count, over the relay's byte budget.
+        string wide = new('文', 6000);
+        string clipped = BindingDiagnosis.Clip(wide);
+        Assert.IsTrue(System.Text.Encoding.UTF8.GetByteCount(clipped) <= 4 * 1024 + 3, clipped.Length.ToString());
+        Assert.IsTrue(clipped.EndsWith("...", StringComparison.Ordinal));
+        Assert.IsNull(BindingDiagnosis.SourceBeforeJson(wide), "an old value too large for the reply is left out");
+        Assert.AreEqual("short", BindingDiagnosis.SourceBeforeJson("short"));
+    }
 }

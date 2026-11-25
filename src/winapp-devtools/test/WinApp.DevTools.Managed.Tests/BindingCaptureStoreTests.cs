@@ -112,4 +112,21 @@ public sealed class BindingCaptureStoreTests
         Assert.IsNull(held, "an {x:Bind} original is restored by rebinding its owner, so no binding is held");
         Assert.IsFalse(store.TryGet(element, "Text", out _), "and it is not an ordinary capture");
     }
+
+    [TestMethod]
+    public void ASecondEditKeepsTheFirstOriginalAndTheUsersCapture()
+    {
+        var store = CreateStore();
+        var element = Uninitialized<CollidingElement>();
+        var userCapture = Uninitialized<Binding>();
+        var appOriginal = Uninitialized<Binding>();
+        var devtoolsBinding = Uninitialized<Binding>();
+        store.Set(element, "Text", userCapture);
+        Assert.IsTrue(store.HoldOriginal(element, "Text", appOriginal), "the first edit saves the app's binding");
+        Assert.IsFalse(store.HoldOriginal(element, "Text", devtoolsBinding), "a second edit keeps it");
+        Assert.IsTrue(store.TryGetHeld(element, "Text", out var held));
+        Assert.AreSame(appOriginal, held);
+        Assert.IsTrue(store.TryGet(element, "Text", out var captured));
+        Assert.AreSame(userCapture, captured, "an edit's save never replaces the user's own capture");
+    }
 }

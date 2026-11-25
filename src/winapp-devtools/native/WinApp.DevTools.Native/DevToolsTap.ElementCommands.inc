@@ -132,9 +132,26 @@ static std::wstring CmdBindingInstall(unsigned long long wire, const std::wstrin
         };
 
 #ifdef WINAPP_DEVTOOLS_NATIVE_RUNTIME_TESTS
-        if (g_testBindingInstall) { *json = g_testBindingInstall(ih, prop, path, mode); return S_OK; }
+        if (g_testBindingInstall) *json = g_testBindingInstall(ih, prop, path, mode);
+        else
 #endif
         DevToolsBindingInstall_Apply(g_diag, g_vts3, ih, idx, path, mode, readBack, json.get());
+        // A value whose text prints a password (a record lists every member) is removed in this same UI turn, so
+        // no other read can see it. The caller puts the previous value back.
+        DevToolsJson answer;
+        if (DevToolsJsonParse(*json, answer) && answer.IsObject() && answer.GetString(L"bound") == L"True") {
+            std::vector<DevToolsReadProp> rows;
+            const std::set<std::wstring> only{ prop };
+            ReadCuratedProps(ih, &rows, nullptr, nullptr, &only, nullptr);
+            for (const auto& row : rows) {
+                if (row.name != prop || !DevToolsTextPrintsSecret(row.value)) continue;
+                ClearPropertyByPath(ih, prop);
+                ClearOriginatedError();
+                *json = L"{\"state\":\"unavailable\",\"secret\":true,\"reason\":\"" + DevToolsJsonEscape(L"'" + path +
+                        L"' shows a secret: its value prints a member or key whose name ends in Password") + L"\"}";
+                break;
+            }
+        }
         return S_OK;
     });
     if (FAILED(hr)) return L"ERR not-found";

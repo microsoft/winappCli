@@ -221,9 +221,12 @@ internal static class BindingDiagnosis
         var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy |
             (kind == "{x:Bind}" ? BindingFlags.NonPublic : 0);
         string visibility = kind == "{x:Bind}" ? "" : "public ";
+        // A dictionary keyed "Password" on the way (Creds.Values) exposes that entry, so the path counts as a secret.
+        bool keyedSecret = false;
         for (int i = 0; i < segments.Length; i++)
         {
             string seg = segments[i];
+            keyedSecret |= DevToolsSecrets.HoldsSecretKey(current);
             if (declared is not null && Nullable.GetUnderlyingType(declared) is { } underlying && seg is "Value" or "HasValue")
             {
                 declared = seg == "Value" ? underlying : typeof(bool);
@@ -288,10 +291,10 @@ internal static class BindingDiagnosis
         // holds one.
         bool secret = DevToolsSecrets.IsSecretName(prop) || segments.Length > 0 && DevToolsSecrets.IsSecretName(segments[^1]);
         // The declared type too: a member that is null now can hold a record that prints a password later.
-        secret |= DevToolsSecrets.HoldsSecret(declared);
+        secret |= DevToolsSecrets.HoldsSecret(declared) || keyedSecret;
         string Value(object? value)
         {
-            secret |= DevToolsSecrets.HoldsSecret(value?.GetType());
+            secret |= DevToolsSecrets.HoldsSecret(value?.GetType()) || DevToolsSecrets.HoldsSecretKey(value);
             var text = secret ? DevToolsSecrets.Redacted : Str(value);
             secret |= text == DevToolsSecrets.Redacted && value is not string;
             return text;
@@ -335,9 +338,9 @@ internal static class BindingDiagnosis
         if (dp is null) return Unavailable("'" + prop + "' is not a dependency property");
 
         var sb = new StringBuilder("{\"state\":\"captured\"");
-        if (!hold && Captured.TryGetHeld(element, prop, out BindingBase? held))
+        if (Captured.TryGetHeld(element, prop, out BindingBase? held))
         {
-            // Restoring must still undo the DevTools edit, so keep the original it saved and report that instead.
+            // An earlier DevTools edit saved the original; keep it, so restoring still undoes that edit too.
             Field(sb, "restoreKind", held is null ? "rebind" : "binding");
             Field(sb, "restoreScope", held is null ? "owner" : "element-property");
             if (held is Binding original)
@@ -354,8 +357,9 @@ internal static class BindingDiagnosis
         Binding? parent = ParentBindingOf(element.ReadLocalValue(dp));
         if (parent is not null)
         {
-            Captured.Set(element, prop, CloneBinding(parent));
-            if (hold) Captured.Hold(element, prop, CloneBinding(parent));
+            // An edit's save leaves the user's own Binding.capture alone.
+            if (hold) Captured.HoldOriginal(element, prop, CloneBinding(parent));
+            else Captured.Set(element, prop, CloneBinding(parent));
             Field(sb, "restoreKind", "binding");
             Field(sb, "restoreScope", "element-property");
             Field(sb, "path", parent.Path?.Path ?? "");
@@ -374,12 +378,12 @@ internal static class BindingDiagnosis
         else
         {
             // No live expression to capture. An {x:Bind} row still has a restore route: Bindings.Update()
-            Captured.Remove(element, prop);
+            if (!hold) Captured.Remove(element, prop);
             CompiledOwner? owner;
             try { owner = ParseXBindPath(authored) is not null ? XBindOwner(element) : null; }
             catch (Exception ex) { return Unavailable("compiled binding owner inspection failed; no restore route was captured: " + Describe(ex), false); }
             CompiledCaptureMetadata(sb, owner);
-            if (hold && owner is not null && FindBindingsUpdate(owner).update is not null) Captured.Hold(element, prop, null);
+            if (hold && owner is not null && FindBindingsUpdate(owner).update is not null) Captured.HoldOriginal(element, prop, null);
             CompiledEditMetadata(sb, authored, element.GetType(), prop);
         }
         sb.Append('}');
@@ -766,8 +770,8 @@ internal static class BindingDiagnosis
             try { previous = leaf.CanRead ? leaf.GetValue(owner) : null; }
             catch (TargetInvocationException) { previous = null; }
             // Exact, so writing it back restores the text; left out when too long for the reply to carry.
-            if (SourceUndoText(previous, leaf.PropertyType) is { Length: <= MaxSourceBefore } undo)
-                sb.Append(",\"sourceBefore\":\"").Append(JsonText(undo)).Append('"');
+            if (SourceBeforeJson(SourceUndoText(previous, leaf.PropertyType)) is { } undo)
+                sb.Append(",\"sourceBefore\":\"").Append(undo).Append('"');
         }
         try { leaf.SetValue(owner, converted); }
         catch (Exception ex) { return Unavailable("writing the source threw " + Describe(ex)); }
@@ -779,11 +783,32 @@ internal static class BindingDiagnosis
         return sb.ToString();
     }
 
-    // The relay refuses a reply over 64 KiB, so the reply's texts are kept well under it.
-    private const int MaxSourceBefore = 16 * 1024;
-    private const int MaxDisplayText = 4 * 1024;
+    // The relay refuses a reply over 64 KiB of UTF-8, so the reply's texts are budgeted in bytes, well under it.
+    private const int MaxSourceBeforeBytes = 16 * 1024;
+    private const int MaxDisplayBytes = 4 * 1024;
 
-    private static string Clip(string text) => text.Length <= MaxDisplayText ? text : text[..MaxDisplayText] + "...";
+    internal static string Clip(string text)
+    {
+        if (System.Text.Encoding.UTF8.GetByteCount(text) <= MaxDisplayBytes) return text;
+        int bytes = 0, end = 0;
+        while (end < text.Length)
+        {
+            int width = char.IsHighSurrogate(text[end]) && end + 1 < text.Length ? 2 : 1;
+            int size = System.Text.Encoding.UTF8.GetByteCount(text.AsSpan(end, width));
+            if (bytes + size > MaxDisplayBytes) break;
+            bytes += size;
+            end += width;
+        }
+        return text[..end] + "...";
+    }
+
+    // The old source value exactly, as JSON string content, or null when it would not fit the reply.
+    internal static string? SourceBeforeJson(string? undo)
+    {
+        if (undo is null) return null;
+        string escaped = JsonText(undo);
+        return System.Text.Encoding.UTF8.GetByteCount(escaped) <= MaxSourceBeforeBytes ? escaped : null;
+    }
 
     // JSON string content that decodes to exactly `text`, control characters included.
     internal static string JsonText(string text)

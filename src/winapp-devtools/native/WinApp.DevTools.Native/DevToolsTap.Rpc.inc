@@ -383,7 +383,7 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
         // `path` checks a proposed {Binding} path against the DataContext, as the inspector's path box does.
         const DevToolsJson* proposed = p.Find(L"path");
         if (proposed && (proposed->type != DevToolsJsonType::String || proposed->str.empty()))
-            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"path must be a non-empty string", L"bad-args");
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"path must be a non-empty string.", L"bad-args");
         if (proposed) {
             if (const std::wstring why = DevToolsPathSyntax_Reason(proposed->str); !why.empty())
                 return DevToolsRpcResult(id, L"{\"path\":\"" + DevToolsJsonEscape(proposed->str) +

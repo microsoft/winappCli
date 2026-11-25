@@ -25,15 +25,20 @@ struct DevToolsSessionEdit
     std::wstring after;              // resource: the value the key produced
     std::wstring bindingId;          // binding: the runtime handle of the expression DevTools installed
     int          elementTheme = -1;  // resource: the element's ActualTheme when the key was assigned
+    int          highContrast = -1;  // resource: whether High Contrast was on then (1) or off (0)
+    bool         byWindow = false;   // resource: assigned by the in-app window, which keeps its own record
 };
 
-// What the property holds now, beyond its row: the runtime identity of its binding, the element's theme, and
-// whether its value is the one its authored resource key gives (1), is not (0), or DevTools could not tell (-1).
+// What the property holds now, beyond its row: the runtime identity of its binding, the element's theme and High
+// Contrast, and whether its value is the one its authored key (authoredKeyMatch) or the key this session assigned
+// (sessionKeyMatch) gives: 1 yes, 0 no, -1 when DevTools could not find that key's value to compare.
 struct DevToolsEditObserved
 {
     std::wstring bindingId;
     int          elementTheme = -1;
+    int          highContrast = -1;
     int          authoredKeyMatch = -1;
+    int          sessionKeyMatch = -1;
 };
 
 struct DevToolsEditPrior
@@ -44,7 +49,9 @@ struct DevToolsEditPrior
     bool         theme = false;
     std::wstring path, mode;         // InstalledBinding
     bool         captured = false;   // Binding / XBind: a managed capture saved a restore route
+    bool         heldEarlier = false; // the saved route is an earlier edit's original, which a failed edit keeps
     std::wstring reason;             // why there is no undo, when there is none
+    std::wstring warning;            // XBind: the agent's warning that a TwoWay edit changes the app's data
 };
 
 inline const wchar_t* DevToolsPriorKindToken(const DevToolsEditPrior& prior)
@@ -78,9 +85,9 @@ inline std::wstring DevToolsLossyTextReason(const DevToolsReadProp& row)
 }
 
 // Session records come first because the runtime forgets a resource key and does not mark who installed a binding.
-// A binding record counts only while the very expression DevTools installed is still there; a resource record while
-// the value is what the key produced, or the element's theme changed since (a theme key follows the theme). A later
-// literal write or clear forgets the record. An authored key counts unless its value is known to differ now.
+// A binding record counts only while the very expression DevTools installed is still there. A resource record counts
+// while the property holds that key's value; when the key cannot be looked up, while the value is what the key
+// produced, or the theme or High Contrast changed since. A literal write or clear forgets a resource record.
 inline DevToolsEditPrior DevToolsClassifyPrior(const DevToolsReadProp& row, const DevToolsSessionEdit* session,
                                                const DevToolsEditObserved& observed = {})
 {
@@ -88,9 +95,12 @@ inline DevToolsEditPrior DevToolsClassifyPrior(const DevToolsReadProp& row, cons
     const bool bound = DevToolsRowIsBound(row);
     const bool local = row.source == L"Local" || row.source == kDevToolsReadLiveEditSource;
     if (session) {
-        const bool themeMoved = session->theme && session->elementTheme >= 0 && observed.elementTheme >= 0 &&
-                                observed.elementTheme != session->elementTheme;
-        if (session->resource && !bound && local && (row.value == session->after || themeMoved)) {
+        auto moved = [](int then, int now) { return then >= 0 && now >= 0 && then != now; };
+        const bool appearanceMoved = session->theme && (moved(session->elementTheme, observed.elementTheme) ||
+                                                        moved(session->highContrast, observed.highContrast));
+        const bool holdsKey = observed.sessionKeyMatch == 1 ||
+            (observed.sessionKeyMatch < 0 && (row.value == session->after || appearanceMoved));
+        if (session->resource && !bound && local && holdsKey) {
             prior.kind = DevToolsPriorKind::Resource; prior.key = session->key; prior.theme = session->theme;
             return prior;
         }

@@ -56,6 +56,18 @@ internal class DevToolsCallCommand : DevToolsLiveCommand, IHelpExamples
         IDevToolsTargetResolver resolver,
         IAnsiConsole ansiConsole) : LiveHandler(resolver, ansiConsole)
     {
+        // Methods that also address an element by x:Name, so a bad handle can point there instead.
+        private static readonly HashSet<string> MethodsTakingName = new(StringComparer.Ordinal)
+        {
+            "HotReload.setProperty", "HotReload.clearProperty", "Resource.assign", "Resource.list",
+            "Binding.install", "Binding.writeSource",
+        };
+
+        private static bool IsTypeMismatch(string message) =>
+            message.Contains("boolean", StringComparison.Ordinal) ||
+            message.Contains("integer", StringComparison.Ordinal) ||
+            message.Contains("number", StringComparison.Ordinal);
+
         protected override Task<int> RunAsync(
             DevToolsTarget target,
             ParseResult parseResult,
@@ -136,18 +148,21 @@ internal class DevToolsCallCommand : DevToolsLiveCommand, IHelpExamples
                     !DevToolsSelector.IsHandle(value.Value.Raw?.GetString() ?? value.Value.Text)));
                 if (response.Error!.Token == "bad-args" && invalidHandle.Name is not null)
                 {
+                    var nameAlternative = invalidHandle.Name == "handle" && MethodsTakingName.Contains(method)
+                        ? " To target an element by its x:Name, pass name=<x:Name> instead."
+                        : " Do not use the selector or name.";
                     return Task.FromResult(Fail(json, target.Pid, response.Error with
                     {
                         Message = response.Error.Message +
                             " Raw call does not resolve element selectors. Copy the numeric handle string from " +
-                            $"'winapp devtools inspect --json' and pass {invalidHandle.Name}=<handle>; do not use the selector or name.",
+                            $"'winapp devtools inspect --json' and pass {invalidHandle.Name}=<handle>." + nameAlternative,
                     }));
                 }
                 // A method that wanted a boolean or a number and got a string says `bad-args`. That token
-                // alone sends the caller looking at the method rather than at the ':=' they omitted. A missing
-                // parameter is not a type problem, so it gets no hint.
+                // alone sends the caller looking at the method rather than at the ':=' they omitted. Other
+                // bad-args messages (a missing parameter, an unknown mode) are not type problems.
                 if (response.Error!.Token == "bad-args" && parsed.HasStringValues &&
-                    !response.Error.Message.Contains(" is required", StringComparison.Ordinal))
+                    IsTypeMismatch(response.Error.Message))
                 {
                     return Task.FromResult(Fail(
                         json,

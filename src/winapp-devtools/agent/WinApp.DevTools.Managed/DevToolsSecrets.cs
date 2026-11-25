@@ -51,6 +51,39 @@ internal static class DevToolsSecrets
     internal static bool PrintsSecret(object? value, string? text) =>
         value is not string && text is not null && !text.StartsWith('"') && RecordBraces.IsMatch(text) && SecretMember.IsMatch(text);
 
+    // A collection this large is not scanned: listing it is slow, and it is unlikely to be one of credentials.
+    private const int MaxKeys = 4096;
+
+    // Whether a value holds entries by key, as a dictionary does, and a key ends in "Password". No member is named that
+    // way, but a list bound to it shows each entry ([Password, hunter2]), so it is treated as a secret.
+    internal static bool HoldsSecretKey(object? value)
+    {
+        try
+        {
+            if (value is System.Collections.IDictionary dictionary)
+            {
+                return dictionary.Count <= MaxKeys && dictionary.Keys.Cast<object?>().Any(key => key is string name && IsSecretName(name));
+            }
+            if (value is System.Collections.ICollection { Count: <= MaxKeys } collection)
+            {
+                return collection.Cast<object?>().Any(item => item is not null && KeyOf(item) is { } name && IsSecretName(name));
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
+        {
+            return false;
+        }
+        return false;
+    }
+
+    private static string? KeyOf(object item)
+    {
+        var type = item.GetType();
+        return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(KeyValuePair<,>)
+            ? type.GetProperty("Key")?.GetValue(item) as string
+            : null;
+    }
+
     /// <summary>Forgets what was learned about types, after .NET Hot Reload changed them.</summary>
     internal static void ClearCache()
     {

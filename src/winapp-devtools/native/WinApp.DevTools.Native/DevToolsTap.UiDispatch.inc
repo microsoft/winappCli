@@ -289,8 +289,8 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                                 size_t* retrievedRows,
                                 std::map<std::wstring, std::pair<unsigned int, std::wstring>>* outIndices = nullptr);
 
-// Defined in DevToolsTap.EditRpc.inc. A literal write or a clear replaces whatever a protocol edit recorded.
-static void SessionEditForget(unsigned long long wire, const std::wstring& prop);
+// Defined in DevToolsTap.EditRpc.inc. A literal write forgets an assigned key; a clear forgets any edit record.
+static void SessionEditForget(unsigned long long wire, const std::wstring& prop, bool resourceOnly);
 
 // Set a literal property: CreateInstance from a XAML type-converter literal, then SetProperty. UI thread.
 static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std::wstring& type, const std::wstring& value,
@@ -336,7 +336,7 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
         const unsigned long long wire = PackWire_nolock(h);
         ReleaseSRWLockShared(&g_censusLock);
         DevToolsBindingRow_NoteLiveWrite(wire, prop);
-        SessionEditForget(wire, prop);
+        SessionEditForget(wire, prop, /*resourceOnly*/ true);
         // Read the property once now, so the edit records the value it wrote before the app can write its own.
         std::vector<DevToolsReadProp> written;
         const std::set<std::wstring> only{ prop };
@@ -358,7 +358,7 @@ static HRESULT ClearLiteral(InstanceHandle h, const std::wstring& prop)
         const unsigned long long wire = PackWire_nolock(h);
         ReleaseSRWLockShared(&g_censusLock);
         DevToolsBindingRow_ForgetLiveWrite(wire, prop);
-        SessionEditForget(wire, prop);
+        SessionEditForget(wire, prop, /*resourceOnly*/ false);
     }
     return hr;
 }

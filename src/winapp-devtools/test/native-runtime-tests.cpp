@@ -1313,7 +1313,11 @@ struct ResourceTreeService : TextTreeService {
         if(value!=0x5000) return E_INVALIDARG;
         local=true;text.text=pending;return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE ClearProperty(InstanceHandle,unsigned int) override {local=false;bound=false;text.text.clear();return S_OK;}
+    HRESULT STDMETHODCALLTYPE ClearProperty(InstanceHandle,unsigned int) override {
+        if(failClear) return E_FAIL;
+        local=false;bound=false;text.text.clear();return S_OK;
+    }
+    bool failClear = false;
 };
 
 static void CheckResourceAssign(const std::function<void(bool,const char*)>& check)
@@ -1349,6 +1353,22 @@ static void CheckResourceAssign(const std::function<void(bool,const char*)>& che
 
     auto assigned=assign(L"\"name\":\"Title\"",L"Greeting");
     const DevToolsJson* result=assigned.Find(L"result");
+    {
+        std::wstring windowKey; bool windowTheme=true;
+        check(WindowSessionKeyBridge(static_cast<InstanceHandle>(PackWire_nolock(901)),L"Text",&windowKey,&windowTheme) &&
+            windowKey==L"Greeting" && !windowTheme,
+            "the in-app window sees a key a protocol client assigned");
+        RunOnUiThread([]() -> HRESULT {
+            SessionEditNoteResource_ui(901, PackWire_nolock(901), L"Text", L"Greeting", false, L"from Greeting", /*byWindow*/ true);
+            return S_OK;
+        });
+        check(!WindowSessionKeyBridge(static_cast<InstanceHandle>(PackWire_nolock(901)),L"Text",&windowKey,&windowTheme),
+            "but not one it assigned itself, so its Restore does not mistake the new key for the original");
+        RunOnUiThread([]() -> HRESULT {
+            SessionEditNoteResource_ui(901, PackWire_nolock(901), L"Text", L"Greeting", false, L"from Greeting");
+            return S_OK;
+        });
+    }
     check(result && result->GetString(L"after")==L"from Greeting" && result->GetString(L"before")==L"Hello" &&
         result->GetString(L"kind")==L"staticResource" && !result->Find(L"previousKind"),
         "a key the app has is assigned by name, reporting the value before and after");
@@ -1629,6 +1649,58 @@ static void CheckBindingEdits(const std::function<void(bool,const char*)>& check
             agent.Ops()==std::vector<std::wstring>{L"captureoriginal",L"releaseoriginal"},
             "a failed install lets go of the original binding it saved, so a later capture is not misreported");
         tree.bound=false;
+    }
+    {
+        // An earlier edit already holds the app's original: a failed second edit must not let go of it.
+        FakeBindingAgent agent([](const std::wstring& op) -> std::wstring {
+            if(op==L"captureoriginal") return L"{\"state\":\"captured\",\"restoreKind\":\"binding\",\"heldOriginal\":\"True\"}";
+            return L"{\"state\":\"released\"}";
+        });
+        tree.bound=true;
+        g_bindingInstallAnswer=L"{\"state\":\"unavailable\",\"reason\":\"the XAML runtime refused the binding\"}";
+        auto failed=callAgent(L"Binding.install",target+L",\"path\":\"Vm.Title\"");
+        check(token(failed)==L"binding-unavailable" && agent.Ops()==std::vector<std::wstring>{L"captureoriginal"},
+            "a failed edit keeps an original an earlier edit saved, so Binding.restore can still undo that edit");
+        tree.bound=false;
+    }
+    {
+        // The value that prints a password cannot be removed: the error says it is still there.
+        FakeBindingAgent agent([](const std::wstring&) -> std::wstring { return L"{\"state\":\"none\"}"; });
+        diagnostics.text.text=L"Hello"; tree.local=true; tree.failClear=true;
+        g_bindingInstallFake=[&](InstanceHandle,const std::wstring&){ diagnostics.text.text=L"Login { User = ada, Password = hunter2 }"; };
+        g_bindingInstallAnswer=L"{\"state\":\"bound\",\"bound\":\"True\",\"after\":\"expr-3\"}";
+        auto stuck=callAgent(L"Binding.install",target+L",\"path\":\"Logins[0]\"");
+        check(token(stuck)==L"refused-secret" && !stuck.Find(L"error")->Find(L"data")->GetBool(L"restored",true) &&
+            stuck.Find(L"error")->GetString(L"message").find(L"still in place")!=std::wstring::npos,
+            "a rollback whose clear fails says the new value is still in place, not that it was cleared");
+        tree.failClear=false;
+    }
+    {
+        // The in-app window's install refuses the same value and puts the literal back, as Binding.install does.
+        FakeBindingAgent agent([](const std::wstring&) -> std::wstring { return L"{\"state\":\"none\"}"; });
+        diagnostics.text.text=L"Hello"; tree.local=true; tree.bound=false;
+        g_bindingInstallFake=[&](InstanceHandle,const std::wstring&){ diagnostics.text.text=L"Login { User = ada, Password = hunter2 }"; };
+        g_bindingInstallAnswer=L"{\"state\":\"bound\",\"bound\":\"True\",\"after\":\"expr-4\"}";
+        std::wstring windowJson;
+        std::thread worker([&]{ Route1Bind(static_cast<InstanceHandle>(PackWire_nolock(901)), L"bind", L"Text", L"Logins[0]", L"OneWay", &windowJson); });
+        worker.join();
+        DevToolsJson windowAnswer;
+        check(DevToolsJsonParse(windowJson, windowAnswer) && windowAnswer.GetString(L"state")==L"unavailable" &&
+            windowAnswer.GetString(L"reason").find(L"put the previous value back")!=std::wstring::npos &&
+            diagnostics.text.text==L"Hello" && windowJson.find(L"hunter2")==std::wstring::npos,
+            "the window's install refuses a value that prints a password and puts the previous literal back");
+    }
+    {
+        // A literal written over an installed TwoWay binding goes through it and keeps it, so its record stays.
+        { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+        const unsigned long long wire=PackWire_nolock(901);
+        SessionEditNoteBinding(wire, L"Text", L"Vm.Title", L"TwoWay", L"expr-5");
+        RunOnUiThread([]() -> HRESULT { return SetLiteral(901, L"Text", L"String", L"typed"); });
+        DevToolsSessionEdit kept;
+        check(SessionEditFind(wire, L"Text", &kept) && !kept.resource && kept.path==L"Vm.Title",
+            "a literal write keeps the record of a binding DevTools installed");
+        RunOnUiThread([]() -> HRESULT { return ClearLiteral(901, L"Text"); });
+        check(!SessionEditFind(wire, L"Text", &kept), "and a clear forgets it");
     }
     {
         std::wstring writeAnswer;
