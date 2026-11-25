@@ -6,6 +6,7 @@
   "project": "WinUIGallery",
   "process": "WinUIGallery",
   "packaged": true,
+  "incrementalLaunch": "WinUIGallery/Samples/Button/ButtonPage.xaml",
   "setup": [
     { "file": "WinUIGallery/Package.Dev.appxmanifest", "op": "replace", "find": "      <Extensions>\n        <uap3:Extension Category=\"windows.appUriHandler\">\n          <uap3:AppUriHandler>\n            <uap3:Host Name=\"winuigallery.com\" />\n            <uap3:Host Name=\"xamlcontrolsgallery.com\" />\n          </uap3:AppUriHandler>\n        </uap3:Extension>\n        <uap:Extension Category=\"windows.protocol\">\n          <uap:Protocol Name=\"winui3gallerydev\">\n            <uap:DisplayName>WinUI Gallery Dev</uap:DisplayName>\n          </uap:Protocol>\n        </uap:Extension>\n      </Extensions>\n", "text": "", "note": "--unique-identity refuses extensions every copy would share (a web link handler and a protocol)" },
     { "file": "WinUIGallery/App.xaml", "op": "insert-after", "find": "<x:String x:Key=\"ControlsName\">All</x:String>", "text": "            <SolidColorBrush x:Key=\"HrAppBrush\" Color=\"#FF808080\" />" },

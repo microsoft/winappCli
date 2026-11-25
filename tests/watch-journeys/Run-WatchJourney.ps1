@@ -168,6 +168,21 @@ function Invoke-Journey([string]$Name) {
     # The SDK this journey's builds use: winapp runs 'dotnet' from PATH in the project folder.
     $journeySdk = Get-DotnetSdk $projectDir
     Write-Host "[$Name] SDK $($journeySdk.Version) ($($journeySdk.Dotnet))"
+    if ($journey.incrementalLaunch) {
+        # A developer's next session: one watch session to build, then a page changes, so the journey's launch build is
+        # incremental (it orders the app's XAML members differently from a full compile).
+        $firstLog = Join-Path $dir 'first-launch.log'
+        $first = Start-Process cmd.exe -ArgumentList '/d', '/c', "`"`"$Winapp`" $($arguments -join ' ') > `"$firstLog`" 2>&1`"" -WorkingDirectory $projectDir -PassThru -WindowStyle Hidden
+        $started = { (Test-Path $firstLog) -and (Select-String $firstLog -Pattern 'DevTools attached to the app \(PID' -Quiet) }
+        $deadline = (Get-Date).AddMinutes(10)
+        while ((Get-Date) -lt $deadline -and -not $first.HasExited -and -not (& $started)) { Start-Sleep -Milliseconds 500 }
+        Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($dir) -and $_.ProcessId -ne $PID } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        Get-Process $journey.process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($src, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force -ErrorAction SilentlyContinue
+        if (-not (& $started)) { throw "incrementalLaunch: the first session never started (see $firstLog)." }
+        Start-Sleep -Seconds 2
+        (Get-Item (Join-Path $src $journey.incrementalLaunch)).LastWriteTime = Get-Date
+    }
     # One file for winapp's and dotnet watch's output, in the order they wrote it.
     $process = Start-Process cmd.exe -ArgumentList '/d', '/c', "`"`"$Winapp`" $($arguments -join ' ') > `"$log`" 2>&1$stdin`"" -WorkingDirectory $projectDir -PassThru -WindowStyle Hidden
     if ($keys -and -not $keys.WaitForConnectionAsync().Wait(30000)) { throw 'winapp never opened its input pipe.' }
