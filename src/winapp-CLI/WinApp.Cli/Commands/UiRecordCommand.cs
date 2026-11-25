@@ -39,7 +39,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         Description = "Empty space around the window, for menus and flyouts that reach past its edge. " +
             "'auto' (default) trims the video to the window plus any popup that appeared; a number keeps that many " +
             "pixels on every side, cutting off popups beyond it; 0 records only the window. Whole-window recordings only.",
-        HelpName = "auto|px",
+        HelpName = "px",
     };
 
     internal static readonly Option<string> BackgroundOption = new("--background")
