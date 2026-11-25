@@ -318,8 +318,9 @@ fixes CI and resolves conflicts, and for each new commit the board itself:
 
 - requests a Copilot review once (through GitHub's Copilot code review API). It
   never does this for a PR that isn't being kept ready.
-- once the commit has been stable for 5 minutes, asks the agent once to rerun
-  pr-review on it.
+- once the commit has been stable for 5 minutes and the PR's session isn't busy,
+  asks the agent once to rerun pr-review on it. While the session is still
+  pushing, it waits and asks once for the commit it ends on.
 
 It never merges or approves. The PR's row and header show a purple **👁 Watching**
 badge while it's on. **Stop keeping it ready** is in the checklist and the **⋯**

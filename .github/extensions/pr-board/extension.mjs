@@ -185,7 +185,10 @@ class Board {
                 }
                 const stable = Date.now() - this.headSeen.get(p.number).at >= 5 * 60_000;
                 const askedByGetReady = !!local.readyAsked && (local.readyAsked.head === p.headRefOid || local.readyAsked.sha === sha);
-                if (!r.reviewCovered && local.reviewAsked?.sha !== sha && !askedByGetReady && !local.pending && stable) {
+                // While the author session is busy it's still pushing (a keep-ready run): ask once it goes idle, for
+                // whatever the head is then, instead of once per commit along the way.
+                const sessionBusy = local.sync?.activity === "busy";
+                if (!r.reviewCovered && local.reviewAsked?.sha !== sha && !askedByGetReady && !local.pending && !sessionBusy && stable) {
                     const card = this.card(p.number);
                     updatePr(this.repo, p.number, (s) => { s.reviewAsked = { sha, at: nowIso() }; s.pending = { id: "rereview", at: nowIso() }; note(s, `The board asked the agent to run pr-review on ${sha.slice(0, 7)}`); });
                     await send(rerunReviewPrompt(card, this.repo, sha), this.repo, p.number, { quiet: true });

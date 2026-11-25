@@ -989,7 +989,7 @@ export function register(test) {
         assert.match(req.body, /Old helper still used.*\(`src\/legacy\.js:3`\)/s);
         assert.equal(ctx.world.mutations.length, 0, "the board posted it itself");
     });
-    test("regression: after Get it ready, keep-ready doesn't ask for pr-review again on the same commit", async (ctx) => {
+    test("regression: after Get it ready, keep-ready doesn't ask for pr-review again on the same commit, or while its session is still pushing", async (ctx) => {
         const { page, world } = ctx;
         world.allowMutations = true; // keep-ready requests a Copilot review after the push below
         const realNow = Date.now;
@@ -1006,14 +1006,26 @@ export function register(test) {
             await refresh(ctx);
             await sleep(1500);
             assert.deepEqual(asks(), [], "asked for pr-review on the head the Get it ready prompt already covers");
-            // A new commit after that is new work: keep-ready asks for it, once.
-            const oid = world.push(107, "Address Copilot's comments");
+            // Commits pushed while the session is still busy (the keep-ready run itself) wait for it to finish.
+            world.push(107, "Address Copilot's comments");
             later(7);
             await refresh(ctx);
             await sleep(800);
+            const oid = world.push(107, "Fix the CSV header");
             later(14);
             await refresh(ctx);
+            later(21);
+            await refresh(ctx);
+            await sleep(1500);
+            assert.deepEqual(asks(), [], "asked for pr-review while the keep-ready session was still pushing");
+            // Once it's idle, keep-ready asks once, for the head it ended on.
+            await ctx.board.tool("pr_board_sync_sessions", { repo: REPO, sessions: [{ pr: 107, sessionId: "s-107", name: "CSV export", role: "author", activity: "idle", agentMerge: { enabled: true, actions: ["address_reviews", "fix_ci", "resolve_conflicts"] } }] });
+            later(22);
+            await refresh(ctx);
             for (let i = 0; i < 30 && !asks().length; i++) await sleep(100);
+            later(30);
+            await refresh(ctx);
+            await sleep(800);
             assert.deepEqual(asks(), [oid.slice(0, 7)]);
         } finally { Date.now = realNow; }
     }, { changesGitHub: true, allowMutations: true });
