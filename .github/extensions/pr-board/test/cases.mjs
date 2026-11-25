@@ -1,6 +1,7 @@
 // Offline UI tests for the PR board. See test/fixtures/world.mjs for what each PR and issue is for.
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import * as zlib from "node:zlib";
 import { HEAD, REPO } from "./fixtures/world.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -282,6 +283,15 @@ export function register(test) {
         await waitForSend(ctx, new RegExp(`re-review contoso/widgets#104 .*pushed ${other.slice(0, 7)} \\(layer 2`));
     }, { changesGitHub: true });
 
+    test("regression (#1382): a merge of main whose conflict resolution edited the PR is new work, and says what it changed", async (ctx) => {
+        const { world } = ctx;
+        await autoOn(ctx);
+        const m = world.mergeResolved(105);
+        await refresh(ctx);
+        const p = await waitForSend(ctx, new RegExp(`re-review contoso/widgets#105 .*pushed ${m.slice(0, 7)} \\(layer 2`));
+        assert.match(p, new RegExp(`merged the base branch in \\(${m.slice(0, 7)}\\) and, resolving conflicts, changed 1 file of the PR: tests/auth\\.test\\.js`));
+        assert.doesNotMatch(p, /nothing else changed/);
+    }, { changesGitHub: true });
     test("layer 3: turned off, nothing; turned on, it drafts a first review of a ready PR you're asked on", async (ctx) => {
         const { world } = ctx;
         world.addPr({ number: 109, title: "Add a retry budget", author: "dana", requested: ["me"] });
@@ -677,7 +687,7 @@ export function register(test) {
         const story = await text(page, "#wsScroll");
         for (const c of ["Explain like I'm 5", "Where it is", "Required CI", "WHAT'S NEEDED FROM YOU"]) assert.ok(story.toUpperCase().includes(c.toUpperCase()), `Story has ${c}`);
         const tabs = await page.eval(`[...document.querySelectorAll('#wsHead [role=tab]')].map((t) => t.innerText.replace(/\\s+\\d+$/, '').trim())`);
-        assert.deepEqual(tabs, ["Story", "Architecture", "Code", "Review", "GitHub"]);
+        assert.deepEqual(tabs, ["Story", "Architecture", "Code", "Review", "Try it", "See it", "GitHub"]);
         assert.equal(await exists(page, "#tCol #composer #input"), true, "the composer in the thread column");
     });
 
@@ -1074,6 +1084,105 @@ export function register(test) {
         assert.deepEqual([f1.title, f1.category, f1.files[0].line], ["Retry forever", "blocker", 12], "the status patch overwrote the finding");
         await tabTo(page, "overview");
         assert.match(await text(page, '#wsScroll .gates li[data-gate="review"]'), /2 fixed, nothing blocking among 2 findings/);
+    });
+    // ---- Try it and See it ----------------------------------------------------------------------------
+    test("try it: get the PR's CI build, open a terminal with it, and run a listed command there", async (ctx) => {
+        const { page } = ctx;
+        await ctx.board.tool("pr_board_update_review", { repo: REPO, pr: 104, patch: { tryIt: [
+            { title: "See the new flag", command: "winapp ui record --help", expect: "--audio in the list" },
+            { title: "Record with sound", command: "winapp ui record -a notepad --audio --duration-sec 3 -o n.mp4", expect: "an audio line" }] } });
+        await openRow(page, 104);
+        await tabTo(page, "try");
+        await page.waitFor(`/Get the build/.test(document.getElementById('wsScroll').innerText)`, 5000, "the CI build offer");
+        assert.match(await text(page, "#wsScroll"), /Your installed winapp isn't touched/);
+        assert.equal(await page.eval(`document.querySelectorAll('#wsScroll .try-cmd').length`), 2);
+        await page.click('#wsScroll [data-act="try-download"]');
+        await page.waitFor(`/Open a terminal with it/.test(document.getElementById('wsScroll').innerText)`, 8000, "the build to be ready");
+        await ctx.shot("try-it-ready");
+        await page.click('#wsScroll [data-act="try-open"]');
+        await page.waitFor(`!!document.querySelector('#wsScroll [data-act="try-run"]')`, 4000, "Run buttons");
+        const open = ctx.host.canvasOpens.at(-1);
+        assert.equal(open.canvasId, "terminal");
+        assert.match(open.input.title, /winapp from PR #104/);
+        const script = open.input.command.match(/-File "([^"]+)"/)[1];
+        const body = fs.readFileSync(script, "utf8");
+        assert.match(body, /\$env:PATH = '.*builds.*;' \+ \$env:PATH/, "the build isn't first on PATH in that terminal only");
+        assert.match(body, /winapp ui record -a notepad --audio --duration-sec 3 -o n\.mp4/);
+        assert.equal(fs.existsSync(script.replace(/try-pr104\.ps1$/, "winapp.pdb")), false, "debug symbols were kept");
+        await page.click('#wsScroll .try-cmd:nth-child(2) [data-act="try-run"]');
+        await sleep(300);
+        assert.deepEqual(ctx.host.canvasInvokes.at(-1), { instanceId: open.instanceId, actionName: "send_terminal_input", input: { input: "winapp ui record -a notepad --audio --duration-sec 3 -o n.mp4" } });
+        assert.equal(ctx.world.mutations.length, 0);
+    });
+
+    test("try it: when the runtime can't open the terminal, the agent is asked to; a build still in CI says so", async (ctx) => {
+        const { page, world } = ctx;
+        world.builds[HEAD[105]] = "building";
+        await openRow(page, 105);
+        await tabTo(page, "try");
+        await page.waitFor(`/CI is still building commit/.test(document.getElementById('wsScroll').innerText)`, 5000, "the building state");
+        assert.match(await text(page, "#wsScroll"), /No list yet/);
+        await page.click('#wsScroll [data-act="try-ask"]');
+        assert.match(await waitForSend(ctx, /wants to \*\*try\*\*/), /tryIt: \[\{ title, command, expect \}\]/);
+        await closeSheet(page);
+        ctx.host.rpcError = new Error("not allowed");
+        await openRow(page, 107);
+        await tabTo(page, "try");
+        await page.click('#wsScroll [data-act="try-download"]');
+        await page.waitFor(`!!document.querySelector('#wsScroll [data-act="try-open"]')`, 8000, "the build");
+        await page.click('#wsScroll [data-act="try-open"]');
+        const p = await waitForSend(ctx, /try contoso\/widgets#107's build/);
+        assert.match(p, /open_canvas.*canvasId: "terminal"/);
+        assert.match(p, /try-pr107\.ps1/);
+    }, { changesGitHub: true });
+
+    test("see it: before and after side by side or with a slider, terminal output, and a clear note for a bad path", async (ctx) => {
+        const { page } = ctx;
+        // Two tiny PNGs (1x1, red and green) the "session" captured.
+        const png = (rgb) => {
+            const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(td)); return Buffer.concat([len, td, crc]); };
+            const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(40, 0); ihdr.writeUInt32BE(20, 4); ihdr[8] = 8; ihdr[9] = 2;
+            const row = Buffer.concat([Buffer.from([0]), Buffer.concat(Array(40).fill(Buffer.from(rgb, "hex")))]);
+            return Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(Buffer.concat(Array(20).fill(row)))), chunk("IEND", Buffer.alloc(0))]);
+        };
+        const dir = fs.mkdtempSync(`${ctx.board.home}\\shots-`);
+        fs.writeFileSync(`${dir}\\before.png`, png("d1242f")); fs.writeFileSync(`${dir}\\after.png`, png("1a7f37"));
+        fs.writeFileSync(`${dir}\\clip.mp4`, Buffer.alloc(4096, 7));
+        const r = await ctx.board.tool("pr_board_update_review", { repo: REPO, pr: 104, patch: { media: [
+            { kind: "comparison", title: "The dialog", caption: "The button moved", before: `${dir}\\before.png`, after: `${dir}\\after.png` },
+            { kind: "comparison", title: "The CLI", beforeText: "> winapp x\nUnrecognized option", afterText: "> winapp x\nDone" },
+            { kind: "video", title: "A clip", path: `${dir}\\clip.mp4` },
+            { kind: "image", title: "Missing", path: `${dir}\\nope.png` }] } });
+        assert.ok(r.warnings.some((w) => /media 4 \("Missing"\) path: .*nope\.png doesn't exist/.test(w)), JSON.stringify(r.warnings));
+        await openRow(page, 104);
+        await tabTo(page, "see");
+        await page.waitFor(`[...document.querySelectorAll('#wsScroll .see-side img')].filter((i) => i.complete && i.naturalWidth > 0).length === 2`, 5000, "both screenshots");
+        const see = await text(page, "#wsScroll");
+        assert.match(see, /The dialog The button moved/);
+        assert.match(see, /Before \(main\).*Unrecognized option.*After \(this PR\).*Done/);
+        assert.doesNotMatch(see, /Missing/);
+        assert.equal(await exists(page, "#wsScroll video"), true);
+        await page.click('#wsScroll [data-act="see-mode"][data-mode="slider"]');
+        await page.waitFor(`!!document.querySelector('#wsScroll .see-slider input[type=range]')`, 2000, "the slider");
+        await page.eval(`(() => { const i = document.querySelector('#wsScroll .see-slider input'); i.value = 30; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+        assert.equal(await page.eval(`document.querySelector('#wsScroll .see-slider').style.getPropertyValue('--pos')`), "30%");
+        // Videos can seek: the board answers byte ranges.
+        const f = state(ctx).prs["104"].review.media.find((m) => m.kind === "video").file;
+        const res = await fetch(new URL(`/api/media?repo=${encodeURIComponent(REPO)}&pr=104&f=${f}`, ctx.board.url), { headers: { Range: "bytes=100-199" } });
+        assert.equal(res.status, 206);
+        assert.equal((await res.arrayBuffer()).byteLength, 100);
+        assert.equal((await fetch(new URL(`/api/media?repo=${encodeURIComponent(REPO)}&pr=104&f=..%5Csecret.png`, ctx.board.url))).status, 400);
+    });
+
+    test("see it: with nothing captured, it asks the review session for screenshots or a video", async (ctx) => {
+        const { page } = ctx;
+        await openRow(page, 105);
+        await tabTo(page, "see");
+        assert.match(await text(page, "#wsScroll"), /Nothing to see yet/);
+        await page.click('#wsScroll [data-act="try-ask"][data-what="media"]');
+        const p = await waitForSend(ctx, /wants to \*\*see\*\*/);
+        assert.match(p, /winapp ui screenshot/);
+        assert.match(p, /beforeText, afterText/);
     });
     // ---- Branch review (issue with no PR yet) ------------------------------------------------------
     test("changes tab: comment on a line, then send it to the agent", async (ctx) => {

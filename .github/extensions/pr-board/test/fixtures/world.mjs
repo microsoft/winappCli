@@ -13,6 +13,8 @@
 //   Issue #201      covered by #108
 //   Issue #202      assigned to you, no PR
 //   Issue #203      a session's branch with no PR yet (private branch review)
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { isGhWrite } from "../harness/fake-child-process.mjs";
 
 export const REPO = "contoso/widgets";
@@ -174,6 +176,9 @@ export function createWorld({ now = Date.now() } = {}) {
         otherMerges: new Set(), // second parents of merges that bring in more than the base branch
         // The author merges main into the PR ("Update branch"): a merge commit whose second parent is on main.
         mergeMain(n) { return world.merge(n, `m${n}`.padEnd(40, "0"), "Merge branch 'main' into the PR"); },
+        // A merge of main whose conflict resolution also edited the PR (and added a test).
+        mergeResolved(n) { const oid = world.merge(n, `r${n}`.padEnd(40, "0"), "Merge branch 'main' into the PR"); world.resolved.add(oid); return oid; },
+        resolved: new Set(),
         // A merge of something that isn't on main yet (or with conflict fixes): it's real work.
         mergeOther(n) { const second = `e${n}`.padEnd(40, "0"); world.otherMerges.add(second); return world.merge(n, second, "Merge branch 'feature-x'"); },
         merge(n, second, message) {
@@ -195,6 +200,7 @@ export function createWorld({ now = Date.now() } = {}) {
         },
         allowMutations: false,
         hasQueue: true, autoMergeAllowed: true, mergeError: null,
+        builds: {}, // head SHA -> "success" | "building" | "failure" | "none" for Try it
         async handle(args) {
             world.calls++;
             if (args[0] === "pr" && args[1] === "list" && args.includes("open")) world.listCalls++; // a real board refresh, even one that fails
@@ -210,6 +216,22 @@ export function createWorld({ now = Date.now() } = {}) {
                 world.mutations.push(args);
                 if (!world.allowMutations) throw new Error(`test world refuses a GitHub write: gh ${a.slice(0, 120)}`);
                 return applyWrite(args);
+            }
+            // The CI build of a commit, for Try it: one successful run per head, and its per-arch artifacts.
+            if (a.startsWith(`run list -R ${REPO} --commit `)) {
+                const sha = args[args.indexOf("--commit") + 1];
+                const st = world.builds[sha] || "success";
+                return st === "none" ? [] : [{ databaseId: 7000 + (world.prs.find((p) => (p.head || HEAD[p.number]) === sha)?.number || 0), status: st === "building" ? "in_progress" : "completed", conclusion: st === "building" ? "" : st, url: `https://github.com/${REPO}/actions/runs/1`, createdAt: ago(30) }];
+            }
+            if (args[0] === "run" && args[1] === "download") {
+                const dir = args[args.indexOf("-D") + 1];
+                const names = args.flatMap((x, i) => (args[i - 1] === "-n" ? [x] : []));
+                for (const name of names) {
+                    mkdirSync(join(dir, name), { recursive: true });
+                    if (name.startsWith("part-Cli-")) { writeFileSync(join(dir, name, "winapp.exe"), "fake winapp"); writeFileSync(join(dir, name, "winapp.pdb"), "symbols"); }
+                    else writeFileSync(join(dir, name, "WinApp.DevTools.Native.dll"), "fake engine");
+                }
+                return "";
             }
             if (a === "api user --jq .login") return `${VIEWER}\n`;
             if (a === "repo view --json nameWithOwner --jq .nameWithOwner") return `${REPO}\n`;
@@ -228,6 +250,8 @@ export function createWorld({ now = Date.now() } = {}) {
             if (a.startsWith(`api repos/${REPO}/compare/`) && a.endsWith("--jq .status")) return world.otherMerges.has(a.split("...")[1].split(" ")[0]) ? "diverged\n" : "behind\n";
             if (a === `api repos/${REPO}/compare/main...fix-203-settings`) return branchCompare;
             if (a.startsWith(`api repos/${REPO}/compare/ffffffff`)) throw new Error("HTTP 404: No common ancestor (the commit is gone)");
+            // A merge whose conflict resolution changed the PR: its diff against main differs from before the merge.
+            if (a.startsWith(`api repos/${REPO}/compare/`) && world.resolved.has(a.split("...")[1])) return { status: "ahead", ahead_by: 2, commits: [], files: [{ filename: "src/auth.js", status: "modified", additions: 7, deletions: 2, patch: "@@ -1,2 +1,7 @@\n-if (t) refresh();\n+if (t && !expired(t)) refresh();\n+lock();" }, { filename: "tests/auth.test.js", status: "added", additions: 12, deletions: 0, patch: "@@ -0,0 +1,1 @@\n+test(\"refresh\");" }] };
             if (a.startsWith(`api repos/${REPO}/compare/`)) return { status: "ahead", ahead_by: 1, commits: [{ sha: "c".repeat(40), author: { login: "bob" }, commit: { message: "Address review", author: { date: ago(30) } } }], files: [{ filename: "src/auth.js", status: "modified", additions: 5, deletions: 2 }] };
             // Where review comments can go: #104 changes src/auth.js lines 38-44 (right side), and an image with no diff.
             if (new RegExp(`^api --paginate repos/${REPO}/pulls/\\d+/files\\?per_page=100 --jq`).test(a)) {

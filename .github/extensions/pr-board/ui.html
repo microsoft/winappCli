@@ -798,6 +798,27 @@ tr.dl.hit td { background: var(--yellow-muted); }
 .preview .unplaced ul { margin: var(--s1, 4px) 0 0; padding-left: 18px; }
 .auto-keep { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-meta); color: var(--muted); }
 .auto-keep button { padding: 0 var(--s2); min-height: 0; font-size: var(--t-meta); }
+.try-ready { display: flex; flex-direction: column; gap: var(--s2); }
+.try-list { padding-left: 20px; margin: 0; display: flex; flex-direction: column; gap: var(--s3); }
+.try-cmd .tc-h { display: flex; align-items: center; gap: var(--s2); }
+.try-cmd .tc-h .sp { flex: 1; }
+.try-cmd pre { margin: var(--s1, 4px) 0; padding: var(--s2) var(--s3); background: var(--subtle); border: 1px solid var(--border); border-radius: 6px; overflow-x: auto; }
+.see-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2); }
+.see-bar { display: flex; gap: var(--s2); align-items: center; margin-bottom: var(--s2); }
+.see-bar:empty { display: none; }
+.see-side { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+.see-side figure { margin: 0; min-width: 0; }
+.see-side figcaption { font-size: var(--t-meta); color: var(--muted); margin-bottom: 4px; }
+.see-side img, .see-side video, .see-one img, .see-one video { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; display: block; }
+.see-text { margin: 0; padding: var(--s2) var(--s3); background: var(--subtle); border: 1px solid var(--border); border-radius: 6px; overflow: auto; max-height: 420px; font-size: var(--t-meta); white-space: pre-wrap; }
+.see-slider { position: relative; display: inline-block; max-width: 100%; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.see-slider img { display: block; max-width: 100%; }
+.see-slider img.before { position: absolute; inset: 0; clip-path: inset(0 calc(100% - var(--pos)) 0 0); }
+.see-slider::after { content: ""; position: absolute; top: 0; bottom: 0; left: var(--pos); width: 2px; background: var(--blue); }
+.see-slider .lbl { position: absolute; top: 6px; font-size: var(--t-meta); background: color-mix(in srgb, var(--bg) 85%, transparent); padding: 1px 6px; border-radius: 4px; }
+.see-slider .lbl.l { left: 6px; } .see-slider .lbl.r { right: 6px; }
+.see-slider input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: ew-resize; margin: 0; }
+body.narrow .see-side { grid-template-columns: 1fr; }
 .wc-box.stale { border-left-color: var(--muted); }
 .wc-box .wc-sup { margin: 0 0 var(--s2); }
 .wc-box .wc-old summary { cursor: pointer; color: var(--muted); font-size: var(--t-meta); }
@@ -1161,7 +1182,9 @@ function renderHead(c) {
   counts.architecture = rv?.diagrams.length || "";
   counts.review = rv?.findings.length || "";
   counts.changes = counts.files;
-  const TABS = [["overview", "Story"], ["architecture", "Architecture"], ["changes", "Code"], ["review", "Review"], ["github", "GitHub"]];
+  counts.try = (rv?.tryIt || []).length || "";
+  counts.see = (rv?.media || []).length || "";
+  const TABS = [["overview", "Story"], ["architecture", "Architecture"], ["changes", "Code"], ["review", "Review"], ["try", "Try it"], ["see", "See it"], ["github", "GitHub"]];
 
   const buttons = [];
   if (isOpen) {
@@ -1779,21 +1802,94 @@ async function loadPreview(c, event) {
   render(true);
 }
 
+// ---- Try it: the PR's CI build in a terminal, and commands to paste ----
+const tryStates = new Map(); // pr -> { loading, data, error }
+let tryTimer = null;
+async function loadTry(c) {
+  const cur = tryStates.get(c.number) || {};
+  tryStates.set(c.number, { ...cur, loading: true });
+  try {
+    const res = await fetch(`/api/try?repo=${encodeURIComponent(REPO)}&pr=${c.number}`);
+    const data = await res.json();
+    tryStates.set(c.number, res.ok ? { data } : { error: data.error || "HTTP " + res.status });
+  } catch (e) { tryStates.set(c.number, { error: e.message }); }
+  render();
+}
+// Load once on open, then poll while the build is downloading or CI is still building it.
+function scheduleTry(c) {
+  const st = tryStates.get(c.number);
+  if (!st) { setTimeout(() => loadTry(c)); return; }
+  clearTimeout(tryTimer);
+  const s = st.data?.state;
+  if (s === "downloading" || s === "building") tryTimer = setTimeout(() => { const cur = current(); if (cur?.number === c.number && tab === "try") loadTry(cur); }, s === "downloading" ? 2000 : 30000);
+}
+function tryTabHtml(c) {
+  const st = tryStates.get(c.number), d = st?.data, rv = rvOf(c);
+  const sha = String(c.headSha || "").slice(0, 7);
+  const run = d?.runUrl ? ` <a href="${esc(d.runUrl)}" target="_blank" rel="noopener noreferrer">CI run ${icon("external", "sm")}</a>` : "";
+  const box = !st || st.loading && !d ? `<p class="hint">${icon("running", "sm")} Looking for this PR's build…</p>`
+    : st.error ? `<p class="hint">Couldn't check the build: ${esc(st.error)} <button class="quiet" data-act="try-refresh" data-pr="${c.number}">Try again</button></p>`
+    : d.state === "ready" ? `<div class="try-ready"><div><b>winapp ${esc(d.version || "")}</b> from this PR, commit <code>${esc(sha)}</code>.${run}</div>
+        <div class="btns"><button class="primary" data-act="try-open" data-pr="${c.number}">${icon("play", "sm")}Open a terminal with it</button><button data-act="try-window" data-pr="${c.number}" title="A separate PowerShell window instead of a panel in the app">Separate window</button></div>
+        ${d.terminal ? `<p class="hint">${d.terminal.how === "agent" ? "Asked the agent to open the terminal panel." : d.terminal.how === "window" ? "Opened a separate PowerShell window." : "The terminal is open in the side panel."} ${d.terminal.how === "window" ? "Paste the commands below into it." : "Use Run below to type a command into it."}</p>` : ""}</div>`
+    : d.state === "downloading" ? `<p>${icon("running", "sm")} ${esc(d.step || "Downloading the build")}… <span class="hint">about a minute; it's cached after that.</span></p>`
+    : d.state === "available" ? `<div class="try-ready"><div>CI built commit <code>${esc(sha)}</code>.${run} The board downloads this machine's build (about 130 MB) and keeps it next to its other files.</div>${d.error ? `<p class="mg-err">The last download failed: ${esc(d.error)}</p>` : ""}<div class="btns"><button class="primary" data-act="try-download" data-pr="${c.number}">Get the build</button></div></div>`
+    : d.state === "building" ? `<p>${icon("running", "sm")} CI is still building commit <code>${esc(sha)}</code>.${run} It shows up here when it's done.</p>`
+    : d.state === "ci-failed" ? `<p>CI's build of <code>${esc(sha)}</code> didn't succeed (${esc(d.conclusion || "failed")}), so there's nothing to try yet.${run}</p>`
+    : `<p class="hint">${esc(d.reason || d.error || "No build to try yet.")}</p>`;
+  const list = (rv?.tryIt || []).map((t, i) => `<li class="try-cmd"><div class="tc-h">${t.title ? `<b>${esc(t.title)}</b>` : ""}<span class="sp"></span><button class="quiet" data-act="try-copy" data-i="${i}" data-pr="${c.number}">Copy</button>${d?.terminal?.instanceId ? `<button data-act="try-run" data-i="${i}" data-pr="${c.number}" title="Type it into the terminal">Run</button>` : ""}</div><pre><code>${esc(t.command)}</code></pre>${t.expect ? `<div class="hint">Look for: ${esc(t.expect)}</div>` : ""}</li>`).join("");
+  const asked = c.local?.pending?.id === "ask-tryIt";
+  return `<section class="sec try"><h3>Try this PR's build</h3><p class="hint">Only the terminal the board opens uses it. Your installed winapp isn't touched.</p>${box}</section>
+    <section class="sec"><h3>Quick things to try</h3>${list ? `<ol class="try-list">${list}</ol>` : `<p class="hint">No list yet. The review session writes one: commands it ran that show the change.</p>${asked ? `<p class="hint">${icon("running", "sm")} Asked for it…</p>` : `<button data-act="try-ask" data-what="tryIt" data-pr="${c.number}">Ask for things to try</button>`}`}</section>`;
+}
+
+// ---- See it: before and after, as screenshots, videos or terminal output ----
+const seeModes = new Map(); // "pr:index" -> "side" | "slider"
+const mediaUrl = (c, f) => `/api/media?repo=${encodeURIComponent(REPO)}&pr=${c.number}&f=${encodeURIComponent(f)}`;
+const isVideo = (f) => /\.(mp4|webm)$/i.test(f || "");
+function mediaEl(c, f, label) {
+  return isVideo(f) ? `<video controls preload="metadata" src="${esc(mediaUrl(c, f))}" aria-label="${esc(label)}"></video>` : `<img src="${esc(mediaUrl(c, f))}" alt="${esc(label)}" loading="lazy">`;
+}
+function seeTabHtml(c) {
+  const media = rvOf(c)?.media || [];
+  const asked = c.local?.pending?.id === "ask-media";
+  if (!media.length) return `<div class="empty-rv"><div><b>Nothing to see yet.</b> A review session can capture before (main) and after (this PR) screenshots or a short video with <code>winapp ui screenshot</code> and <code>winapp ui record</code>, or the same command's output on both for a CLI change.</div>
+    ${asked ? `<span class="hint">${icon("running", "sm")} Asked for them…</span>` : `<button class="primary" data-act="try-ask" data-what="media" data-pr="${c.number}">Ask for screenshots or a video</button>`}</div>`;
+  return media.map((m, i) => {
+    const head = `<div class="see-h"><b>${esc(m.title || (m.kind === "comparison" ? "Before and after" : m.kind === "video" ? "Video" : "Screenshot"))}</b>${m.caption ? `<span class="hint">${mdInline(m.caption)}</span>` : ""}</div>`;
+    if (m.kind !== "comparison") return `<section class="sec see">${head}<div class="see-one">${m.file ? mediaEl(c, m.file, m.title || "") : ""}</div></section>`;
+    const k = `${c.number}:${i}`;
+    const images = m.beforeFile && m.afterFile && !isVideo(m.beforeFile) && !isVideo(m.afterFile);
+    const mode = images ? seeModes.get(k) || "side" : "side";
+    const toggle = images ? `<span class="seg" role="group" aria-label="View"><button data-act="see-mode" data-k="${k}" data-mode="side" aria-pressed="${mode === "side"}">Side by side</button><button data-act="see-mode" data-k="${k}" data-mode="slider" aria-pressed="${mode === "slider"}">Slider</button></span>` : "";
+    const both = m.beforeFile && m.afterFile && isVideo(m.beforeFile) && isVideo(m.afterFile) ? `<button class="quiet" data-act="see-play" data-k="${k}">${icon("play", "sm")}Play both</button>` : "";
+    const col = (label, f, t) => `<figure><figcaption>${label}</figcaption>${f ? mediaEl(c, f, `${label}: ${m.title || ""}`) : t !== undefined ? `<pre class="see-text">${esc(t)}</pre>` : `<div class="hint">Not captured.</div>`}</figure>`;
+    const body = mode === "slider"
+      ? `<div class="see-slider" data-k="${k}" style="--pos:50%"><img src="${esc(mediaUrl(c, m.afterFile))}" alt="After: ${esc(m.title || "")}"><img class="before" src="${esc(mediaUrl(c, m.beforeFile))}" alt="Before: ${esc(m.title || "")}"><span class="lbl l">Before (main)</span><span class="lbl r">After (this PR)</span><input type="range" min="0" max="100" value="50" aria-label="Drag to compare before and after" data-k="${k}"></div>`
+      : `<div class="see-side" data-k="${k}">${col("Before (main)", m.beforeFile, m.beforeText)}${col("After (this PR)", m.afterFile, m.afterText)}</div>`;
+    return `<section class="sec see">${head}<div class="see-bar">${toggle}${both}</div>${body}</section>`;
+  }).join("") + `<p class="hint">Captured by the review session; the board keeps a copy.</p>`;
+}
+
 function renderScroll(c, force) {
   const local = c.local || {};
   const det = details.get(c.number);
-  const key = JSON.stringify([c.number, tab, local.reviewSetAt, JSON.stringify(local.triage || {}), Object.keys(local.explanations || {}).length, Object.keys(local.explaining || {}).join(), archSel, rvPreview && [rvPreview.pr, rvPreview.event, !!rvPreview.data, rvPreview.error], openMenu, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, local.explainer?.updatedAt, local.explainerPending, det?.data?.fetchedAt, det?.error, JSON.stringify(c.readiness?.gates?.map((g) => g.state) || []), tab === "github" ? ghSlotKey("pr", c.number) : "", drafts.has(draftKey(c)), (c.local?.thread || []).length, tab === "changes" ? prFilesKey(c) : "", JSON.stringify(Object.keys(changes.get(c.number) || {})), local.whatChanged?.at]);
+  // Try it and See it only redraw when their own data changes, so a playing video or a half-read list stays put.
+  const key = tab === "see" ? JSON.stringify([c.number, tab, JSON.stringify(rvOf(c)?.media || []), local.pending?.id, JSON.stringify([...seeModes])])
+    : tab === "try" ? JSON.stringify([c.number, tab, JSON.stringify(tryStates.get(c.number) || null), JSON.stringify(rvOf(c)?.tryIt || []), local.pending?.id, c.headSha])
+    : JSON.stringify([c.number, tab, local.reviewSetAt, JSON.stringify(local.triage || {}), Object.keys(local.explanations || {}).length, Object.keys(local.explaining || {}).join(), archSel, rvPreview && [rvPreview.pr, rvPreview.event, !!rvPreview.data, rvPreview.error], openMenu, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, local.explainer?.updatedAt, local.explainerPending, det?.data?.fetchedAt, det?.error, JSON.stringify(c.readiness?.gates?.map((g) => g.state) || []), tab === "github" ? ghSlotKey("pr", c.number) : "", drafts.has(draftKey(c)), (c.local?.thread || []).length, tab === "changes" ? prFilesKey(c) : "", JSON.stringify(Object.keys(changes.get(c.number) || {})), local.whatChanged?.at]);
   if (!force && key === lastKey) return;
   lastKey = key;
   const sc = $("wsScroll");
   const atBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 40;
   const prevTop = sc.scrollTop;
   const openState = Object.fromEntries([...sc.querySelectorAll("details[data-k]")].map((d) => [d.dataset.k, d.open]));
-  if (!["overview", "architecture", "changes", "review", "github"].includes(tab)) tab = tab === "files" ? "changes" : tab === "conversation" ? "github" : "overview";
+  if (!["overview", "architecture", "changes", "review", "github", "try", "see"].includes(tab)) tab = tab === "files" ? "changes" : tab === "conversation" ? "github" : "overview";
   const oldGh = sc.querySelector(".gh-slot");
-  sc.innerHTML = { overview: overviewHtml, architecture: architectureHtml, changes: changesTabHtml, review: reviewTabHtml, github: (x) => `<div class="gh-slot" data-k="${esc(ghSlotKey("pr", x.number))}"></div>` }[tab](c);
+  sc.innerHTML = { overview: overviewHtml, architecture: architectureHtml, changes: changesTabHtml, review: reviewTabHtml, try: tryTabHtml, see: seeTabHtml, github: (x) => `<div class="gh-slot" data-k="${esc(ghSlotKey("pr", x.number))}"></div>` }[tab](c);
   if (tab === "github") fillGhSlot(sc, oldGh, "pr", c.number);
   if (tab === "architecture") mountDiagrams(c);
+  if (tab === "try") scheduleTry(c);
   for (const d of sc.querySelectorAll("details[data-k]")) if (d.dataset.k in openState) d.open = openState[d.dataset.k];
   sc.scrollTop = force ? 0 : prevTop;
   if (local.draft && !drafts.has(draftKey(c))) loadDraft(c);
@@ -2888,8 +2984,8 @@ function unseenEvents(c, since = null) {
 }
 function eventsText(evs) {
   const by = new Map();
-  for (const e of evs) { const x = by.get(e.who) || { push: 0, merged: false, comment: null, review: null }; if (e.kind === "push" && e.baseMerge) x.merged = true; else if (e.kind === "push") x.push++; else if (e.kind === "review") x.review = e; else x.comment = e; by.set(e.who, x); }
-  return [...by].map(([who, x]) => [x.push ? `pushed ${x.push} commit${x.push === 1 ? "" : "s"}` : "", x.merged ? "merged main" : "", x.review ? `${x.review.state === "APPROVED" ? "approved" : x.review.state === "CHANGES_REQUESTED" ? "requested changes" : "reviewed"}` : "", x.comment ? `commented “${(x.comment.preview || "").slice(0, 80)}${(x.comment.preview || "").length > 80 ? "…" : ""}”` : ""].filter(Boolean).join(", ").replace(/^/, `${who} `)).join("; ");
+  for (const e of evs) { const x = by.get(e.who) || { push: 0, merged: false, comment: null, review: null }; if (e.kind === "push" && e.baseMerge) x.merged = true; else if (e.kind === "push" && e.resolution) x.resolved = (x.resolved || 0) + e.resolution.count; else if (e.kind === "push") x.push++; else if (e.kind === "review") x.review = e; else x.comment = e; by.set(e.who, x); }
+  return [...by].map(([who, x]) => [x.push ? `pushed ${x.push} commit${x.push === 1 ? "" : "s"}` : "", x.merged ? "merged main" : "", x.resolved ? `merged main with conflict fixes in ${x.resolved} file${x.resolved === 1 ? "" : "s"}` : "", x.review ? `${x.review.state === "APPROVED" ? "approved" : x.review.state === "CHANGES_REQUESTED" ? "requested changes" : "reviewed"}` : "", x.comment ? `commented “${(x.comment.preview || "").slice(0, 80)}${(x.comment.preview || "").length > 80 ? "…" : ""}”` : ""].filter(Boolean).join(", ").replace(/^/, `${who} `)).join("; ");
 }
 const plainLine = (s) => String(s || "").replace(/\[\[[^\]]+\]\]/g, "").replace(/[*_`#>]/g, "").replace(/\s+/g, " ").trim();
 // A "What changed" summary describes the PR up to one commit. Once newer commits land (often our own session's
@@ -2916,7 +3012,7 @@ function whatChangedBox(c) {
   const ev = unseenEvents(c, openSeen.get(streamKey(c)) ?? null);
   if (!w && !ev.length) return "";
   if (w && !ev.length && Date.now() - tms(w.at) > 3 * 86400e3) return "";
-  const evName = (e) => (e.kind === "push" ? `pushed ${esc(String(e.id).slice(0, 7))}` : e.kind === "review" ? "reviewed" : "commented");
+  const evName = (e) => (e.kind === "push" ? (e.resolution ? `merged main into it (${esc(String(e.id).slice(0, 7))}), changing ${e.resolution.count} file${e.resolution.count === 1 ? "" : "s"} while resolving conflicts` : `pushed ${esc(String(e.id).slice(0, 7))}`) : e.kind === "review" ? "reviewed" : "commented");
   const st = w && wcStale(c);
   if (st) return `<section class="wc-box stale" aria-label="What changed since you last looked"><h4>${icon("refresh", "sm")}What changed since you last looked<span class="when">superseded</span></h4>
     <p class="wc-sup"><b>Superseded by ${st.n} newer commit${st.n === 1 ? "" : "s"}.</b> The summary below was written before them, so its asks may already be done.${st.latest ? ` Latest from ${esc(st.latest.from || "the agent")}, ${esc(ago(st.latest.at))} ago:` : ""}</p>
@@ -3257,6 +3353,27 @@ document.addEventListener("click", (e) => {
   if (a === "anchor") return goAnchor(el.dataset.a);
   if (a === "issue-chip") return expandItem("issue", rowPr, "overview");
   if (a.startsWith("br-")) return brClick(a, el, rowPr);
+  if (a === "try-refresh") { const it = itemOf("pr", rowPr); if (it) { tryStates.delete(it.number); loadTry(it); } return; }
+  if (a === "try-download" || a === "try-open" || a === "try-window" || a === "try-run" || a === "try-ask") {
+    const op = { "try-download": "download", "try-open": "open", "try-window": "window", "try-run": "run", "try-ask": "ask" }[a];
+    el.disabled = true;
+    return post("/api/try", { pr: rowPr, op, index: Number(el.dataset.i), what: el.dataset.what })
+      .then((r) => {
+        if (op === "open") toast(r.how === "agent" ? "Asked the agent to open the terminal" : "Opened a terminal with this PR's winapp");
+        if (op === "window") toast("Opened a PowerShell window with this PR's winapp");
+        if (op === "run") toast("Typed it into the terminal");
+        if (op === "ask") toast(el.dataset.what === "media" ? "Asked for screenshots or a video" : "Asked for things to try");
+        const it = itemOf("pr", rowPr); if (it) loadTry(it);
+      })
+      .catch((err) => { el.disabled = false; toast(err.message); });
+  }
+  if (a === "try-copy") {
+    const t = rvOf(itemOf("pr", rowPr) || {})?.tryIt?.[Number(el.dataset.i)];
+    if (!t) return;
+    return navigator.clipboard.writeText(t.command).then(() => toast("Copied")).catch(() => { const pre = el.closest(".try-cmd").querySelector("code"); getSelection().selectAllChildren(pre); toast("Selected: press Ctrl+C to copy"); });
+  }
+  if (a === "see-mode") { seeModes.set(el.dataset.k, el.dataset.mode); return render(true); }
+  if (a === "see-play") { for (const v of document.querySelectorAll(`.see-side[data-k="${el.dataset.k}"] video`)) { v.currentTime = 0; v.play().catch(() => {}); } return; }
   if (a === "code-refresh") { const it = itemOf(el.dataset.kind || "pr", rowPr); if (!it) return; return el.dataset.kind === "issue" ? loadCodeRefs(it, true) : loadPrFiles(it, true); }
   if (a === "gh-refresh") return loadGitHubView(el.dataset.kind === "issue" ? "issue" : "pr", Number(el.dataset.pr), true);
   if (a === "focus-ask") return $("input")?.focus();
@@ -3402,6 +3519,8 @@ $("split").addEventListener("pointerdown", (e) => {
   split.addEventListener("pointerup", up);
 });
 
+// The before/after slider: dragging moves the line between the two images.
+document.addEventListener("input", (e) => { if (e.target.matches?.(".see-slider input")) e.target.parentElement.style.setProperty("--pos", e.target.value + "%"); });
 document.addEventListener("change", (e) => {
   const set = e.target.closest?.("#autoHost") ? e.target.dataset.set : null;
   if (set) {

@@ -106,6 +106,29 @@ export const REVIEW_SCHEMA = {
         },
         diagrams: { type: "array", items: diagram },
         findings: { type: "array", items: finding },
+        tryIt: {
+            type: "array",
+            description: "3-6 commands the user can paste into a terminal that has this PR's winapp build first on PATH, to see the change for themselves. Commands you actually ran while reviewing.",
+            items: { type: "object", properties: { title: { type: "string", description: "What it shows, in plain words." }, command: { type: "string", description: "One command line, using `winapp` (the PR's build)." }, expect: { type: "string", description: "What to look for in the result." } }, required: ["command"] },
+        },
+        media: {
+            type: "array",
+            description: "What the change looks like, so the user can see it without running anything. Files are absolute paths on this machine; the board copies them. kind=comparison: before (main) and after (this PR), as images, videos, or text transcripts for CLI output. kind=image or video: one file.",
+            items: {
+                type: "object",
+                properties: {
+                    kind: { type: "string", enum: ["comparison", "image", "video"] },
+                    title: { type: "string" },
+                    caption: { type: "string", description: "One plain line: what to notice." },
+                    path: { type: "string", description: "kind image or video: absolute path to a .png/.jpg/.gif/.webp or .mp4/.webm." },
+                    before: { type: "string", description: "kind comparison: absolute path to the main-branch image or video." },
+                    after: { type: "string", description: "kind comparison: absolute path to this PR's image or video." },
+                    beforeText: { type: "string", description: "kind comparison: main's terminal output, for CLI changes." },
+                    afterText: { type: "string", description: "kind comparison: this PR's terminal output." },
+                },
+                required: ["kind"],
+            },
+        },
     },
 };
 
@@ -127,6 +150,12 @@ product manager first: plain words, what changes for the person using the produc
      status added/modified/removed/unchanged/external and short edge labels. b) kind=sequence for any
      new or changed runtime flow. <=12 nodes / <=7 participants. Link nodes to components with
      \`node.component\` and list their files.
+   - tryIt: 3-6 commands you ran while reviewing that show the change, each with what to look for. The
+     user runs them in a terminal where \`winapp\` is this PR's build.
+   - media, when the change is user-visible: before (main) and after (this PR) screenshots or a short
+     video, captured with \`winapp ui screenshot\` / \`winapp ui record\` (add \`--audio\` for sound), saved as
+     files; pass their absolute paths. For CLI-only changes, a before/after transcript (beforeText /
+     afterText) of the same command on main and on this PR.
    - findings: category, severity, plain title, description (what and why it matters), recommendation
      (smallest fix), files with line numbers on the PR head (so it can be posted inline), diagramRefs.
      On your own PR, when you fix a finding, set its \`status: "fixed"\` (pr_board_update_review with the
@@ -318,6 +347,11 @@ export function normalizeReview(review) {
         f.diagramRefs = arr(f.diagramRefs);
     }
     for (const c of review.components) c.files = normFiles(c.files);
+    // Try it: commands to paste into a terminal with the PR's build. See it: screenshots, videos or transcripts.
+    review.tryIt = arr(review.tryIt).map((t) => (typeof t === "string" ? { command: t } : t)).filter((t) => t && typeof t.command === "string" && t.command.trim())
+        .slice(0, 8).map((t) => ({ title: String(t.title || "").slice(0, 160), command: t.command.trim().slice(0, 600), expect: String(t.expect || t.lookFor || "").slice(0, 400) }));
+    review.media = arr(review.media).filter((m) => m && typeof m === "object").slice(0, 8);
+    for (const m of review.media) if (!["comparison", "image", "video"].includes(m.kind)) m.kind = m.before || m.after || m.beforeText || m.afterText ? "comparison" : /\.(mp4|webm)$/i.test(m.path || "") ? "video" : "image";
     const nodeIds = new Map();
     for (const d of review.diagrams) {
         if (!KINDS.includes(d.kind)) d.kind = d.participants ? "sequence" : "flow";
@@ -367,7 +401,8 @@ export function mergeReview(base, patch) {
     const out = { ...base };
     for (const [k, v] of Object.entries(patch || {})) {
         const cur = out[k];
-        if (Array.isArray(v) && Array.isArray(cur) && v.every((x) => x && typeof x === "object")) out[k] = mergeById(cur, v);
+        if (k === "tryIt" || k === "media") out[k] = v; // lists without ids: a patch replaces them
+        else if (Array.isArray(v) && Array.isArray(cur) && v.every((x) => x && typeof x === "object")) out[k] = mergeById(cur, v);
         else if (v && typeof v === "object" && !Array.isArray(v) && cur && typeof cur === "object" && !Array.isArray(cur)) out[k] = { ...cur, ...v };
         else out[k] = v;
     }

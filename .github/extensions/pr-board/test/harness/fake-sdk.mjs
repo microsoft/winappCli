@@ -5,6 +5,9 @@ export const host = {
     sends: [],
     logs: [],
     sendError: null, // set to an Error to make session.send fail
+    canvasOpens: [],
+    canvasInvokes: [],
+    rpcError: null, // set to an Error to make opening or driving a canvas fail
 };
 globalThis.__prBoardHost = host;
 
@@ -31,6 +34,13 @@ export async function joinSession(config) {
         async sendAndWait(o) { return this.send(o); },
         log(message, opts) { host.logs.push({ message, ...opts }); },
         on() { return () => {}; },
-        rpc: { management: { list: async () => ({ sessions: [] }) } },
+        rpc: {
+            management: { list: async () => ({ sessions: [] }) },
+            // The app's canvases, as an extension can reach them: opens and actions are recorded.
+            canvas: {
+                open: async (p) => { if (host.rpcError) throw host.rpcError; host.canvasOpens.push(p); return { ...p, extensionId: "connection:1" }; },
+                action: { invoke: async (p) => { if (host.rpcError) throw host.rpcError; host.canvasInvokes.push(p); return { result: { sent: true } }; } },
+            },
+        },
     };
 }

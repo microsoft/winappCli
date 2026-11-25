@@ -382,6 +382,36 @@ A real decision for you, such as a choice that isn't about reviewers, still show
 as your move. A row never shows *Needs your decision* next to a spinner; if the
 agent is also working on it, the row says so in grey.
 
+## Try it and See it
+
+**Try it** gets you a terminal where `winapp` is the PR's build, so you can try the change yourself:
+
+```text
+winapp 0.8.1-nmetulev-ui-record-audio-capture.59 from PR #1393 @ dfb7f86
+Only this terminal uses it. Your installed winapp is unchanged.
+
+Quick things to try:
+  # See the new option
+    winapp ui record --help | Select-String audio -Context 0,3
+```
+
+- **Get the build** downloads this machine's build (x64 or arm64) from the PR's successful
+  `build-package` run for the head commit, about 70 MB after debug symbols are dropped. It's kept
+  under `$COPILOT_HOME/extensions/pr-board/artifacts/builds/`, newest 4 per repo. While CI is still
+  building the commit, the tab says so.
+- **Open a terminal with it** opens the app's terminal panel with the build first on `PATH` in that
+  terminal only. **Separate window** opens a PowerShell window instead. If the app doesn't let the
+  board open the panel, the board asks the agent to.
+- **Quick things to try** come from the review session (`tryIt` in the structured review): a title,
+  the command, and what to look for. **Run** types a command into the open terminal; it doesn't
+  press anything else. With no list yet, **Ask for things to try** asks the session.
+
+**See it** shows before and after: screenshots side by side or with a slider, videos (with sound
+when they have it), or the same command's output on main and on the PR. The review session captures
+them with `winapp ui screenshot` and `winapp ui record` (`media` in the structured review, with
+absolute paths to the files); the board copies them under `artifacts/media/`. With nothing yet,
+**Ask for screenshots or a video** asks the session.
+
 ## The Code tab
 
 Every item has a **Code** tab, even an issue with no PR:
@@ -465,6 +495,8 @@ top, Open on GitHub, and Reset agent status. Tabs:
 | Code | By system: each area the PR touches, with one plain line and +/− counts. By file: one plain line per file. Below that, the diff against the base branch, read-only, with a link to each file on GitHub |
 | Review | The findings, most severe first, each with what's wrong, the suggested fix, and the file and lines. Mark each one **Post**, **Ignore** or **Undecided**, and add a note. **Explain** asks the agent to explain the finding in plain words; the answer appears under it |
 | GitHub | The PR exactly as GitHub shows it, read-only: state, author, `head` → `base`, labels, reviewers, linked issues, the description, every check with a **Details** link, and the full timeline (comments, reviews with their inline threads, commits, force-pushes, merge-queue events). Links open in a new tab |
+| Try it | This PR's build of winapp, from its CI run: **Get the build** downloads it once (about a minute), then **Open a terminal with it** opens a terminal where `winapp` is that build, and only there. Below are the review session's quick things to try, each with **Copy** and **Run** (types it into that terminal). See [Try it and See it](#try-it-and-see-it) |
+| See it | What the change looks like, without running anything: before (main) and after (this PR) screenshots side by side or with a slider, short videos, or the same command's output on both |
 
 Until a review has run, Architecture and Review offer **Review this
 PR**.
@@ -661,7 +693,7 @@ Every request from the board tells the agent which of these to call.
 | `pr_board_link_session` | Link a session to a PR or issue (pass `branch` for an issue) |
 | `pr_board_set_status` | Set the agent status with a one-line outcome: `running`, `waiting` (needs you), `waiting_on_others` (blocked on another approver or the author; the outcome becomes the ⏭ line), `posted`, `done`, `failed`, or `clear` |
 | `pr_board_review_guide` | Read first: the review workflow, plain-words rules, diagram conventions and schema |
-| `pr_board_set_review` | Set the whole structured review: `{ pr, review }`, or `{ pr, path }` to a JSON file with the same shape (for sessions that don't have the board's tools). It also takes the shape pr-review sessions write (`rounds[].findings` and `declined`, `finalHeadSha` or `reviewedHeadSha`, findings with `file`/`line`/`endLine` or `path:12-20`, diagrams written as Mermaid strings) and returns warnings saying what it converted or what's missing |
+| `pr_board_set_review` | Set the whole structured review: `{ pr, review }`, or `{ pr, path }` to a JSON file with the same shape (for sessions that don't have the board's tools). It also takes the shape pr-review sessions write (`rounds[].findings` and `declined`, `finalHeadSha` or `reviewedHeadSha`, findings with `file`/`line`/`endLine` or `path:12-20`, diagrams written as Mermaid strings) and returns warnings saying what it converted or what's missing. `tryIt` and `media` fill the Try it and See it tabs |
 | `pr_board_update_review` | Change part of a review, such as the verdict or one diagram |
 | `pr_board_add_findings` | Add or update findings by id. Your Post/Ignore choices stay when ids stay the same |
 | `pr_board_set_explanation` | Put the answer to **Explain** under a finding |
@@ -721,7 +753,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ thread column: an anchor chip switches the tab on the left while the thread stays put (893ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-95 passed, 0 failed, 95 total (356s)
+100 passed, 0 failed, 100 total (372s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

@@ -109,7 +109,50 @@ export async function fetchRepoData(repo) {
 // Pushes that only merge the base branch in ("Update branch") don't change what a review covered. Walk back from
 // each PR's newest commit over merge commits whose second parent is already on the base branch, and mark them
 // baseOnly. Same rule as the readiness gates (fetchReadinessRaw). The answer per commit never changes, so cache it.
-const baseOnlyCache = new Map(); // merge commit oid -> true | false
+const baseOnlyCache = new Map(); // merge commit oid -> { baseOnly, files? }
+
+// The lines a PR adds and removes in each file, ignoring where they sit, from a compare's files.
+function prLines(files) {
+    const out = new Map();
+    for (const f of files || []) out.set(f.filename, f.patch == null ? null : String(f.patch).split("\n").filter((l) => /^[+-]/.test(l)));
+    return out;
+}
+// Files where the after-merge diff has +/- lines the before-merge diff didn't: edits the merge itself made. Lines
+// that only disappear are fine (main now has them, e.g. a squash-merged base PR).
+function newLinesIn(before, after) {
+    const out = [];
+    for (const [f, al] of after) {
+        // GitHub leaves out the patch of a large file: count it only when the merge brought in the whole file.
+        if (al === null || before.get(f) === null) { if (!before.has(f)) out.push(f); continue; }
+        const pool = new Map();
+        for (const l of before.get(f) || []) pool.set(l, (pool.get(l) || 0) + 1);
+        if (al.some((l) => { const n = pool.get(l) || 0; if (n) { pool.set(l, n - 1); return false; } return true; })) out.push(f);
+    }
+    return out;
+}
+// Is this merge commit only the base branch coming in? Its second parent must already be on the base branch, and
+// the PR's own changes against the base must be the same after the merge as before it. A merge whose conflict
+// resolution edited files (or added new ones) isn't: it returns those files.
+export async function mergeKind(repo, base, merge, first, second) {
+    if (baseOnlyCache.has(merge)) return baseOnlyCache.get(merge);
+    let r = { baseOnly: false };
+    try {
+        const inBase = ["behind", "identical"].includes((await gh(["api", `repos/${repo}/compare/${encodeURIComponent(base || "main")}...${second}`, "--jq", ".status"])).trim());
+        if (inBase) {
+            r = { baseOnly: true };
+            if (first) {
+                const [before, after] = await Promise.all([second + "..." + first, second + "..." + merge].map(async (range) => JSON.parse(await gh(["api", `repos/${repo}/compare/${range}`], { timeoutMs: 60000 }))));
+                // A compare lists at most 300 files: past that, trust the parent check alone.
+                if ((before.files || []).length < 300 && (after.files || []).length < 300) {
+                    const changed = newLinesIn(prLines(before.files), prLines(after.files));
+                    if (changed.length) r = { baseOnly: false, resolution: true, files: changed.slice(0, 20), fileCount: changed.length };
+                }
+            }
+        }
+    } catch { /* keep what we know */ }
+    baseOnlyCache.set(merge, r);
+    return r;
+}
 async function markBaseMerges(repo, activity) {
     for (const ext of activity.values()) {
         const commits = (ext?.timelineItems?.nodes || []).filter((i) => i.__typename === "PullRequestCommit" && i.commit?.oid);
@@ -117,12 +160,9 @@ async function markBaseMerges(repo, activity) {
             const k = commits[i].commit;
             const second = k.parents?.totalCount >= 2 ? k.parents.nodes?.[1]?.oid : null;
             if (!second) break;
-            if (!baseOnlyCache.has(k.oid)) {
-                let only = false;
-                try { only = ["behind", "identical"].includes((await gh(["api", `repos/${repo}/compare/${encodeURIComponent(ext.baseRefName || "main")}...${second}`, "--jq", ".status"])).trim()); } catch { only = false; }
-                baseOnlyCache.set(k.oid, only);
-            }
-            if (!baseOnlyCache.get(k.oid)) break;
+            const mk = await mergeKind(repo, ext.baseRefName || "main", k.oid, k.parents.nodes?.[0]?.oid, second);
+            if (mk.resolution) k.mergeResolution = { files: mk.files, count: mk.fileCount };
+            if (!mk.baseOnly) break;
             k.baseOnly = true;
         }
     }
@@ -264,7 +304,7 @@ function prActivity(pr, ext) {
     for (const i of ext?.timelineItems?.nodes || []) {
         if (i.__typename === "IssueComment") out.push({ id: i.id, kind: "comment", who: i.author?.login, at: i.createdAt, url: i.url, preview: preview(i.bodyText) });
         else if (i.__typename === "PullRequestReview" && i.submittedAt) out.push({ id: i.id, kind: "review", state: i.state, who: i.author?.login, at: i.submittedAt, url: i.url, preview: preview(i.bodyText) });
-        else if (i.__typename === "PullRequestCommit" && i.commit?.oid) out.push({ id: i.commit.oid, kind: "push", who: pr.author?.login, at: i.commit.committedDate, url: i.url, preview: preview(i.commit.messageHeadline), ...(i.commit.baseOnly ? { baseMerge: true } : {}) });
+        else if (i.__typename === "PullRequestCommit" && i.commit?.oid) out.push({ id: i.commit.oid, kind: "push", who: pr.author?.login, at: i.commit.committedDate, url: i.url, preview: preview(i.commit.messageHeadline), ...(i.commit.baseOnly ? { baseMerge: true } : {}), ...(i.commit.mergeResolution ? { resolution: i.commit.mergeResolution } : {}) });
     }
     return out.sort((a, b) => ts(a.at) - ts(b.at)).slice(-15);
 }
@@ -517,6 +557,60 @@ export async function fetchReviewDiff(repo, number) {
         return { head, files };
     }
     throw new Error("The PR kept changing while the board read its diff. Try again.");
+}
+
+// ---- The PR's own build, for "Try it" -------------------------------------------------------------------------
+
+// The CI run that built this commit: the newest build-package run for the SHA. state: ready | building | failed | none.
+export async function findBuildRun(repo, sha) {
+    const runs = JSON.parse(await gh(["run", "list", "-R", repo, "--commit", sha, "--workflow", "build-package.yml", "--json", "databaseId,status,conclusion,url,createdAt", "-L", "5"]));
+    const done = runs.find((r) => r.status === "completed" && r.conclusion === "success");
+    if (done) return { state: "ready", runId: done.databaseId, url: done.url };
+    const going = runs.find((r) => r.status !== "completed");
+    if (going) return { state: "building", runId: going.databaseId, url: going.url };
+    if (runs[0]) return { state: "failed", runId: runs[0].databaseId, url: runs[0].url, conclusion: runs[0].conclusion };
+    return { state: "none" };
+}
+
+// Download the CLI for this machine's architecture into dir: the per-arch CLI and DevTools engine parts (about
+// 130 MB), or the combined cli-binaries artifact for older runs. Debug symbols are dropped. Returns winapp.exe's path.
+export async function downloadBuild(repo, runId, dir, arch = process.arch === "arm64" ? "arm64" : "x64", onStep = () => {}) {
+    const { mkdirSync, existsSync, readdirSync, renameSync, rmSync, statSync } = await import("node:fs");
+    const { join, dirname } = await import("node:path");
+    const tmp = `${dir}.part`;
+    rmSync(tmp, { recursive: true, force: true });
+    mkdirSync(tmp, { recursive: true });
+    let bin = null;
+    try {
+        onStep(`Downloading the ${arch} build from CI`);
+        await gh(["run", "download", String(runId), "-R", repo, "-n", `part-Cli-${arch}`, "-n", `part-Engine-${arch}`, "-D", tmp], { timeoutMs: 15 * 60_000 });
+        // With several names, gh puts each artifact in its own folder: merge them into one.
+        bin = join(tmp, "bin");
+        mkdirSync(bin, { recursive: true });
+        for (const part of [`part-Cli-${arch}`, `part-Engine-${arch}`]) {
+            const p = join(tmp, part);
+            if (!existsSync(p)) continue;
+            for (const f of readdirSync(p, { recursive: true })) {
+                const src = join(p, f);
+                if (statSync(src).isDirectory()) { mkdirSync(join(bin, f), { recursive: true }); continue; }
+                mkdirSync(dirname(join(bin, f)), { recursive: true });
+                renameSync(src, join(bin, f));
+            }
+        }
+        if (!existsSync(join(bin, "winapp.exe"))) throw new Error("no winapp.exe in the per-arch parts");
+    } catch {
+        onStep(`Downloading the build from CI (both architectures, slower)`);
+        rmSync(tmp, { recursive: true, force: true });
+        mkdirSync(tmp, { recursive: true });
+        await gh(["run", "download", String(runId), "-R", repo, "-n", "cli-binaries", "-D", tmp], { timeoutMs: 20 * 60_000 });
+        bin = join(tmp, `win-${arch}`);
+        if (!existsSync(join(bin, "winapp.exe"))) throw new Error(`The CI build has no winapp.exe for win-${arch}.`);
+    }
+    for (const f of readdirSync(bin, { recursive: true })) if (/\.pdb$/i.test(f)) rmSync(join(bin, f), { force: true });
+    rmSync(dir, { recursive: true, force: true });
+    renameSync(bin, dir);
+    rmSync(tmp, { recursive: true, force: true });
+    return { exe: join(dir, "winapp.exe") };
 }
 
 // File paths (with optional lines) mentioned in text: GitHub links to this repo's files, and paths such as
@@ -1027,8 +1121,7 @@ export async function fetchReadinessRaw(repo, number) {
     let at = hist.length - 1;
     while (at > 0 && hist[at].parents.totalCount >= 2 && baseMerges.length < 5) {
         const second = hist[at].parents.nodes[1]?.oid;
-        let inBase = false;
-        try { inBase = ["behind", "identical"].includes((await gh(["api", `repos/${repo}/compare/${encodeURIComponent(pr.baseRefName)}...${second}`, "--jq", ".status"])).trim()); } catch { inBase = false; }
+        const inBase = (await mergeKind(repo, pr.baseRefName, hist[at].oid, hist[at].parents.nodes[0]?.oid, second)).baseOnly;
         if (!inBase) break;
         baseMerges.push(hist[at].oid);
         at--;

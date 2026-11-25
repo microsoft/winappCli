@@ -45,6 +45,7 @@ for (const t of selected) {
         if (board.world) { board.world.fault = null; board.world.mutations.length = 0; board.world.unmocked.length = 0; board.world.allowMutations = false; }
         board.host.sends.length = 0;
         board.host.sendError = null;
+        board.host.rpcError = null; board.host.canvasOpens.length = 0; board.host.canvasInvokes.length = 0;
         page.clear();
         // A test that clicks a link which opens a new tab leaves this page in the background, where timers slow down.
         await page.send("Page.bringToFront");

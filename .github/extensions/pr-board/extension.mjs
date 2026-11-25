@@ -14,8 +14,10 @@ import { adaptFinding, adaptReview, composeGithubReview, GUIDE, mergeReview, nor
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
+import { ingestMedia, serveMedia, startDownload, tryScript, tryStatus } from "./tryit.mjs";
+import { spawn } from "node:child_process";
 import { candidates, LAYERS, normalizeSettings, plan, sampleMachine, today } from "./auto.mjs";
-import { autoPrompt, keepReadyAutoPrompt, loadReviewPrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
+import { autoPrompt, keepReadyAutoPrompt, loadReviewPrompt, trySeePrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -422,6 +424,69 @@ async function mergeAction(repo, pr, what, body) {
     let after = null;
     try { after = await fetchMergeInfo(repo, pr); } catch { after = null; }
     return { ok: true, info: after };
+}
+
+// "Try it": the PR's CI build in a terminal. The terminal is the app's own terminal canvas, opened through the
+// runtime (or by the hosting agent if the runtime won't let an extension open it), or a separate window.
+const tryTerminals = new Map(); // repo#pr -> { instanceId, how, sha, at }
+async function tryAction(repo, pr, op, body) {
+    const b = board(repo);
+    if (!b.data) await b.refresh();
+    const card = b.card(pr);
+    if (!card) throw httpError(404, `PR #${pr} isn't on the board.`);
+    const sha = card.headSha;
+    const key = `${repo}#${pr}`;
+    if (op === "download") {
+        const started = startDownload(repo, sha, () => b.broadcast());
+        updatePr(repo, pr, (s) => note(s, `You asked for the build of ${String(sha).slice(0, 7)} to try it`));
+        b.broadcast();
+        return { ok: true, started };
+    }
+    const tryIt = card.local?.review?.tryIt || [];
+    if (op === "open" || op === "window") {
+        const t = await tryScript(repo, pr, sha, tryIt).catch((e) => { throw httpError(409, e.message); });
+        const title = `winapp from PR #${pr}`;
+        if (op === "window") {
+            spawn("cmd.exe", ["/c", "start", `"${title}"`, t.shell, "-NoLogo", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", t.file], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+            tryTerminals.set(key, { how: "window", sha, at: nowIso() });
+            return { ok: true, how: "window" };
+        }
+        const instanceId = `pr-try-${pr}-${String(sha).slice(0, 7)}`;
+        try {
+            if (!session.rpc?.canvas?.open) throw new Error("the runtime doesn't let extensions open canvases");
+            await session.rpc.canvas.open({ canvasId: "terminal", instanceId, input: { title, command: t.command, placement: { focus: true } } });
+            tryTerminals.set(key, { instanceId, how: "canvas", sha, at: nowIso() });
+            return { ok: true, how: "canvas", instanceId };
+        } catch (e) {
+            // Fall back to the hosting agent, which has open_canvas.
+            await session.send({ prompt: [
+                `The PR board canvas: the user wants a terminal to **try ${repo}#${pr}'s build** of winapp (commit ${String(sha).slice(0, 7)}).`,
+                `Call \`open_canvas\` with exactly \`{ canvasId: "terminal", instanceId: "${instanceId}", input: { title: "${title}", command: ${JSON.stringify(t.command)} } }\`. The script only puts the PR's build first on PATH in that terminal and prints what to try; it doesn't change anything else.`,
+                `Do nothing else, and don't reply in the board.`,
+            ].join("\n") });
+            tryTerminals.set(key, { instanceId, how: "agent", sha, at: nowIso(), note: e.message });
+            return { ok: true, how: "agent", instanceId };
+        }
+    }
+    if (op === "run") {
+        const t = tryIt[Number(body.index)];
+        if (!t) throw httpError(404, "That command isn't in the list any more.");
+        const term = tryTerminals.get(key);
+        if (!term?.instanceId || term.sha !== sha) throw httpError(409, "Open the terminal first.");
+        try {
+            if (!session.rpc?.canvas?.action?.invoke) throw new Error("no canvas actions");
+            await session.rpc.canvas.action.invoke({ instanceId: term.instanceId, actionName: "send_terminal_input", input: { input: t.command } });
+            return { ok: true };
+        } catch (e) { throw httpError(409, `Couldn't type it into the terminal (${e.message}). Copy it instead.`); }
+    }
+    if (op === "ask") {
+        const what = body.what === "media" ? "media" : "tryIt";
+        updatePr(repo, pr, (s) => { s.pending = { id: `ask-${what}`, at: nowIso() }; note(s, what === "media" ? "You asked for screenshots or a video of the change" : "You asked for quick things to try"); });
+        await send(trySeePrompt(card, repo, what), repo, pr, { quiet: true });
+        b.broadcast();
+        return { ok: true };
+    }
+    throw httpError(400, `Unknown op ${op}`);
 }
 
 async function runIssueAction({ repo, number, action, extra = {} }) {
@@ -945,6 +1010,21 @@ async function handle(req, res) {
         if (!Number.isInteger(n) || n <= 0) throw httpError(400, "Invalid number");
         return json(200, await githubView(repo, kind, n, url.searchParams.get("force") === "1"));
     }
+    if (req.method === "GET" && url.pathname === "/api/media") {
+        const repo = checkRepo(url.searchParams.get("repo"));
+        const pr = Number(url.searchParams.get("pr"));
+        if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
+        return serveMedia(req, res, repo, pr, url.searchParams.get("f"));
+    }
+    if (req.method === "GET" && url.pathname === "/api/try") {
+        const repo = checkRepo(url.searchParams.get("repo"));
+        const pr = Number(url.searchParams.get("pr"));
+        const b = board(repo);
+        if (!b.data) await b.refresh();
+        const card = b.card(pr);
+        if (!card) throw httpError(404, `PR #${pr} isn't on the board.`);
+        return json(200, { ...(await tryStatus(repo, card.headSha)), terminal: tryTerminals.get(`${repo}#${pr}`) || null });
+    }
     if (req.method === "GET" && url.pathname === "/api/merge-info") {
         const repo = checkRepo(url.searchParams.get("repo"));
         const n = Number(url.searchParams.get("n"));
@@ -1036,6 +1116,11 @@ async function handle(req, res) {
             await b.startRun(full, snap, "send", "user");
             b.broadcast();
             return json(200, { ok: true });
+        }
+        if (url.pathname === "/api/try") {
+            const pr = Number(body.pr);
+            if (!Number.isInteger(pr) || pr <= 0) throw httpError(400, "Invalid PR number");
+            return json(200, await tryAction(repo, pr, String(body.op || ""), body));
         }
         if (url.pathname === "/api/merge" || url.pathname === "/api/merge-cancel") {
             const pr = Number(body.pr);
@@ -1134,6 +1219,7 @@ function storeReview(repo, pr, review, { replace }) {
         if (Array.isArray(review.findings)) review.findings = review.findings.map((f) => adaptFinding(f, "", { partial: !replace })).filter(Boolean);
         const next = replace ? review : mergeReview(s.review || {}, review);
         warnings = normalizeReview(next);
+        warnings.push(...ingestMedia(repo, pr, next));
         next.headSha = next.headSha || head;
         s.review = next;
         s.reviewSetAt = nowIso();

@@ -49,7 +49,7 @@ export function reviewPrompt(card, repo) {
         `Review ${repo}#${card.number}: ${card.url}`,
         ``,
         `Follow the repository's \`.github/skills/pr-review\` skill end to end.`,
-        `Then fill in the PR board's structured review: summary, verdict, risk, changes by system and by file, diagrams, and every pr-review finding with file and line. If you have the \`pr_board_review_guide\` tool, call it first and follow it, then \`pr_board_set_review({ repo: "${repo}", pr: ${card.number}, review })\`. If you don't have the pr_board_* tools, follow the review guide included below instead and write the review as JSON (same shape) to \`pr-${card.number}-review.json\` in your session files folder.`,
+        `Then fill in the PR board's structured review: summary, verdict, risk, changes by system and by file, diagrams, every pr-review finding with file and line, 3-6 \`tryIt\` commands the user can paste to see the change with this PR's winapp build, and before/after \`media\` (screenshots or a short video from \`winapp ui screenshot\` / \`winapp ui record\`, or a before/after transcript for CLI changes) when the change is user-visible. If you have the \`pr_board_review_guide\` tool, call it first and follow it, then \`pr_board_set_review({ repo: "${repo}", pr: ${card.number}, review })\`. If you don't have the pr_board_* tools, follow the review guide included below instead and write the review as JSON (same shape) to \`pr-${card.number}-review.json\` in your session files folder.`,
         `Draft only. Do NOT post to GitHub, approve or request changes, push commits, or change labels.`,
         `When done, report back: the absolute path of the JSON file (if you wrote one), a recommendation (approve, request_changes or comment), and a one-line summary such as "Recommends merge; 1 optional nit".`,
     ].join("\n");
@@ -213,7 +213,7 @@ const LAYER_NAME = { notice: "layer 1: notice and summarize", rereview: "layer 2
 const VERB = { notice: "summarize what changed on", rereview: "re-review", firstReview: "first review of", issues: "follow up on" };
 
 function eventLines(events = []) {
-    return events.slice(-8).map((e) => `- ${e.at} ${e.who} ${e.kind === "push" ? (e.baseMerge ? `merged the base branch in (${String(e.id).slice(0, 7)}, nothing else changed)` : `pushed ${String(e.id).slice(0, 7)}`) : e.kind === "review" ? `reviewed (${String(e.state || "").toLowerCase().replace(/_/g, " ")})` : "commented"}${e.preview ? `: "${e.preview}"` : ""}${e.url ? ` (${e.url})` : ""}`);
+    return events.slice(-8).map((e) => `- ${e.at} ${e.who} ${e.kind === "push" ? (e.baseMerge ? `merged the base branch in (${String(e.id).slice(0, 7)}, nothing else changed)` : e.resolution ? `merged the base branch in (${String(e.id).slice(0, 7)}) and, resolving conflicts, changed ${e.resolution.count} file${e.resolution.count === 1 ? "" : "s"} of the PR: ${e.resolution.files.slice(0, 6).join(", ")}${e.resolution.count > 6 ? ", …" : ""} (read that merge commit's diff against its first parent)` : `pushed ${String(e.id).slice(0, 7)}`) : e.kind === "review" ? `reviewed (${String(e.state || "").toLowerCase().replace(/_/g, " ")})` : "commented"}${e.preview ? `: "${e.preview}"` : ""}${e.url ? ` (${e.url})` : ""}`);
 }
 const WHAT_CHANGED_LINE = (card, repo) => `Write "What changed since you last looked" with \`pr_board_set_what_changed\` \`{ repo: "${repo}", ${ref(card)}, text }\`: 2-4 plain sentences (Markdown) on who did what, which files changed and how, and which of our earlier asks (review findings, thread) are addressed or still open. For example: "zateutsch kept empty/null rootHandle meaning the whole tree, as #1338 asked, and fixed the call hint. 2 files; the test now expects the whole tree."`;
 
@@ -423,6 +423,7 @@ export function readyForReviewPrompt(card, repo, readiness) {
             ? `Ask its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\` to follow \`.github/skills/pr-lifecycle\` (Prepare, Present, Finish) to the \`ready-for-review\` label for the current head, and report back.`
             : `No session is linked. If you have \`open_pr_session\`, open one for this PR and ask it to follow \`.github/skills/pr-lifecycle\` to the \`ready-for-review\` label; otherwise do it yourself.`,
         `As part of that, it should run pr-review on the latest non-merge commit and **fix the obvious blocking findings itself**, marking each fixed one \`status: "fixed"\` on the board (\`pr_board_update_review\` with the same finding id) so it doesn't show as still open. For a finding it disagrees with or can't fix safely, it records why, and the board asks the user to decide. While this is on, pr-review is a core gate: "ready" needs a clean pr-review of the latest non-merge commit, and the board requests a Copilot review of each new non-merge commit itself.`,
+        `Put 3-6 \`tryIt\` commands and, for a user-visible change, before/after \`media\` on the board with \`pr_board_update_review\`, so the user can try it and see it from the board.`,
         `Turn on Agent merge for the PR with \`manage_agent_merge\`: address_reviews, fix_ci and resolve_conflicts **on**, merge_pr **off**. Never merge, and never approve.`,
         !readiness?.gates ? `The board hasn't read this PR's readiness gates yet (Copilot, pr-review, discussion, CI, up to date), so check them as part of pr-lifecycle.`
             : core.length ? `Core gates (Copilot, pr-review, discussion, CI, up to date) for head ${String(readiness?.head || "").slice(0, 7)} that aren't green yet (these decide "ready"):\n${core.join("\n")}` : `Every core gate is green for head ${String(readiness?.head || "").slice(0, 7)}.`,
@@ -484,6 +485,27 @@ export function loadReviewPrompt(card, repo) {
             : `No session is linked. If you ran it, call \`pr_board_set_review({ repo: "${repo}", pr: ${card.number}, review })\` with what you have.`,
         `pr_board_set_review accepts the board's shape (\`pr_board_review_guide\`) or the pr-review shape (rounds[].findings and declined, finalHeadSha). Read the returned warnings. If the result is gone, say so in one line with \`pr_board_reply\`.`,
     ].join("\n");
+}
+
+// "Try it" / "See it": ask the review session for commands to try, or for before/after media.
+export function trySeePrompt(card, repo, what) {
+    const s = card.local?.session;
+    const who = s?.id ? `Ask its session \`${s.id}\`${s.name ? ` ("${s.name}")` : ""} with \`send_session_message\`` : "Do it yourself (no session is linked), or use `open_pr_session` if you have it";
+    const head = String(card.headSha || "").slice(0, 7);
+    const ask = what === "media"
+        ? [
+            `The PR board canvas: the user wants to **see** what ${repo}#${card.number} "${card.title}" (${card.url}) changes, without running it.`,
+            `${who} to capture before (main, e.g. the installed winapp) and after (this PR's build at ${head}) for the change that's easiest to see:`,
+            `- something on screen: screenshots with \`winapp ui screenshot\`, or a short video with \`winapp ui record --duration-sec 10\` (add \`--audio\` when sound matters);`,
+            `- a CLI change: the same command's output on main and on this PR, as text.`,
+            `Then put them on the board with \`pr_board_update_review({ repo: "${repo}", pr: ${card.number}, patch: { media: [{ kind: "comparison", title, caption, before: <absolute path>, after: <absolute path> } or { kind: "comparison", title, beforeText, afterText } or { kind: "video", title, path }] } })\`. Paths are absolute files on this machine; the board copies them.`,
+        ]
+        : [
+            `The PR board canvas: the user wants to **try** ${repo}#${card.number} "${card.title}" (${card.url}) themselves, in a terminal where \`winapp\` is this PR's build (${head}).`,
+            `${who} for 3-6 commands that show the change, each one it actually ran: a plain title, the command (using \`winapp\`), and what to look for.`,
+            `Then put them on the board with \`pr_board_update_review({ repo: "${repo}", pr: ${card.number}, patch: { tryIt: [{ title, command, expect }] } })\`. Keep them safe to run on the user's machine: nothing that deletes files, installs things globally, or needs admin.`,
+        ];
+    return [...ask, `Report in one line with \`pr_board_reply\`. Don't post to GitHub.`].join("\n");
 }
 
 // Keep it ready: a new non-merge commit landed on a watched PR, so pr-review needs to run on it again.
