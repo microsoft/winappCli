@@ -41,8 +41,51 @@ internal static class UiState
             if (Read(element) is { } state)
             {
                 Baselines.AddOrUpdate(element, state);
+                if (element is Selector { Items.Count: 0 } selector)
+                {
+                    BaselineWhenFilled(selector);
+                }
             }
         }
+    }
+
+    private sealed class Pending
+    {
+        public bool KeepBaseline { get; set; }
+    }
+
+    private static readonly ConditionalWeakTable<Selector, Pending> Filling = new();
+
+    /// <summary>
+    /// A list that is empty when it loads starts where it is once its items arrive: the selection the app (or a
+    /// CollectionViewSource) makes with them is the app's, not the user's, and isn't put back after a save.
+    /// </summary>
+    private static void BaselineWhenFilled(Selector selector)
+    {
+        if (Filling.TryGetValue(selector, out _))
+        {
+            return;
+        }
+        var pending = new Pending();
+        Filling.Add(selector, pending);
+        void OnChanged(Windows.Foundation.Collections.IObservableVector<object> sender, Windows.Foundation.Collections.IVectorChangedEventArgs e)
+        {
+            if (selector.Items.Count == 0)
+            {
+                return;
+            }
+            selector.Items.VectorChanged -= OnChanged;
+            // After the code that filled it has run (and selected an item), and ahead of a save that comes next.
+            selector.DispatcherQueue.TryEnqueue(() =>
+            {
+                Filling.Remove(selector);
+                if (!pending.KeepBaseline && Read(selector) is { } state)
+                {
+                    Baselines.AddOrUpdate(selector, state);
+                }
+            });
+        }
+        selector.Items.VectorChanged += OnChanged;
     }
 
     public static Snapshot Take(DependencyObject root)
@@ -130,7 +173,16 @@ internal static class UiState
             case ToggleSwitch toggle when Carry(s => s.Checked):
                 toggle.IsOn = current.Checked == true;
                 return true;
-            case Selector selector when Carry(s => s.SelectedIndex):
+            case Selector selector when fresh.ItemCount == 0
+                // The new list's items haven't arrived, so where its selection starts isn't known yet: what the user
+                // changed since the old list was filled is put back.
+                ? oldBaseline is null || current.SelectedIndex != oldBaseline.SelectedIndex || current.SelectedKey != oldBaseline.SelectedKey
+                : Carry(s => s.SelectedIndex):
+                if (Filling.TryGetValue(selector, out var filling))
+                {
+                    // The selection put back is the user's: it stays one when the items arrive.
+                    filling.KeepBaseline = true;
+                }
                 // Items the page fills in later (in OnNavigatedTo, or from a load) aren't there yet. The same item, found by
                 // what it says it is; by position only when items don't say and there are as many as before; else none.
                 WhenReady(selector, () => current.SelectedIndex < selector.Items.Count, () =>
