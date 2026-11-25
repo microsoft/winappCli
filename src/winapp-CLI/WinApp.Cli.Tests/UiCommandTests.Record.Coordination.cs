@@ -153,23 +153,25 @@ public partial class UiCommandTests
     }
 
     /// <summary>
-    /// A window recording with no workflow id must let other commands — the input it exists to
-    /// capture — run while it records, instead of making them wait until it ends.
+    /// A recording with no workflow id — window or full screen — must let other commands, including
+    /// the input it exists to capture, run while it records instead of making them wait until it ends.
     /// </summary>
     [TestMethod]
-    public async Task Record_WindowRecordingWithoutWorkflowId_HandsOffTheTurnAfterTheFirstFrame()
+    [DataRow(false, "wgc")]
+    [DataRow(true, "screen")]
+    public async Task Record_WithoutWorkflowId_HandsOffTheTurnAfterTheFirstFrame(bool captureScreen, string mode)
     {
         _fakeWindowCapture.Supported = true;
-        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 100, Mode = "wgc" };
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 100, Mode = mode };
 
         // Hold the recording open after its first frame, so the hand-off can only come from the
         // first-frame signal and not from the recording simply ending.
         var finishRecording = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _fakeRecording.WaitAfterRecordingStarted = finishRecording.Task;
 
+        string[] args = ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, $"handoff-{mode}.mp4"), "--json"];
         var command = GetRequiredService<UiRecordCommand>();
-        var invocation = ParseAndInvokeWithCaptureAsync(
-            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "handoff.mp4"), "--json"]);
+        var invocation = ParseAndInvokeWithCaptureAsync(command, captureScreen ? [.. args, "--capture-screen"] : args);
 
         var handedOffWhileRecording = await WaitForConditionAsync(
             () => _fakeDesktopLock.HandOffs.Count > 0, TimeSpan.FromSeconds(10));
@@ -182,45 +184,89 @@ public partial class UiCommandTests
     }
 
     /// <summary>
-    /// A screen recording, and a PrintWindow recording that may foreground the window at any frame,
-    /// both still need the desktop for their whole length, so they keep the turn.
+    /// The PrintWindow fallback may foreground the window at any frame, so it keeps the desktop for the
+    /// whole recording and never hands its turn off.
     /// </summary>
     [TestMethod]
-    [DataRow(true, true, "screen")]
-    [DataRow(false, false, "printwindow")]
-    public async Task Record_ThatStillNeedsTheDesktop_KeepsTheTurn(bool captureScreen, bool frameCapture, string mode)
+    public async Task Record_PrintWindowFallback_KeepsTheTurnForTheWholeRecording()
     {
-        _fakeWindowCapture.Supported = frameCapture;
-        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 100, Mode = mode };
+        _fakeWindowCapture.Supported = false;
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 5, Width = 100, Height = 100, Mode = "printwindow" };
 
-        string[] args = ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, $"{mode}.mp4"), "--json"];
+        var command = GetRequiredService<UiRecordCommand>();
+        var exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "pw-hold.mp4"), "--json"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.IsEmpty(_fakeDesktopLock.HandOffs);
+        using var result = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output);
+        Assert.IsFalse(result.RootElement.TryGetProperty("desktopNotice", out _), "a recording that keeps the desktop has nothing to warn about");
+    }
+
+    /// <summary>
+    /// A recording with no workflow id tells the user, on stderr, that others can now act and may
+    /// appear in the video. A recording with an id keeps the desktop, so it says nothing.
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, false, "their activity in this window may appear in the video")]
+    [DataRow(false, true, "anything they bring on screen may appear in the video")]
+    [DataRow(true, false, null)]
+    public async Task Record_HumanOutput_PrintsTheDesktopNoticeOnlyWithoutAWorkflowId(bool hasWorkflowId, bool captureScreen, string? expected)
+    {
+        _fakeDesktopLock.HasWorkflowId = hasWorkflowId;
+        _fakeWindowCapture.Supported = true;
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 2, Width = 100, Height = 100, Mode = captureScreen ? "screen" : "wgc" };
+
+        string[] args = ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "notice.mp4")];
         var command = GetRequiredService<UiRecordCommand>();
         var exitCode = await ParseAndInvokeWithCaptureAsync(command, captureScreen ? [.. args, "--capture-screen"] : args);
 
         Assert.AreEqual(0, exitCode);
-        Assert.IsEmpty(_fakeDesktopLock.HandOffs);
+        var stderr = ConsoleStdErr.ToString();
+        if (expected is null)
+        {
+            Assert.DoesNotContain("Other commands can use the desktop", stderr);
+        }
+        else
+        {
+            Assert.Contains($"Other commands can use the desktop while this records, and {expected}.", stderr);
+            Assert.Contains("WINAPP_UI_WORKFLOW_ID", stderr);
+        }
     }
 
     /// <summary>
-    /// A screen recording that keeps the turn says so when it starts, so the user learns how to drive
-    /// the app during it before their input silently waits.
+    /// Under --json the notice is a field, not a stray line on stderr; --quiet prints nothing.
     /// </summary>
     [TestMethod]
-    [DataRow(false, true)]
-    [DataRow(true, false)]
-    public async Task Record_ScreenRecording_ExplainsHowToDriveTheAppOnlyWithoutAWorkflowId(bool hasWorkflowId, bool expectNotice)
+    public async Task Record_JsonAndQuiet_KeepTheNoticeOutOfTheTextStreams()
     {
-        _fakeDesktopLock.HasWorkflowId = hasWorkflowId;
-        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 2, Width = 100, Height = 100, Mode = "screen" };
-
+        _fakeWindowCapture.Supported = true;
+        _fakeRecording.RecordResult = new RecordCaptureResult { Frames = 2, Width = 100, Height = 100, Mode = "wgc" };
         var command = GetRequiredService<UiRecordCommand>();
+
         var exitCode = await ParseAndInvokeWithCaptureAsync(
-            command, ["-a", "TestApp", "--capture-screen", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "notice.mp4")]);
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "notice-json.mp4"), "--json"]);
 
         Assert.AreEqual(0, exitCode);
-        Assert.AreEqual(expectNotice, TestAnsiConsole.Output.Contains("WINAPP_UI_WORKFLOW_ID"), TestAnsiConsole.Output);
-    }
+        using (var result = System.Text.Json.JsonDocument.Parse(TestAnsiConsole.Output))
+        {
+            Assert.StartsWith("Other commands can use the desktop", result.RootElement.GetProperty("desktopNotice").GetString()!);
+        }
 
+        var stderrLines = ConsoleStdErr.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        Assert.HasCount(1, stderrLines, "stderr carries only the recording-started event under --json");
+        using (var started = System.Text.Json.JsonDocument.Parse(stderrLines[0]))
+        {
+            Assert.IsTrue(started.RootElement.TryGetProperty("desktopNotice", out _), "the started event carries the notice too");
+        }
+
+        ConsoleStdErr.GetStringBuilder().Clear();
+        exitCode = await ParseAndInvokeWithCaptureAsync(
+            command, ["-a", "TestApp", "--duration-sec", "1", "-o", Path.Combine(_tempDirectory.FullName, "notice-quiet.mp4"), "--quiet"]);
+
+        Assert.AreEqual(0, exitCode);
+        Assert.DoesNotContain("Other commands can use the desktop", ConsoleStdErr.ToString());
+    }
     private static async Task<bool> WaitForConditionAsync(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

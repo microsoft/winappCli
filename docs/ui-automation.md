@@ -246,18 +246,32 @@ Start-Sleep 3
 winapp ui invoke SettingsButton -a myapp   # runs immediately and shows up ~3s into demo.mp4
 ```
 
-A window recording only needs the desktop while it starts. After the first frame it gives the turn
-back, so other commands, including other workflows', run while it records. Three cases keep the turn
-for the whole recording instead, and other commands wait until it ends:
+A recording with **no** workflow id only needs the desktop while it starts. After the first frame
+it gives the turn back, so any command, including another workflow's, can run while it records. That
+applies to window and `--capture-screen` recordings alike, and the recording prints a notice on
+stderr when it starts (the `desktopNotice` field under `--json`):
 
-- **`--capture-screen`.** The video is whatever is on screen, so another workflow's windows would
-  land in it. To drive the app during a screen recording, run the recording and the input with the
-  same `WINAPP_UI_WORKFLOW_ID`. Without one, the recording says so when it starts.
-- **A `record` started with a `WINAPP_UI_WORKFLOW_ID`.** It shares its turn with commands that carry
-  the same id and keeps other workflows out.
-- **A host without frame-capture support.** Recording falls back to PrintWindow, whose blank-frame
-  recovery can foreground the window at any moment. There the desktop is held for the **entire**
-  recording and the command says so in its output; even same-workflow input will wait.
+```text
+Other commands can use the desktop while this records, and their activity in this window may appear in the video. Set WINAPP_UI_WORKFLOW_ID on this and the commands you want to capture to keep the desktop to yourself.
+```
+
+To keep the desktop to yourself, give the recording and the commands it should capture the same
+`WINAPP_UI_WORKFLOW_ID` before you start them:
+
+```powershell
+$env:WINAPP_UI_WORKFLOW_ID = 'settings-demo'
+Start-Process winapp -ArgumentList 'ui record -a myapp --duration-sec 8 -o demo.mp4'
+Start-Sleep 3
+winapp ui invoke SettingsButton -a myapp   # same id: runs immediately; other workflows wait
+```
+
+A recording with a workflow id holds the turn for its whole length. Commands with the same id run
+alongside it, and other workflows wait until it ends.
+
+On a host without frame-capture support, recording falls back to PrintWindow, whose blank-frame
+recovery can foreground the window at any moment. There the desktop is held for the **entire**
+recording, with or without an id, and the command says so in its output; even same-workflow input
+will wait.
 
 Errors you may see: `invalid_ui_workflow_id` (the variable is set but empty or over 256 characters),
 `desktop_coordination_unavailable` (coordination state is unreadable and cannot be safely rebuilt, or
@@ -692,8 +706,8 @@ whenever they are open. No flag is needed.
 Screenshots show the same popups as separate labeled panels instead; see [screenshot](#screenshot).
 
 **JSON output (`--json`):**
-- **stdout:** Final recording result, including cadence, stop reason, optional `frameArtifacts`, and warnings.
-- **stderr:** One JSON object per line: a `recording-started` event after the first frame, followed by an error if recording later fails. Frame paths are included only when frame output is active.
+- **stdout:** Final recording result, including cadence, stop reason, optional `frameArtifacts`, warnings, and `desktopNotice` when other commands could use the desktop while it recorded.
+- **stderr:** One JSON object per line: a `recording-started` event after the first frame (with the same `desktopNotice`), followed by an error if recording later fails. Frame paths are included only when frame output is active.
 
 **Error codes:**
 - `element_not_found` — The selector did not match.

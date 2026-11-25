@@ -2465,7 +2465,14 @@ winapp ui record -a Calculator --frames --duration-sec 10 --fps 10 -o evidence.m
 - `--no-click-highlight` - With `--cursor`, draw the pointer but no click rings.
 
 With `--json`, the final result includes the output path, dimensions, codec, capture mode, cadence,
-stop reason, optional `frameArtifacts`, and warnings.
+stop reason, optional `frameArtifacts`, warnings, and `desktopNotice` when other commands could use
+the desktop during the recording.
+
+Other `winapp ui` commands can drive the app while it records. With no `WINAPP_UI_WORKFLOW_ID`,
+the recording gives the desktop back after its first frame, so any workflow's activity may appear
+in the video. Set the same id on the recording and the commands it should capture, before starting
+them, to keep other workflows waiting until it ends. See
+[Coordinating concurrent UI workflows](ui-automation.md#coordinating-concurrent-ui-workflows).
 
 Recordings draw open menus, flyouts and tooltips in place; see
 [Menus and flyouts in recordings](ui-automation.md#menus-and-flyouts-in-recordings).

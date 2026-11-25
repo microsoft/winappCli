@@ -29,8 +29,8 @@ internal enum UiTurnMode
     /// </summary>
     /// <remarks>
     /// This is the mode for work that changes the app but not the desktop: <c>ui record</c>, which pins
-    /// the owner for the whole capture while same-owner input continues (a window recording with no
-    /// workflow id hands its turn off once it starts, see <see cref="IUiTurn.HandOffAnonymousTurnAsync"/>),
+    /// the owner for the whole capture while same-owner input continues (a recording with no workflow
+    /// id hands its turn off once it starts, see <see cref="IUiTurn.HandOffAnonymousTurnAsync"/>),
     /// and the background-safe UIA
     /// mutations <c>set-value</c>, <c>scroll-into-view</c> and <c>scroll --direction</c>/<c>--to</c>.
     /// Because they never take <c>active.lock</c> they remain usable on a locked or headless session,

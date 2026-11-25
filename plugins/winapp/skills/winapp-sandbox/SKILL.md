@@ -93,9 +93,11 @@ winapp ui yield --on sandbox
 ```
 
 The forwarded identity is hashed and scoped to this Sandbox generation. Without an ID,
-each command is a one-shot that releases immediately; a no-ID recording blocks other
-desktop-changing workflows for its duration. An explicit ID keeps a four-second idle
-grace. Yield at the end instead of making another workflow wait. After a reasoning gap,
+each command is a one-shot that releases immediately, and a recording releases its turn
+once it starts, so anyone's commands can act (and appear) while it records. An explicit
+ID keeps the turn for the recording and a four-second idle grace after each command.
+Set it **before** starting the recording and on every command it should capture.
+Yield at the end instead of making another workflow wait. After a reasoning gap,
 inspect again and reopen transient UI before acting.
 
 ## Choose evidence by scope

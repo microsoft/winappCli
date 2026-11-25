@@ -50,8 +50,10 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                "By default records until Ctrl+C or redirected-stdin newline/EOF. " +
                "Use --duration-sec for a timed run, --frames for timestamped JPEG evidence, " +
                "and --capture-screen for overlays and popups. " +
-               "Other winapp ui commands can drive the app while it records. With --capture-screen they wait " +
-               "until the recording ends, unless they share its WINAPP_UI_WORKFLOW_ID.")
+               "Other winapp ui commands can drive the app while it records, so starting a recording and " +
+               "then running 'winapp ui invoke' from another shell captures that action. Their activity may " +
+               "appear in the video. To keep other workflows off the desktop until it ends, set the same " +
+               "WINAPP_UI_WORKFLOW_ID on this recording and on the commands it should capture.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -96,10 +98,9 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         /// </summary>
         /// <remarks>
         /// With no <c>WINAPP_UI_WORKFLOW_ID</c> the recording is a one-command owner that nothing else
-        /// can join. A window recording hands that turn off once its first frame lands, because it
-        /// captures the window's own pixels and needs nothing more from the desktop, so other commands
-        /// can drive the app while it records. A screen recording keeps the turn for its whole length,
-        /// because anything another workflow brings to the front would land in the video.
+        /// can join. It hands that turn off once its first frame lands, so other commands can drive the
+        /// app while it records, and says so. The PrintWindow fallback is the exception: it may
+        /// foreground the window at any frame, so it keeps the desktop for its whole length.
         /// </remarks>
         protected override UiTurnMode ResolveMode(ParseResult parseResult) => UiTurnMode.TurnShared;
 
@@ -279,16 +280,9 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                         : $"{filePath}; frame artifacts: {framesDirectory}";
                     var subject = uiTarget is null ? "the guest desktop" : DescribeSubject(uiTarget);
                     ansiConsole.MarkupLine($"[grey]Recording {Markup.Escape(subject)} to {Markup.Escape(destinations)} — until {until}, {fps} fps…[/]");
-
-                    if (!turn.HasWorkflowId && (IsDesktop || captureScreen))
-                    {
-                        // A screen recording keeps the desktop to itself, so say so up front instead of
-                        // leaving the input it was meant to capture to discover it by waiting.
-                        ansiConsole.MarkupLine(
-                            "[grey]Other winapp ui commands that change the UI wait until this screen recording ends. " +
-                            "To drive the app while recording, run this command and those commands with the same WINAPP_UI_WORKFLOW_ID.[/]");
-                    }
                 }
+
+                var desktopNotice = DesktopNotice(turn, captureScreen);
 
                 // Stops received before the first frame wait for encoder readiness.
                 var readyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -314,6 +308,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                             FramesDirectory = frameArtifactsActive ? framesDirectory : null,
                             FramesManifest = frameArtifactsActive ? Path.Join(framesDirectory!, "manifest.json") : null,
                             FramesIndex = frameArtifactsActive ? Path.Join(framesDirectory!, "frames.ndjson") : null,
+                            DesktopNotice = desktopNotice,
                         };
                         parseResult.InvocationConfiguration.Error.WriteLine(
                             JsonSerializer.Serialize(startedEvent, UiJsonLineContext.Default.UiRecordStartedEvent));
@@ -334,8 +329,8 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                     ClickHighlight = clickHighlight,
                 };
 
-                var (result, coordinationWarning) = await RecordUnderTurnAsync(
-                    turn, uiTarget, selector, options, captureScreen, json, quiet,
+                var (result, coordinationWarning, handedOff) = await RecordUnderTurnAsync(
+                    turn, uiTarget, selector, options, captureScreen, json, quiet, desktopNotice,
                     OnRecordingStarted, parseResult.InvocationConfiguration.Error, linkedCts.Token).ConfigureAwait(false);
 
                 if (result is null)
@@ -369,6 +364,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                         StopReason = result.StopReason,
                         FrameArtifacts = result.FrameArtifacts,
                         Warnings = allWarnings,
+                        DesktopNotice = handedOff ? desktopNotice : null,
                         ExecutionTarget = Scope,
                         Coordinates = result.Coordinates,
                     };
@@ -516,7 +512,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         /// that input cannot interleave on this host.
         /// </para>
         /// </remarks>
-        private async Task<(RecordCaptureResult? Result, string? CoordinationWarning)> RecordUnderTurnAsync(
+        private async Task<(RecordCaptureResult? Result, string? CoordinationWarning, bool HandedOff)> RecordUnderTurnAsync(
             IUiTurn turn,
             UiTarget? uiTarget,
             string? selector,
@@ -524,6 +520,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
             bool captureScreen,
             bool json,
             bool quiet,
+            string? desktopNotice,
             Action<bool> onRecordingStarted,
             TextWriter errorOut,
             CancellationToken ct)
@@ -534,12 +531,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
             bool TargetStillValid() => uiTarget is null || DesktopTargetValidation.TryConfirmTargetWindow(
                 systemQuery, uiTarget.WindowHandle, uiTarget.ProcessId, logger, json, "record", errorOut);
 
-            // Mirrors the engine's own selection in UiRecordingService: screen DC when asked for, else WGC
-            // when the host supports frame capture, else PrintWindow. Asserted against the result below so
-            // this prediction cannot silently drift away from the engine.
-            var predictedMode = IsDesktop || captureScreen
-                ? "screen"
-                : windowCapture.IsFrameCaptureSupported ? "wgc" : "printwindow";
+            var predictedMode = PredictMode(captureScreen);
             var holdForWholeRecording = predictedMode == "printwindow";
 
             if (holdForWholeRecording)
@@ -559,7 +551,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 {
                     if (!TargetStillValid())
                     {
-                        return (null, null);
+                        return (null, null, false);
                     }
 
                     heldResult = await recordingService
@@ -567,7 +559,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 }
 
                 AssertPredictedMode(predictedMode, heldResult);
-                return (heldResult, warning);
+                return (heldResult, warning, false);
             }
 
             // RunContinuationsAsynchronously is mandatory: without it, TrySetResult below would run this
@@ -609,7 +601,7 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 if (!TargetStillValid())
                 {
                     // The finally below releases the section.
-                    return (null, null);
+                    return (null, null, false);
                 }
 
                 var recordTask = uiTarget is null
@@ -622,26 +614,61 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                 await Task.WhenAny(startedTcs.Task, recordTask).ConfigureAwait(false);
                 await ReleaseOnceAsync().ConfigureAwait(false);
 
-                // A window recording reads only the window's own pixels, so once it has started nothing
-                // another workflow does to the desktop can change what it captures. With no workflow id
-                // nobody can join its turn either, so holding it would only make every other command —
-                // including the input this recording exists to capture — wait until it ends. A screen
-                // recording keeps its turn: another workflow's windows would land in the video.
+                // With no workflow id nobody can join this recording's turn, so holding it would only
+                // make every other command — including the input this recording exists to capture —
+                // wait until it ends. Once the first frame has landed it no longer needs the desktop, so
+                // it gives the turn back and tells the user that others may now appear in the video.
                 // CancellationToken.None: a Ctrl+C here must still finalize the MP4, not abort the hand-off.
-                if (predictedMode == "wgc" && startedTcs.Task.IsCompleted)
+                var handedOff = false;
+                if (startedTcs.Task.IsCompleted)
                 {
-                    var handedOff = await turn.HandOffAnonymousTurnAsync(CancellationToken.None).ConfigureAwait(false);
-                    logger.LogDebug("Window recording started; UI turn handed off: {HandedOff}", handedOff);
+                    handedOff = await turn.HandOffAnonymousTurnAsync(CancellationToken.None).ConfigureAwait(false);
+                    logger.LogDebug("Recording started; UI turn handed off: {HandedOff}", handedOff);
+                    if (handedOff && desktopNotice is not null && !json && !quiet)
+                    {
+                        errorOut.WriteLine(desktopNotice);
+                    }
                 }
 
                 var result = await recordTask.ConfigureAwait(false);
                 AssertPredictedMode(predictedMode, result);
-                return (result, null);
+                return (result, null, handedOff);
             }
             finally
             {
                 await ReleaseOnceAsync().ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// The capture mode the engine will pick: screen DC when asked for, else WGC when the host supports
+        /// frame capture, else PrintWindow.
+        /// </summary>
+        /// <remarks>
+        /// Mirrors the engine's own selection in UiRecordingService, and is asserted against the result so
+        /// this prediction cannot silently drift away from the engine.
+        /// </remarks>
+        private string PredictMode(bool captureScreen) => IsDesktop || captureScreen
+            ? "screen"
+            : windowCapture.IsFrameCaptureSupported ? "wgc" : "printwindow";
+
+        /// <summary>
+        /// What to tell the user when this recording lets other commands use the desktop while it runs:
+        /// a recording with no workflow id, except the PrintWindow fallback, which keeps the desktop.
+        /// </summary>
+        private string? DesktopNotice(IUiTurn turn, bool captureScreen)
+        {
+            var mode = PredictMode(captureScreen);
+            if (turn.HasWorkflowId || mode == "printwindow")
+            {
+                return null;
+            }
+
+            var appears = mode == "screen"
+                ? "anything they bring on screen may appear in the video"
+                : "their activity in this window may appear in the video";
+            return $"Other commands can use the desktop while this records, and {appears}. " +
+                $"Set {UiOwnerResolver.WorkflowIdVariable} on this and the commands you want to capture to keep the desktop to yourself.";
         }
 
         /// <summary>
