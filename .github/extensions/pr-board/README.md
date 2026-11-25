@@ -48,7 +48,7 @@ The ball is one of these states, checked top to bottom:
 | State | Glyph | When |
 |---|---|---|
 | **Needs your decision** | orange `?` | A session is waiting on a question, the agent asked you something, or set a next step with choices |
-| **Agent working** | spinner (sparkle when no session is busy right now) | A session is busy, the agent is answering you, a watched PR has new feedback, failing CI or conflicts for Agent merge to pick up, or your PR is labeled `agent-preparing` or isn't ready for human review yet. Agent merge being on by itself isn't work: an idle watched PR just shows **Watching**, and it says "addressing" only while its session is busy |
+| **Agent working** | spinner | Something is actually running: a linked session is busy, the board started an auto run, or the agent is answering you. Anything that's the agent's to do while nothing runs (Agent merge has new feedback, failing CI or conflicts to pick up, a step the agent hasn't started, a PR labeled `agent-preparing`) shows as **Waiting on others** with owner *agent* or *Agent merge*. A session's "busy" counts for 2 hours after the last sync, an agent run for 6 hours, a question to the agent for 3; after that the board stops calling it work. Merged and closed items never count |
 | **Blocked** | red `!` | On your PR: CI failing, merge conflicts, the `agent-blocked` label, or the agent failed |
 | **Ready for you** | orange `→` | Your review or re-review is wanted, a drafted review is ready to post, you have unsent branch comments, the agent pushed after your branch comments, or the agent handed you a step |
 | **Next: open a PR** | blue PR | An issue's fix is on a branch, the session is idle, and there's no PR yet |
@@ -371,11 +371,11 @@ Whose move it is:
 |-----------|----------|
 | In the merge queue | *In merge queue #2* (waiting on the queue) |
 | Approved, all core gates green | *Approved: merge it* (your move, **Merge…**) |
-| Kept ready, and new feedback, failing CI or conflicts arrive | *New feedback: agent addressing it* (spinner) |
+| Kept ready, and new feedback, failing CI or conflicts arrive | *New feedback: agent addressing it* (spinner) while its session is busy; otherwise *New feedback (…)*, waiting on Agent merge |
 | Labeled `agent-blocked` | *Agent blocked: …* (your move) |
-| Blocking findings, and the agent is preparing it or keeping it ready | *Addressing N pr-review findings* (agent) |
+| Blocking findings, and the agent is preparing it or keeping it ready | *Addressing N pr-review findings* (spinner) while busy; otherwise *To fix: N pr-review findings*, waiting on the agent |
 | Blocking findings, and nobody is working on it | *Decide on N pr-review findings* (your move, **Decide…**) |
-| Not all green yet, labeled `agent-preparing`, or a reviewer step is waiting | *Preparing it for review · 3/5 ready · Then: request a reviewer* (agent) |
+| Not all green yet, labeled `agent-preparing`, or a reviewer step is waiting | *Preparing it for review · 3/5 ready · Then: request a reviewer* while busy; otherwise *Next: get it ready for review · …*, waiting on the agent |
 | All green, no reviewer requested | *Ready for human review: request a reviewer* (your move, **Request reviewer ▾**) |
 
 A real decision for you, such as a choice that isn't about reviewers, still shows
@@ -688,7 +688,7 @@ Every request from the board tells the agent which of these to call.
 | Tool | Use |
 |------|-----|
 | `pr_board_sync_sessions` | Report the sessions on each PR or issue: activity, a pending question, Agent merge state, and when pr-review ran (on which commit). `untrack: true` stops tracking an item. For an issue, `branch` (the session's branch) or `linkedPr` lets the board show its PR |
-| `pr_board_set_next_step` | Say whose move it is: `{ pr` or `issue, owner, action, choices?, optional?, blocked? }` (owner: `you`, `agent`, `author`, `reviewer`, `reporter` or `ci`), or `clear: true`. Owner `you` puts it in **Your move** (choices become buttons that come back to the agent; a `Merge` choice opens the Merge dialog); `agent` shows the spinner. `optional` lists non-blocking asks shown next to *Nothing needed from you* |
+| `pr_board_set_next_step` | Say whose move it is: `{ pr` or `issue, owner, action, choices?, optional?, blocked? }` (owner: `you`, `agent`, `author`, `reviewer`, `reporter` or `ci`), or `clear: true`. Owner `you` puts it in **Your move** (choices become buttons that come back to the agent; a `Merge` choice opens the Merge dialog); `agent` shows the spinner while its session is busy, and waits on the agent otherwise. `optional` lists non-blocking asks shown next to *Nothing needed from you* |
 | `pr_board_set_explainer` | Write the "Explain like I'm 5" and "Where we are" sections for a PR or issue (`{ pr \| issue, eli5, progress }`, Markdown) |
 | `pr_board_set_summary` | Set the plain-words summary (≤140 characters), next steps, and risk (`low`, `medium`, `high`) |
 | `pr_board_reply` | Post a reply in a PR's thread (Markdown, with optional [anchors](#the-agent-can-point-at-things) and `focus`) |
@@ -755,7 +755,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ thread column: an anchor chip switches the tab on the left while the thread stays put (893ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-101 passed, 0 failed, 101 total (373s)
+102 passed, 0 failed, 102 total (375s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

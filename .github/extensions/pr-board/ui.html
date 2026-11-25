@@ -2302,12 +2302,13 @@ function lifecycleBall(c, skipYou, running) {
   if (r?.ready && c.reviewDecision === "APPROVED") return skipYou ? null : { st: "ready", ask: "Approved: merge it", ship: true, since: r.fetchedAt };
   if (r && watched(c)) {
     const g = Object.fromEntries(r.gates.map((x) => [x.id, x]));
-    // Agent merge being on isn't work in progress: say "addressing" only while the session is busy.
-    const doing = running ? "agent addressing it" : "Agent merge picks it up";
-    const fb = g.discussion?.state === "fail" ? `New feedback: ${doing} (${g.discussion.reason})`
-      : g.copilot?.state === "fail" && /unresolved/.test(g.copilot.reason) ? `New Copilot comments: ${doing}`
-      : g.ci?.state === "fail" ? `CI failing: ${running ? "agent fixing it" : "Agent merge picks it up"} (${g.ci.reason})`
-      : g.uptodate?.state === "fail" ? `Conflicts: ${running ? "agent resolving them" : "Agent merge picks them up"}` : null;
+    // Agent merge being on isn't work in progress: say "addressing" only while the session is busy. Idle, the row
+    // reads "Agent merge: New feedback (…)", waiting on Agent merge like any other owner.
+    const doing = (what) => running ? `: agent ${what}` : "";
+    const fb = g.discussion?.state === "fail" ? `New feedback${doing("addressing it")} (${g.discussion.reason})`
+      : g.copilot?.state === "fail" && /unresolved/.test(g.copilot.reason) ? `New Copilot comments${doing("addressing them")}`
+      : g.ci?.state === "fail" ? `CI failing${doing("fixing it")} (${g.ci.reason})`
+      : g.uptodate?.state === "fail" ? `Conflicts with the base branch${doing("resolving them")}` : null;
     if (fb) return { st: "agent", idle: !running, ask: fb, watch: true, since: r.fetchedAt };
   }
   if (label === "agent-blocked" && !skipYou) return { st: "blocked", ask: `Agent blocked: ${(l.next?.owner === "you" && l.next.action) || l.agent?.outcome || "it needs your help"}`, fix: true, since: l.agent?.updatedAt || c.updatedAt };
@@ -2316,13 +2317,13 @@ function lifecycleBall(c, skipYou, running) {
   if (fx) {
     const n = fx.items.length, s = n === 1 ? "" : "s";
     // Agent merge doesn't act on pr-review findings, so a watched PR whose session is idle isn't "addressing" them.
-    if (label === "agent-preparing" || running) return { st: "agent", idle: !running, ask: `Addressing ${n} pr-review finding${s}${meter}`, since: l.reviewSetAt || r.fetchedAt };
+    if (label === "agent-preparing" || running) return { st: "agent", idle: !running, ask: `${running ? "Addressing" : "To fix:"} ${n} pr-review finding${s}${meter}`, since: l.reviewSetAt || r.fetchedAt };
     if (!skipYou) return { st: "decide", ask: `Decide on ${n} pr-review finding${s}: fix or not needed`, findings: true, since: l.reviewSetAt || r.fetchedAt };
   }
   // Not ready for human review yet: a reviewer or readiness step for you waits until the core gates pass.
   const nx = l.next;
   const held = nx?.owner === "you" && isReadyish(nx) ? nx.action : null;
-  if (r && !r.ready && (label === "agent-preparing" || held)) return { st: "agent", idle: !running, ask: `Preparing it for review${meter}`, then: held ? `Then: ${held.charAt(0).toLowerCase()}${held.slice(1)}` : null, since: l.agent?.updatedAt || nx?.at || c.updatedAt };
+  if (r && !r.ready && (label === "agent-preparing" || held)) return { st: "agent", idle: !running, ask: `${running ? "Preparing it for review" : "Next: get it ready for review"}${meter}`, then: held ? `Then: ${held.charAt(0).toLowerCase()}${held.slice(1)}` : null, since: l.agent?.updatedAt || nx?.at || c.updatedAt };
   if (r?.ready && !r.requestedHumans.length && !skipYou) return { st: "ready", ask: "Ready for human review: request a reviewer", reqReviewer: true, since: r.fetchedAt };
   return null;
 }
@@ -2356,10 +2357,17 @@ const BALL_GLYPH = {
 const spinner = (label = "Agent working") => `<svg class="spin" viewBox="0 0 16 16" role="img" aria-label="${esc(label)}"><circle cx="8" cy="8" r="6"/></svg>`;
 const ballGlyph = (b) => b.st === "agent" && !b.idle ? spinner() : b.st === "agent" ? `<span class="g g-agent-idle" role="img" aria-label="Agent's move">${icon("sparkle", "sm")}</span>` : `<span class="g g-${b.st}" role="img" aria-label="${esc(BALL[b.st].label)}"><svg viewBox="0 0 16 16" aria-hidden="true">${BALL_GLYPH[b.st] || ""}</svg></span>`;
 const tsOf = (s) => (s ? new Date(s).getTime() || 0 : 0);
-const isWorking = (c) => { const l = c.local || {}; return l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending || !!l.summarizing || !!l.explainerPending || !!autoRun(c); };
+const isWorking = (c) => { if (c.section === "merged" || (c.kind === "issue" && c.state && c.state !== "OPEN")) return false; const l = c.local || {}; return l.sync?.activity === "busy" || l.agent?.status === "running" || !!l.pending || !!l.summarizing || !!l.explainerPending || !!autoRun(c); };
 const whenText = (iso) => { const d = new Date(iso); const today = new Date(); const same = d.toDateString() === today.toDateString(); return (same ? "" : d.toLocaleDateString([], { weekday: "short" }) + " ") + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
 
+// "Agent working" only while something is in flight: a busy linked session, a run the board started, or a question
+// being answered. A ball that's the agent's but idle (Agent merge watching, a step the agent hasn't started) waits
+// on the agent like any other owner, so the board never says "working" when nothing is.
 function deriveBall(c, skipYou) {
+  const b = deriveBallRaw(c, skipYou);
+  return b.st === "agent" && b.idle ? { ...b, st: "waiting", owner: b.watch ? "Agent merge" : "agent" } : b;
+}
+function deriveBallRaw(c, skipYou) {
   const l = c.local || {};
   const issue = c.kind === "issue";
   const q0 = pendingQuestion(c);
@@ -2394,7 +2402,7 @@ function deriveBall(c, skipYou) {
       const post = !!r && c.review?.state !== "stale" && l.prReview?.result !== "posted" && !nx.choices?.length;
       return { st: nx.blocked ? "blocked" : nx.choices?.length ? "decide" : "ready", ask: nx.action, choices: nx.choices || [], explicit: true, since: nx.at, post };
     }
-    if (nx.owner === "agent") return { st: "agent", ask: nx.action, since: nx.at };
+    if (nx.owner === "agent") return { st: "agent", idle: !running, ask: nx.action, since: nx.at };
     if (!running) return { st: "waiting", owner: nx.owner === "author" || nx.owner === "reporter" ? c.author || nx.owner : nx.owner === "ci" ? "CI" : nx.owner, ask: nx.action, since: nx.at, stuck: !!nx.blocked };
   }
   if (!skipYou && l.agent?.status === "waiting") return { st: "decide", ask: l.agent.outcome || "The agent needs your input", reply: true, since: l.agent.updatedAt };

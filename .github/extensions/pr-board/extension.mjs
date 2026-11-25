@@ -29,6 +29,22 @@ let session;
 
 // ---- Boards (one per repo, shared by every canvas instance) ---------------
 
+// Saved activity goes stale: a session synced "busy" that never synced again, an agent run that never reported back,
+// a question nobody answered. Past these ages the board stops calling it work in progress.
+const STALE_MS = { busy: 2 * 3600e3, running: 6 * 3600e3, pending: 3 * 3600e3 };
+function freshLocal(l, now = Date.now()) {
+    if (!l) return l;
+    const old = (iso, ms) => now - (Date.parse(iso) || 0) > ms;
+    const out = { ...l };
+    if (l.sync?.activity === "busy" && old(l.sync.at, STALE_MS.busy)) out.sync = { ...l.sync, activity: "unknown", staleBusySince: l.sync.at };
+    if (l.agent?.status === "running" && old(l.agent.updatedAt, STALE_MS.running)) out.agent = null;
+    if (l.pending && old(l.pending.at, STALE_MS.pending)) out.pending = null;
+    if (l.summarizing && old(l.summarizing.at, STALE_MS.pending)) out.summarizing = null;
+    if (l.explainerPending && old(l.explainerPending, STALE_MS.pending)) out.explainerPending = null;
+    return out;
+}
+const freshAll = (map) => Object.fromEntries(Object.entries(map || {}).map(([k, v]) => [k, freshLocal(v)]));
+
 // An issue with an open, draft or merged PR on the board is "covered": it has no row of its own. The PR is the
 // item, with an "Fixes Issue #n" chip, and it carries the issue's thread, explainer, next step and session.
 function mergeCovered(cards, issues) {
@@ -91,6 +107,10 @@ class Board {
             try {
                 this.data = await fetchRepoData(this.repo);
                 const st = readState(this.repo);
+                // A merged PR's agent isn't working any more: clear a "running" status that never got reported back.
+                for (const p of this.data.merged) {
+                    if (st.prs[String(p.number)]?.agent?.status === "running") updatePr(this.repo, p.number, (s) => { s.agent = null; addHistory(s, "Cleared a leftover \"agent working\" status: the PR is merged"); });
+                }
                 // Only issues someone is working on here (a linked session); assigned issues come from GitHub.
                 const linked = Object.entries(st.issues).filter(([, v]) => v.session?.id).map(([k]) => Number(k));
                 const prIndex = new Map([...this.data.open.map((p) => [p.number, { number: p.number, state: "OPEN", isDraft: !!p.isDraft, url: p.url }]), ...this.data.merged.map((p) => [p.number, { number: p.number, state: "MERGED", isDraft: false, url: p.url }])]);
@@ -147,7 +167,7 @@ class Board {
         try {
             const st = readState(this.repo);
             for (const p of this.data.open) {
-                const local = st.prs[String(p.number)] || {};
+                const local = freshLocal(st.prs[String(p.number)] || {});
                 if (!local.sync?.agentMerge?.enabled || !this.lifecycleOf(p, st) || this.data.queue?.get?.(p.number)) continue;
                 const raw = this.ready.get(p.number)?.raw;
                 if (!raw || raw.headRefOid !== p.headRefOid) continue;
@@ -230,7 +250,7 @@ class Board {
     }
     snapshot() {
         const state = readState(this.repo);
-        const local = state.prs;
+        const local = freshAll(state.prs);
         const out = {
             repo: this.repo,
             sync: { syncedAt: state.meta.syncedAt || null, requestedAt: state.meta.syncRequestedAt || null },
@@ -249,7 +269,7 @@ class Board {
                 const linkedIssues = Object.entries(state.issues).filter(([, v]) => v.linkedPr === card.number || (v.branch && v.branch === r?.raw?.headRefName)).map(([k]) => Number(k));
                 const keepReady = !!(card.local?.sync?.agentMerge?.enabled || card.local?.monitorPending?.enable);
                 return { ...out, lifecycle: true, keepReady, readiness: r?.raw ? computeReadiness(r.raw, card.local || {}, { linkedIssues, keepReady }) : null, readinessError: r?.error || null };
-            }) : [], buildIssueCards(this.issues || [], state.issues, this.data?.viewer || null)),
+            }) : [], buildIssueCards(this.issues || [], freshAll(state.issues), this.data?.viewer || null)),
             streams: streamer.forRepo(this.repo),
             error: this.error,
             fetchedAt: this.fetchedAt ? new Date(this.fetchedAt).toISOString() : null,
@@ -1399,7 +1419,7 @@ const tools = [
     },
     {
         name: "pr_board_set_next_step",
-        description: "Say whose move it is on a PR or issue, and what the move is. The board shows it as the row's state: owner 'you' puts it in the user's 'Your move' box (with choices as buttons, which come back to you as a prompt); 'agent' shows a spinner; author/reviewer/reporter/ci show who it's waiting on. Call it whenever your reply or work leaves the next step with someone, especially the user. It replaces the previous next step; clear: true removes it so the board derives the state from GitHub again.",
+        description: "Say whose move it is on a PR or issue, and what the move is. The board shows it as the row's state: owner 'you' puts it in the user's 'Your move' box (with choices as buttons, which come back to you as a prompt); 'agent' shows a spinner while the linked session is busy (otherwise it waits on the agent), so set a new step when you finish; author/reviewer/reporter/ci show who it's waiting on. Call it whenever your reply or work leaves the next step with someone, especially the user. It replaces the previous next step; clear: true removes it so the board derives the state from GitHub again.",
         parameters: {
             type: "object",
             properties: {

@@ -1085,6 +1085,34 @@ export function register(test) {
         await tabTo(page, "overview");
         assert.match(await text(page, '#wsScroll .gates li[data-gate="review"]'), /2 fixed, nothing blocking among 2 findings/);
     });
+    test("regression: 'Agent working' only while a session is busy, not for an idle agent step or stale activity", async (ctx) => {
+        const { page } = ctx;
+        const st = state(ctx);
+        const hoursAgo = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+        // The agent was handed the next step but its session is idle (it finished, or hasn't started).
+        st.prs["103"] = { ...(st.prs["103"] || {}), next: { owner: "agent", action: "Getting #103 ready for review", at: hoursAgo(1) } };
+        // A session synced "busy" three hours ago and never synced again.
+        st.prs["104"].sync = { ...(st.prs["104"].sync || {}), activity: "busy", at: hoursAgo(3) };
+        // A question to the agent nobody answered for four hours.
+        st.prs["105"].pending = { id: "rereview", at: hoursAgo(4) };
+        // A merged PR whose "running" status was never reported back.
+        st.prs["90"] = { ...(st.prs["90"] || {}), history: [], agent: { status: "running", outcome: "Verification run in progress", updatedAt: hoursAgo(1) } };
+        fs.writeFileSync(ctx.board.stateFile, JSON.stringify(st));
+        await refresh(ctx);
+        await page.waitFor(`/Getting #103 ready/.test(document.querySelector('#overview .ov-title[data-pr="103"]').closest('.ov-row').innerText)`, 4000, "the agent's step on #103");
+        const r = await rows(page);
+        const row = (n) => r.find((x) => x.n === n && x.kind === "pr");
+        assert.match(row(103).text, /Getting #103 ready for review agent\b/, "an idle agent step should wait on the agent");
+        assert.equal(await page.eval(`document.querySelector('#overview .ov-title[data-pr="103"]').closest('.ov-row').classList.contains('st-waiting')`), true, "#103 isn't in the waiting state");
+        for (const n of [103, 104, 105]) assert.equal(row(n).spin, false, `#${n} shows a spinner with nothing running`);
+        assert.equal(row(102).spin, true, "#102's session really is busy");
+        assert.equal(await text(page, '#overview .state-chip[data-g="agent"] .n'), "1", "the Agent working count includes idle items");
+        assert.doesNotMatch(r.filter((x) => x.n !== 102).map((x) => x.text).join("\n"), /Agent working/);
+        const merged = state(ctx).prs["90"];
+        assert.equal(merged.agent, null, "a merged PR kept its 'running' status");
+        assert.match(merged.history.at(-1).text, /leftover "agent working" status: the PR is merged/);
+        assert.equal(state(ctx).prs["104"].sync.activity, "busy", "the saved sync is rewritten; only the view should expire it");
+    });
     // ---- Try it and See it ----------------------------------------------------------------------------
     test("try it: get the PR's CI build, open a terminal with it, and run a listed command there", async (ctx) => {
         const { page } = ctx;
