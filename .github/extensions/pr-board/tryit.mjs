@@ -3,7 +3,7 @@
 // never replace the user's installed winapp: only the terminal the board opens puts the build first on PATH.
 import { createHash } from "node:crypto";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { extname, isAbsolute, join } from "node:path";
 import { artifactsDir } from "./store.mjs";
 import { downloadBuild, findBuildRun } from "./github.mjs";
@@ -150,12 +150,18 @@ const psq = (s) => `'${String(s).replace(/'/g, "''")}'`;
 export async function tryScript(repo, pr, sha, tryIt = []) {
     const b = readyBuild(repo, sha);
     if (!b) throw new Error("Get the build first.");
+    // Commands like `winapp ui record -o beeps.mp4` write files, so start in a scratch folder rather than wherever
+    // the extension happens to run.
+    const work = join(artifactsDir(), "try", slug(repo), `pr${pr}`);
+    mkdirSync(work, { recursive: true });
     const lines = [
         `$env:PATH = ${psq(b.dir + ";")} + $env:PATH`,
+        `Set-Location -LiteralPath ${psq(work)}`,
         `$Host.UI.RawUI.WindowTitle = ${psq(`winapp from PR #${pr}`)}`,
         `Write-Host ''`,
         `Write-Host '  winapp ' -NoNewline; Write-Host (& winapp --version) -ForegroundColor Cyan -NoNewline; Write-Host ${psq(` from PR #${pr} @ ${String(sha).slice(0, 7)}`)}`,
         `Write-Host '  Only this terminal uses it. Your installed winapp is unchanged.' -ForegroundColor DarkGray`,
+        `Write-Host ${psq(`  Files you create go to ${work}`)} -ForegroundColor DarkGray`,
         `Write-Host ''`,
     ];
     if (tryIt.length) {
@@ -169,5 +175,30 @@ export async function tryScript(repo, pr, sha, tryIt = []) {
     const file = join(b.dir, `try-pr${pr}.ps1`);
     writeFileSync(file, "\uFEFF" + lines.join("\r\n") + "\r\n");
     const sh = await shell();
-    return { file, command: `${sh} -NoLogo -NoExit -ExecutionPolicy Bypass -File "${file}"`, shell: sh, version: b.version };
+    return { file, work, command: `${sh} -NoLogo -NoExit -ExecutionPolicy Bypass -File "${file}"`, shell: sh, version: b.version };
+}
+
+// Open the try script in its own console window. `start` gives the shell a real console; spawning the shell
+// directly from this process would hand it our NUL stdin, and -NoExit then quits at once. The command line goes to
+// cmd verbatim: Node's own quoting turns the window title into "\"...\"", which start misreads and then hangs on a
+// hidden error. Resolves when start has launched the shell, rejects with a plain reason otherwise.
+export function openWindow(t, title, spawnFn = spawn, timeoutMs = 8000) {
+    const clean = (s) => String(s).replace(/["%^&|<>]/g, "");
+    const line = `start "${clean(title)}" /D "${t.work}" ${t.shell} -NoLogo -NoExit -ExecutionPolicy Bypass -File "${t.file}"`;
+    return new Promise((resolve, reject) => {
+        let child;
+        try {
+            child = spawnFn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `"${line}"`], { windowsVerbatimArguments: true, detached: true, stdio: "ignore", windowsHide: true });
+        } catch (e) { reject(new Error(`Couldn't start cmd.exe: ${e.message}`)); return; }
+        const timer = setTimeout(() => {
+            try { child.kill(); } catch { /* already gone */ }
+            reject(new Error("Windows didn't open the window within a few seconds. Use Open a terminal with it instead."));
+        }, timeoutMs);
+        child.on("error", (e) => { clearTimeout(timer); reject(new Error(`Couldn't start cmd.exe: ${e.message}`)); });
+        child.on("exit", (code) => {
+            clearTimeout(timer);
+            if (code === 0) resolve({ line });
+            else reject(new Error(`Windows couldn't open ${t.shell} (exit code ${code}).`));
+        });
+    });
 }

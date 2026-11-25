@@ -19,6 +19,8 @@ let n = 0;
 
 export function execFile(file, args, opts, cb) {
     if (typeof opts === "function") { cb = opts; opts = {}; }
+    // Only gh is faked; tryit.mjs's `where.exe` and `winapp --version` run for real.
+    if (file !== "gh") return real.execFile(file, args, opts, cb);
     const rec = process.env.PR_BOARD_RECORD;
     if (rec) {
         return real.execFile(file, args, opts, (err, stdout, stderr) => {
@@ -46,5 +48,10 @@ export function execFile(file, args, opts, cb) {
     return { kill() {}, on() {} };
 }
 
-export default { ...real, execFile };
-export const { spawn, exec, spawnSync, execSync, execFileSync, fork } = real;
+export default { ...real, execFile, spawn };
+// "Separate window" goes through spawn. Tests install globalThis.__prBoardSpawn so no real window opens.
+export function spawn(...args) {
+    if (globalThis.__prBoardSpawn) return globalThis.__prBoardSpawn(...args);
+    throw new Error("tests must not open real windows: install globalThis.__prBoardSpawn");
+}
+export const { exec, spawnSync, execSync, execFileSync, fork } = real;

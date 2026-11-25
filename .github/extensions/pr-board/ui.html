@@ -1804,6 +1804,7 @@ async function loadPreview(c, event) {
 
 // ---- Try it: the PR's CI build in a terminal, and commands to paste ----
 const tryStates = new Map(); // pr -> { loading, data, error }
+const tryErrors = new Map(); // pr -> the last Try it button failure, shown on the tab until the next success
 let tryTimer = null;
 async function loadTry(c) {
   const cur = tryStates.get(c.number) || {};
@@ -1831,6 +1832,7 @@ function tryTabHtml(c) {
     : st.error ? `<p class="hint">Couldn't check the build: ${esc(st.error)} <button class="quiet" data-act="try-refresh" data-pr="${c.number}">Try again</button></p>`
     : d.state === "ready" ? `<div class="try-ready"><div><b>winapp ${esc(d.version || "")}</b> from this PR, commit <code>${esc(sha)}</code>.${run}</div>
         <div class="btns"><button class="primary" data-act="try-open" data-pr="${c.number}">${icon("play", "sm")}Open a terminal with it</button><button data-act="try-window" data-pr="${c.number}" title="A separate PowerShell window instead of a panel in the app">Separate window</button></div>
+        ${tryErrors.has(c.number) ? `<p class="mg-err try-err">${esc(tryErrors.get(c.number))}</p>` : ""}
         ${d.terminal ? `<p class="hint">${d.terminal.how === "agent" ? "Asked the agent to open the terminal panel." : d.terminal.how === "window" ? "Opened a separate PowerShell window." : "The terminal is open in the side panel."} ${d.terminal.how === "window" ? "Paste the commands below into it." : "Use Run below to type a command into it."}</p>` : ""}</div>`
     : d.state === "downloading" ? `<p>${icon("running", "sm")} ${esc(d.step || "Downloading the build")}… <span class="hint">about a minute; it's cached after that.</span></p>`
     : d.state === "available" ? `<div class="try-ready"><div>CI built commit <code>${esc(sha)}</code>.${run} The board downloads this machine's build (about 130 MB) and keeps it next to its other files.</div>${d.error ? `<p class="mg-err">The last download failed: ${esc(d.error)}</p>` : ""}<div class="btns"><button class="primary" data-act="try-download" data-pr="${c.number}">Get the build</button></div></div>`
@@ -1876,7 +1878,7 @@ function renderScroll(c, force) {
   const det = details.get(c.number);
   // Try it and See it only redraw when their own data changes, so a playing video or a half-read list stays put.
   const key = tab === "see" ? JSON.stringify([c.number, tab, JSON.stringify(rvOf(c)?.media || []), local.pending?.id, JSON.stringify([...seeModes])])
-    : tab === "try" ? JSON.stringify([c.number, tab, JSON.stringify(tryStates.get(c.number) || null), JSON.stringify(rvOf(c)?.tryIt || []), local.pending?.id, c.headSha])
+    : tab === "try" ? JSON.stringify([c.number, tab, JSON.stringify(tryStates.get(c.number) || null), tryErrors.get(c.number) || "", JSON.stringify(rvOf(c)?.tryIt || []), local.pending?.id, c.headSha])
     : JSON.stringify([c.number, tab, local.reviewSetAt, JSON.stringify(local.triage || {}), Object.keys(local.explanations || {}).length, Object.keys(local.explaining || {}).join(), archSel, rvPreview && [rvPreview.pr, rvPreview.event, !!rvPreview.data, rvPreview.error], openMenu, c.updatedAt, c.waitingOn, c.reason?.label, c.reason?.stuck, local.updatedAt, local.pending?.id, local.explainer?.updatedAt, local.explainerPending, det?.data?.fetchedAt, det?.error, JSON.stringify(c.readiness?.gates?.map((g) => g.state) || []), tab === "github" ? ghSlotKey("pr", c.number) : "", drafts.has(draftKey(c)), (c.local?.thread || []).length, tab === "changes" ? prFilesKey(c) : "", JSON.stringify(Object.keys(changes.get(c.number) || {})), local.whatChanged?.at]);
   if (!force && key === lastKey) return;
   lastKey = key;
@@ -3359,13 +3361,20 @@ document.addEventListener("click", (e) => {
     el.disabled = true;
     return post("/api/try", { pr: rowPr, op, index: Number(el.dataset.i), what: el.dataset.what })
       .then((r) => {
+        tryErrors.delete(rowPr);
         if (op === "open") toast(r.how === "agent" ? "Asked the agent to open the terminal" : "Opened a terminal with this PR's winapp");
         if (op === "window") toast("Opened a PowerShell window with this PR's winapp");
         if (op === "run") toast("Typed it into the terminal");
         if (op === "ask") toast(el.dataset.what === "media" ? "Asked for screenshots or a video" : "Asked for things to try");
         const it = itemOf("pr", rowPr); if (it) loadTry(it);
       })
-      .catch((err) => { el.disabled = false; toast(err.message); });
+      .catch((err) => {
+        el.disabled = false;
+        const what = { download: "get the build", open: "open the terminal", window: "open a separate window", run: "run that command", ask: "ask the session" }[op];
+        tryErrors.set(rowPr, `Couldn't ${what}: ${err.message}`);
+        toast(err.message);
+        render();
+      });
   }
   if (a === "try-copy") {
     const t = rvOf(itemOf("pr", rowPr) || {})?.tryIt?.[Number(el.dataset.i)];

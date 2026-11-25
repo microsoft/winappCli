@@ -401,7 +401,9 @@ Quick things to try:
   building the commit, the tab says so.
 - **Open a terminal with it** opens the app's terminal panel with the build first on `PATH` in that
   terminal only. **Separate window** opens a PowerShell window instead. If the app doesn't let the
-  board open the panel, the board asks the agent to.
+  board open the panel, the board asks the agent to. Either one starts in a scratch folder,
+  `artifacts/try/<owner>__<repo>/pr<N>`, so files the commands write don't land in your repo. If a
+  button fails, the reason stays on the tab.
 - **Quick things to try** come from the review session (`tryIt` in the structured review): a title,
   the command, and what to look for. **Run** types a command into the open terminal; it doesn't
   press anything else. With no list yet, **Ask for things to try** asks the session.
@@ -753,7 +755,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ thread column: an anchor chip switches the tab on the left while the thread stays put (893ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-100 passed, 0 failed, 100 total (372s)
+101 passed, 0 failed, 101 total (373s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

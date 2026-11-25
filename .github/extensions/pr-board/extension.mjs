@@ -14,8 +14,7 @@ import { adaptFinding, adaptReview, composeGithubReview, GUIDE, mergeReview, nor
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
 import { artifactsDir } from "./store.mjs";
 import { createStreamer } from "./stream.mjs";
-import { ingestMedia, serveMedia, startDownload, tryScript, tryStatus } from "./tryit.mjs";
-import { spawn } from "node:child_process";
+import { ingestMedia, openWindow, serveMedia, startDownload, tryScript, tryStatus } from "./tryit.mjs";
 import { candidates, LAYERS, normalizeSettings, plan, sampleMachine, today } from "./auto.mjs";
 import { autoPrompt, keepReadyAutoPrompt, loadReviewPrompt, trySeePrompt, rerunReviewPrompt, readyForReviewPrompt, requestReviewerPrompt, fixFindingPrompt, fixDescriptionPrompt, branchCommentsPrompt, openBranchPrPrompt, choosePrompt, fixPrompt, openPrPrompt, answerPrompt, explainerPrompt, explainPrompt, postFindingsPrompt, explainChangesPrompt, startIssuePrompt, statusUpdatePrompt, summarizeRepliesPrompt, messagePrompt, monitorPrompt, openChatPrompt, postPrompt, reviewPrompt, summarizeAllPrompt, summarizePrompt, syncPrompt } from "./prompts.mjs";
 
@@ -447,7 +446,7 @@ async function tryAction(repo, pr, op, body) {
         const t = await tryScript(repo, pr, sha, tryIt).catch((e) => { throw httpError(409, e.message); });
         const title = `winapp from PR #${pr}`;
         if (op === "window") {
-            spawn("cmd.exe", ["/c", "start", `"${title}"`, t.shell, "-NoLogo", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", t.file], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+            try { await openWindow(t, title); } catch (e) { throw httpError(500, e.message); }
             tryTerminals.set(key, { how: "window", sha, at: nowIso() });
             return { ok: true, how: "window" };
         }

@@ -1107,12 +1107,49 @@ export function register(test) {
         const script = open.input.command.match(/-File "([^"]+)"/)[1];
         const body = fs.readFileSync(script, "utf8");
         assert.match(body, /\$env:PATH = '.*builds.*;' \+ \$env:PATH/, "the build isn't first on PATH in that terminal only");
+        assert.match(body, /Set-Location -LiteralPath '.*[\\/]try[\\/]contoso__widgets[\\/]pr104'/, "commands that write files don't start in a scratch folder");
         assert.match(body, /winapp ui record -a notepad --audio --duration-sec 3 -o n\.mp4/);
         assert.equal(fs.existsSync(script.replace(/try-pr104\.ps1$/, "winapp.pdb")), false, "debug symbols were kept");
         await page.click('#wsScroll .try-cmd:nth-child(2) [data-act="try-run"]');
         await sleep(300);
         assert.deepEqual(ctx.host.canvasInvokes.at(-1), { instanceId: open.instanceId, actionName: "send_terminal_input", input: { input: "winapp ui record -a notepad --audio --duration-sec 3 -o n.mp4" } });
         assert.equal(ctx.world.mutations.length, 0);
+    });
+
+    test("try it: Separate window starts PowerShell through start with one quoted title, and a failure stays on the tab", async (ctx) => {
+        const { page } = ctx;
+        const { EventEmitter } = await import("node:events");
+        const spawns = [];
+        let exitCode = 0;
+        globalThis.__prBoardSpawn = (file, args, opts) => {
+            const child = Object.assign(new EventEmitter(), { kill() {} });
+            spawns.push({ file, args, opts });
+            setTimeout(() => child.emit("exit", exitCode), 20);
+            return child;
+        };
+        try {
+            await openRow(page, 104);
+            await tabTo(page, "try");
+            await page.waitFor(`!!document.querySelector('#wsScroll [data-act="try-download"], #wsScroll [data-act="try-window"]')`, 5000, "the build offer");
+            if (await page.eval(`!!document.querySelector('#wsScroll [data-act="try-download"]')`)) await page.click('#wsScroll [data-act="try-download"]');
+            await page.waitFor(`!!document.querySelector('#wsScroll [data-act="try-window"]')`, 8000, "the build to be ready");
+            await page.click('#wsScroll [data-act="try-window"]');
+            await page.waitFor(`/Opened a separate PowerShell window/.test(document.getElementById('wsScroll').innerText)`, 4000, "the window note");
+            const { args, opts } = spawns.at(-1);
+            // Node must not re-quote the line: its escaped "\"title\"" made start hang without opening anything.
+            assert.equal(opts.windowsVerbatimArguments, true);
+            assert.deepEqual(args.slice(0, 3), ["/d", "/s", "/c"]);
+            assert.match(args[3], /^"start "winapp from PR #104" \/D "[^"]+[\\/]try[\\/]contoso__widgets[\\/]pr104" (pwsh|powershell) -NoLogo -NoExit -ExecutionPolicy Bypass -File "[^"]+try-pr104\.ps1""$/);
+            assert.doesNotMatch(args[3], /\\"/);
+            exitCode = 1;
+            page.allowStatus.add("POST /api/try 500");
+            await page.click('#wsScroll [data-act="try-window"]');
+            await page.waitFor(`!!document.querySelector('#wsScroll .try-err')`, 4000, "a visible error");
+            assert.match(await text(page, "#wsScroll .try-err"), /Couldn't open a separate window: Windows couldn't open (pwsh|powershell) \(exit code 1\)/);
+            exitCode = 0;
+            await page.click('#wsScroll [data-act="try-window"]');
+            await page.waitFor(`!document.querySelector('#wsScroll .try-err')`, 4000, "the error to clear after it works");
+        } finally { delete globalThis.__prBoardSpawn; }
     });
 
     test("try it: when the runtime can't open the terminal, the agent is asked to; a build still in CI says so", async (ctx) => {
