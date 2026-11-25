@@ -220,27 +220,7 @@ struct EnumSelectSink : DevToolsSinkBase
 };
 
 // Theme brush order matches the ComboBox item order; SelectedIndex maps directly to a resource name.
-static const std::vector<std::wstring>& BrushResourceNames()
-{
-    static const std::vector<std::wstring> names = {
-        L"TextFillColorPrimaryBrush",
-        L"TextFillColorSecondaryBrush",
-        L"TextFillColorTertiaryBrush",
-        L"TextFillColorDisabledBrush",
-        L"AccentTextFillColorPrimaryBrush",
-        L"TextOnAccentFillColorPrimaryBrush",
-        L"AccentFillColorDefaultBrush",
-        L"AccentFillColorSecondaryBrush",
-        L"ControlFillColorDefaultBrush",
-        L"CardBackgroundFillColorDefaultBrush",
-        L"LayerFillColorDefaultBrush",
-        L"SolidBackgroundFillColorBaseBrush",
-        L"SystemFillColorSuccessBrush",
-        L"SystemFillColorCautionBrush",
-        L"SystemFillColorCriticalBrush",
-    };
-    return names;
-}
+static const std::vector<std::wstring>& BrushResourceNames() { return DevToolsResourceKeys_BrushNames(); }
 
 // WinUI type-ramp font sizes offered as one-click presets on a FontSize row (in addition to the free-text box,
 // so arbitrary sizes are never lost). These are literal Double values applied via the normal write path -- NOT

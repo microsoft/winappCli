@@ -207,8 +207,10 @@ what a binding resolves to; add `--json` for every observation.
 
 For a brush, pass a fixed color, such as
 `winapp devtools set-property SaveButton Background '#FF0067C0'`.
-The CLI does not create `{ThemeResource key}` or `{StaticResource key}` references.
-To change the reference permanently, edit the XAML and rebuild the app.
+`set-property` does not create `{ThemeResource key}` or `{StaticResource key}` references.
+To try a key on the running app from the command line, use
+[`Resource.assign`](devtools-advanced.md#assign-a-resource-or-a-binding). To change the
+reference permanently, edit the XAML and rebuild the app.
 
 In the inspector, choose **ThemeResource** or **StaticResource** in the property's
 kind list to try a resource on the running app. Type a key, such as `BBAccentBrush`;

@@ -5,6 +5,7 @@
 // Run through scripts/test-native-units.ps1.
 
 #include "DevToolsBindingAnswer.h"
+#include "DevToolsEditUndo.h"
 
 #include <cstdio>
 #include <string>
@@ -64,10 +65,153 @@ static void Test_APreconditionFailureIsUnavailableAndCarriesItsReason()
            "and its reason is JSON-escaped");
 }
 
+static DevToolsReadProp Row(const wchar_t* source, const wchar_t* value, const wchar_t* valueState = L"",
+                            const wchar_t* authoredKind = L"", const wchar_t* authoredKey = L"")
+{
+    DevToolsReadProp r;
+    r.name = L"Foreground"; r.source = source; r.value = value; r.valueState = valueState;
+    r.writeType = L"Microsoft.UI.Xaml.Media.Brush"; r.authoredKind = authoredKind; r.authoredKey = authoredKey;
+    return r;
+}
+
+static std::wstring Undo(const DevToolsEditPrior& prior, bool editLeftBinding = false)
+{
+    return DevToolsEditUndoMembers(L"42", L"Foreground", prior, editLeftBinding);
+}
+
+static void Test_AnEditAnswersWithTheCallsThatUndoIt()
+{
+    std::printf("a protocol edit's undo puts back what the property held, whatever kind that was\n");
+
+    const auto unset = DevToolsClassifyPrior(Row(L"Style", L"#FF000000"), nullptr);
+    Check(BContains(Undo(unset), L"\"undo\":[{\"method\":\"HotReload.clearProperty\""), "a value from a style is undone by clearing");
+    Check(std::wstring(DevToolsPriorKindToken(unset)) == L"unset", "and is reported as unset");
+
+    const auto literal = DevToolsClassifyPrior(Row(L"Local", L"#FFFF0000"), nullptr);
+    Check(BContains(Undo(literal), L"\"undo\":[{\"method\":\"HotReload.setProperty\"") &&
+          BContains(Undo(literal), L"\"value\":\"#FFFF0000\"") &&
+          BContains(Undo(literal), L"\"type\":\"Microsoft.UI.Xaml.Media.Brush\""), "a local literal is written back");
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"DevTools", L"Red"), nullptr)), L"HotReload.setProperty"),
+          "including one an earlier DevTools write set");
+
+    // Writing a literal over a TwoWay binding writes through to the source and keeps the binding.
+    const std::wstring overBinding = Undo(literal, /*editLeftBinding*/ true);
+    Check(BContains(overBinding, L"\"undo\":[{\"method\":\"HotReload.clearProperty\"") &&
+          overBinding.find(L"HotReload.setProperty") > overBinding.find(L"HotReload.clearProperty"),
+          "undoing an install over a literal clears the installed binding before writing the literal back");
+
+    const auto authored = DevToolsClassifyPrior(Row(L"Local", L"#FF0078D4", L"", L"themeResource", L"AccentBrush"), nullptr);
+    Check(BContains(Undo(authored), L"\"method\":\"Resource.assign\"") && BContains(Undo(authored), L"\"key\":\"AccentBrush\"") &&
+          BContains(Undo(authored), L"\"theme\":true"), "an authored {ThemeResource} is re-assigned by key, not as a colour");
+    DevToolsEditObserved changedInCode; changedInCode.authoredKeyMatch = 0;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF0000FF", L"", L"staticResource", L"OkBrush"), nullptr, changedInCode)),
+                    L"\"value\":\"#FF0000FF\""),
+          "but once app code set another value, undo puts back that value, not the key's");
+    DevToolsEditObserved unknownKey; unknownKey.authoredKeyMatch = -1;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF0078D4", L"", L"themeResource", L"AccentBrush"), nullptr, unknownKey)),
+                    L"\"key\":\"AccentBrush\""),
+          "CONTROL: when DevTools cannot read the key's value to compare, it keeps the authored key");
+
+    DevToolsSessionEdit assigned; assigned.resource = true; assigned.key = L"Danger"; assigned.after = L"#FFC42B1C";
+    const auto session = DevToolsClassifyPrior(Row(L"Local", L"#FFC42B1C"), &assigned);
+    Check(BContains(Undo(session), L"\"key\":\"Danger\"") && BContains(Undo(session), L"\"theme\":false"),
+          "a key this session assigned is remembered, because the runtime forgets it");
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF00FF00"), &assigned)), L"HotReload.setProperty"),
+          "and is forgotten once the property no longer shows that resource");
+
+    DevToolsSessionEdit themed; themed.resource = true; themed.theme = true; themed.key = L"AccentText";
+    themed.after = L"#FF99EBFF"; themed.elementTheme = 2;
+    DevToolsEditObserved light; light.elementTheme = 1;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF003E92", L"", L"themeResource", L"Secondary"), &themed, light)),
+                    L"\"key\":\"AccentText\""),
+          "a theme key this session assigned survives a theme change that changes its value");
+    DevToolsEditObserved dark; dark.elementTheme = 2;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF0000FF"), &themed, dark)), L"\"value\":\"#FF0000FF\""),
+          "CONTROL: in the same theme, a value the key never produced is undone as that value");
+    themed.highContrast = 0;
+    DevToolsEditObserved contrast; contrast.elementTheme = 2; contrast.highContrast = 1;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF00FFFF"), &themed, contrast)), L"\"key\":\"AccentText\""),
+          "a theme key this session assigned survives turning High Contrast on");
+    DevToolsEditObserved lookedUp; lookedUp.sessionKeyMatch = 1;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FF123456"), &assigned, lookedUp)), L"\"key\":\"Danger\""),
+          "a session key whose value the property still holds counts even when the produced text differs");
+    DevToolsEditObserved overwritten; overwritten.sessionKeyMatch = 0;
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"#FFC42B1C"), &assigned, overwritten)), L"HotReload.setProperty"),
+          "a session key is not used once app code set another value, even one with the same text");
+
+    auto boundRow = Row(L"Binding", L"Title", L"binding");
+    boundRow.binding = L"{Binding Vm.Title, Mode=OneWay}";
+    DevToolsSessionEdit installed; installed.path = L"Vm.Title"; installed.mode = L"OneWay"; installed.bindingId = L"1302";
+    DevToolsEditObserved same; same.bindingId = L"1302";
+    const auto reinstall = DevToolsClassifyPrior(boundRow, &installed, same);
+    Check(BContains(Undo(reinstall), L"\"method\":\"Binding.install\"") && BContains(Undo(reinstall), L"\"path\":\"Vm.Title\"") &&
+          !BContains(Undo(reinstall, true), L"clearProperty"),
+          "the binding DevTools installed is undone by installing the earlier one again");
+    DevToolsEditObserved restored; restored.bindingId = L"1418";
+    Check(DevToolsClassifyPrior(boundRow, &installed, restored).kind == DevToolsPriorKind::Binding,
+          "once a restore replaces that expression, the same path no longer counts as DevTools' install");
+
+    auto appBinding = DevToolsClassifyPrior(boundRow, nullptr);
+    Check(BContains(Undo(appBinding), L"\"undo\":[]") && BContains(Undo(appBinding), L"undoReason"),
+          "an app binding with no capture has no undo, and says why");
+    appBinding.captured = true;
+    Check(BContains(Undo(appBinding), L"\"method\":\"Binding.restore\""), "a captured app binding is undone by Binding.restore");
+
+    auto nullBound = Row(L"Binding", L"", L"null");
+    nullBound.binding = L"{Binding SelectedItem, Mode=OneWay}";
+    Check(DevToolsClassifyPrior(nullBound, nullptr).kind == DevToolsPriorKind::Binding,
+          "a binding whose current value is null is still a binding, not an unset property");
+    Check(DevToolsClassifyPrior(Row(L"Binding", L"", L"unresolved"), nullptr).kind == DevToolsPriorKind::Binding,
+          "and so is one whose object value cannot be shown as text");
+
+    auto xbind = DevToolsClassifyPrior(Row(L"Local", L"Heading", L"", L"xBind"), nullptr);
+    Check(std::wstring(DevToolsPriorKindToken(xbind)) == L"xBind", "a compiled {x:Bind} value is recognised from the markup");
+    xbind.captured = true;
+    Check(BContains(Undo(xbind), L"\"method\":\"Binding.restore\"") && BContains(Undo(xbind), L"\"confirmOwnerRebind\":true"),
+          "and is undone by Binding.restore, confirming the owner-wide rebind it needs");
+    const std::wstring xbindAfterInstall = Undo(xbind, /*editLeftBinding*/ true);
+    Check(BContains(xbindAfterInstall, L"\"undo\":[{\"method\":\"HotReload.clearProperty\"") &&
+          xbindAfterInstall.find(L"Binding.restore") > xbindAfterInstall.find(L"HotReload.clearProperty"),
+          "undoing a {Binding} installed over an {x:Bind} clears it first, so the rebind cannot write through it");
+
+    Check(DevToolsPathNamesSecret(L"Password") && DevToolsPathNamesSecret(L"Vm.Login.UserPassword") &&
+          DevToolsPathNamesSecret(L"Accounts[0].Password") && DevToolsPathNamesSecret(L"Vm.Password.Length") &&
+          DevToolsPathNamesSecret(L"Creds.Password.Value"),
+          "a binding path that reads a secret anywhere along it is recognised");
+    Check(DevToolsPathNamesSecret(L"Credentials[Password]") && DevToolsPathNamesSecret(L"Vm.Settings['DbPassword']") &&
+          DevToolsPathNamesSecret(L"Items[Password].Name"),
+          "and so is an indexer key that names a secret, which reads that entry");
+    Check(!DevToolsPathNamesSecret(L"Vm.Title") && !DevToolsPathNamesSecret(L"Items[0].Name") &&
+          !DevToolsPathNamesSecret(L"Items[PasswordHint]"),
+          "CONTROL: ordinary paths and keys are not");
+    Check(DevToolsTextPrintsSecret(L"Login { User = ada, Password = hunter2 }") &&
+          DevToolsTextPrintsSecret(L"[Login { User = ada, DbPassword = x }]") &&
+          DevToolsTextPrintsSecret(L"State { Auth = SignedIn {  password  = x } }"),
+          "a value whose text prints a member named like a password is recognised, as a record prints it");
+    Check(!DevToolsTextPrintsSecret(L"Enter your password = here") && !DevToolsTextPrintsSecret(L"Login { User = ada }") &&
+          !DevToolsTextPrintsSecret(L"Login { PasswordHint = x }") && !DevToolsTextPrintsSecret(L""),
+          "CONTROL: ordinary text, a record without one and a member that only starts with the word are not");
+
+    auto halfRed = Row(L"Local", L"#FFFF0000");
+    DevToolsReadProp color; color.name = L"Color"; color.value = L"Red";
+    DevToolsReadProp opacity; opacity.name = L"Opacity"; opacity.value = L"0.5";
+    halfRed.children = { color, opacity };
+    Check(BContains(Undo(DevToolsClassifyPrior(halfRed, nullptr)), L"\"undo\":[]") &&
+          BContains(Undo(DevToolsClassifyPrior(halfRed, nullptr)), L"Opacity=0.5"),
+          "a brush whose opacity its text cannot keep gets no text undo, and says why");
+    halfRed.children[1].value = L"1";
+    Check(BContains(Undo(DevToolsClassifyPrior(halfRed, nullptr)), L"HotReload.setProperty"),
+          "an opaque brush still round-trips as text");
+
+    Check(BContains(Undo(DevToolsClassifyPrior(Row(L"Local", L"", L"unresolved"), nullptr)), L"\"undo\":[]"),
+          "a local value with no text form has no undo rather than a wrong one");
+}
+
 int RunBindingAnswerTests()
 {
     std::printf("DevToolsBindingAnswer tests -- the native {Binding} install's answer\n");
     Test_TheAnswerIsTheReadBackAndNotTheCall();
     Test_APreconditionFailureIsUnavailableAndCarriesItsReason();
+    Test_AnEditAnswersWithTheCallsThatUndoIt();
     return g_testFailures;
 }

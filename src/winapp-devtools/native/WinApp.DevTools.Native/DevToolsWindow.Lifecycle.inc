@@ -31,6 +31,7 @@ void DevToolsWindow_SetCommentBridge(DevToolsWindowCommentsFn commentsFn,
 }
 
 void DevToolsWindow_SetPathWalk(DevToolsWindowWalkFn walkFn) { g_walkFn = walkFn; }
+void DevToolsWindow_SetSessionKey(DevToolsWindowSessionKeyFn keyFn) { g_sessionKeyFn = keyFn; }
 void DevToolsWindow_SetReactorAsk(DevToolsWindowReactorAskFn askFn) { g_reactorAskFn = std::move(askFn); }
 void DevToolsWindow_SetReferences(DevToolsWindowReferencesFn referencesFn) { g_referencesFn = std::move(referencesFn); }
 void DevToolsWindow_SetPendingReferences(DevToolsWindowPendingReferencesFn pendingFn) { g_pendingReferencesFn = std::move(pendingFn); }

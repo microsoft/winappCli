@@ -429,6 +429,9 @@ static bool WindowPathWalkBridge(InstanceHandle wire, const std::wstring& prop, 
 
 static DevToolsCardRow ToCardRow(const DevToolsReadProp& p);
 
+// Defined in DevToolsTap.EditRpc.inc, beside the records it reads.
+static bool WindowSessionKeyBridge(InstanceHandle wire, const std::wstring& prop, std::wstring* key, bool* theme);
+
 // Called on the app UI thread by OnInspectClick, so it snapshots the census and builds the window synchronously (no
 // RunOnUiThread hop). Returns true on success so OnInspectClick can fall back to the external host on failure.
 static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
@@ -445,6 +448,7 @@ static HRESULT OpenInprocWindow(std::wstring* errorMessage = nullptr)
     // the window asks for its OWN binding walk, natively. Registered before the open for the
     // same reason the comment bridge is -- the first expansion the user opens must be able to ask.
     DevToolsWindow_SetPathWalk(&WindowPathWalkBridge);
+    DevToolsWindow_SetSessionKey(&WindowSessionKeyBridge);
     // "Just my code": Reactor call sites count as authored. The set is described off the UI thread and the
     // window is reclassified when it changes.
     DevToolsWindow_SetCodeAuthored(&TapReactorAuthoredWire, &TapReactorRefreshInspectorAsync);

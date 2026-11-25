@@ -321,6 +321,19 @@ static void TestClearPropertyIsItsOwnMutationVerb()
            "  control: HotReload.setProperty is still registered and mutation-tier");
     Check(clear && set && std::wstring(clear->paramsType) != std::wstring(set->paramsType),
            "  the two verbs take DIFFERENT parameter types: a clear has no value or type to send");
+
+    // The inspector window's resource and binding editors, for protocol clients: public and mutation-tier.
+    const DevToolsProtocolMethod* list = DevToolsProtocolFindMethod(L"Resource.list");
+    Check(list && list->visibility == DevToolsVisibility::Public && list->access == DevToolsAccess::Read,
+           "  Resource.list (the inspector's key suggestions) is public and only reads");
+    for (const wchar_t* name : { L"Resource.assign", L"Binding.install", L"Binding.writeSource" }) {
+        const DevToolsProtocolMethod* edit = DevToolsProtocolFindMethod(name);
+        Check(edit && edit->visibility == DevToolsVisibility::Public && edit->access == DevToolsAccess::Mutation,
+               "  each inspector edit is a public, mutation-tier method");
+        Check(edit && DevToolsProtocolParamDeclared(edit->paramsType, L"handle") &&
+               DevToolsProtocolParamDeclared(edit->paramsType, L"name"),
+               "  and is addressed by handle or name like HotReload.setProperty");
+    }
 }
 
 // Every params type publishes "additionalProperties": false. This is the check that lets the dispatcher mean
@@ -398,6 +411,11 @@ static void TestUndeclaredParametersAreNotSilentlyAccepted()
         { L"Overlay.highlight",        L"handle",  L"element"  },  // ui tier, owner-bearing
         { L"Overlay.layout",           L"set",     L"enabled"  },  // ui tier, the reported defect
         { L"Comment.add",              L"text",    L"body"     },  // mutation tier, anyOf addressing
+        { L"Resource.assign",          L"theme",   L"value"    },  // mutation tier, a key not a value
+        { L"Binding.install",          L"mode",    L"value"    },  // mutation tier, path and mode only
+        { L"Binding.writeSource",      L"value",   L"path"     },  // mutation tier, the source value only
+        { L"Resource.list",            L"prop",    L"key"      },  // read tier, lists keys for a property
+        { L"Binding.walk",             L"path",    L"mode"     },  // read tier, optional proposed path
         { L"Internal.setComments",     L"comments",L"id"       },  // internal, array-of-objects member
     };
     for (const auto& c : cases) {

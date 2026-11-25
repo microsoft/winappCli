@@ -1280,6 +1280,474 @@ static int GuestNegotiation(int argc, wchar_t** argv)
 
 #include "query-runtime-tests.inc"
 
+// ResolveResource answers S_OK for a missing key; the failure arrives on the resource-error callback and the lookup
+// clears the property. Models both, plus the literal write the restore uses.
+struct ResourceTreeService : TextTreeService {
+    bool local = true;
+    bool bound = false;
+    std::wstring pending;
+    std::vector<std::wstring> resolved;
+    using TextTreeService::TextTreeService;
+    HRESULT STDMETHODCALLTYPE GetPropertyValuesChain(InstanceHandle handle,unsigned int* sc,PropertyChainSource** sources,
+        unsigned int* pc,PropertyChainValue** values) override {
+        const HRESULT hr=TextTreeService::GetPropertyValuesChain(handle,sc,sources,pc,values);
+        if(SUCCEEDED(hr) && !local) (*values)[0].PropertyChainIndex=1;
+        if(SUCCEEDED(hr) && bound) (*values)[0].MetadataBits=static_cast<MetadataBit>(static_cast<long long>((*values)[0].MetadataBits)|0x10);
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE ResolveResource(InstanceHandle,LPCWSTR key,ResourceType,unsigned int) override {
+        resolved.push_back(key);
+        if(std::wstring(key)==L"Missing"){
+            AcquireSRWLockExclusive(&g_resErrLock);++g_resErr.seq;ReleaseSRWLockExclusive(&g_resErrLock);
+            local=false;text.text.clear();
+            return S_OK;
+        }
+        // Like a TwoWay binding left in place: the value goes through it to the source, and the binding stays.
+        if(bound){ text.text=L"from "+std::wstring(key); writtenThrough=true; return S_OK; }
+        local=true;text.text=L"from "+std::wstring(key);
+        return S_OK;
+    }
+    bool writtenThrough = false;
+    HRESULT STDMETHODCALLTYPE CreateInstance(BSTR,BSTR value,InstanceHandle* out) override {pending=value;*out=0x5000;return S_OK;}
+    HRESULT STDMETHODCALLTYPE SetProperty(InstanceHandle,InstanceHandle value,unsigned int) override {
+        if(value!=0x5000) return E_INVALIDARG;
+        local=true;text.text=pending;return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE ClearProperty(InstanceHandle,unsigned int) override {
+        if(failClear) return E_FAIL;
+        local=false;bound=false;text.text.clear();return S_OK;
+    }
+    bool failClear = false;
+};
+
+static void CheckResourceAssign(const std::function<void(bool,const char*)>& check)
+{
+    TextDiagnostics diagnostics;
+    ResourceTreeService tree(diagnostics.text);
+    auto* previousDiagnostics=g_diag; auto* previousService=g_vts3;
+    g_diag=&diagnostics;g_vts3=&tree;
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_nameOf.clear(); g_byName.clear(); g_type.clear();
+    { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+    MintSlot_nolock(901);
+    g_type[901]=L"Microsoft.UI.Xaml.Controls.TextBox"; g_nameOf[901]=L"Title";
+    const auto handle=std::to_wstring(PackWire_nolock(901));
+    g_dispatcher=reinterpret_cast<IInspectable*>(1);
+    g_testEnqueueUiOperation=QueryEnqueue;
+    DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
+    auto assign=[&](const std::wstring& target,const wchar_t* key){
+        DevToolsJson parsed;
+        DevToolsJsonParse(HandleRpc(nullptr,DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Resource.assign\","
+            L"\"params\":{"+target+L",\"prop\":\"Text\",\"key\":\""+key+L"\"}}")),parsed);
+        return parsed;
+    };
+
+    diagnostics.text.text=L"Hello";
+    auto missing=assign(L"\"handle\":\""+handle+L"\"",L"Missing");
+    const DevToolsJson* error=missing.Find(L"error");
+    check(error && error->GetString(L"message").find(L"'Missing' was not found")!=std::wstring::npos &&
+        error->Find(L"data") && error->Find(L"data")->GetString(L"token")==L"resource-not-found",
+        "Resource.assign reports an unknown key as an error even though ResolveResource answered S_OK");
+    check(error && error->Find(L"data") && error->Find(L"data")->GetBool(L"restored",false) &&
+        tree.local && diagnostics.text.text==L"Hello" && tree.pending==L"Hello",
+        "and writes the previous literal back after the failed lookup cleared it");
+
+    auto assigned=assign(L"\"name\":\"Title\"",L"Greeting");
+    const DevToolsJson* result=assigned.Find(L"result");
+    {
+        std::wstring windowKey; bool windowTheme=true;
+        check(WindowSessionKeyBridge(static_cast<InstanceHandle>(PackWire_nolock(901)),L"Text",&windowKey,&windowTheme) &&
+            windowKey==L"Greeting" && !windowTheme,
+            "the in-app window sees a key a protocol client assigned");
+        RunOnUiThread([]() -> HRESULT {
+            SessionEditNoteResource_ui(901, PackWire_nolock(901), L"Text", L"Greeting", false, L"from Greeting", /*byWindow*/ true);
+            return S_OK;
+        });
+        check(!WindowSessionKeyBridge(static_cast<InstanceHandle>(PackWire_nolock(901)),L"Text",&windowKey,&windowTheme),
+            "but not one it assigned itself, so its Restore does not mistake the new key for the original");
+        RunOnUiThread([]() -> HRESULT {
+            SessionEditNoteResource_ui(901, PackWire_nolock(901), L"Text", L"Greeting", false, L"from Greeting");
+            return S_OK;
+        });
+        const std::wstring keyValue=diagnostics.text.text;
+        diagnostics.text.text=L"set by app code";
+        check(!WindowSessionKeyBridge(static_cast<InstanceHandle>(PackWire_nolock(901)),L"Text",&windowKey,&windowTheme),
+            "nor one the property no longer holds, as after app code or an undo replaced it");
+        diagnostics.text.text=keyValue;
+    }
+    check(result && result->GetString(L"after")==L"from Greeting" && result->GetString(L"before")==L"Hello" &&
+        result->GetString(L"kind")==L"staticResource" && !result->Find(L"previousKind"),
+        "a key the app has is assigned by name, reporting the value before and after");
+    const DevToolsJson* undoList=result ? result->Find(L"undo") : nullptr;
+    const DevToolsJson* undo=undoList && undoList->type==DevToolsJsonType::Array && undoList->arr.size()==1 ? &undoList->arr[0] : nullptr;
+    check(undo && undo->GetString(L"method")==L"HotReload.setProperty" && undo->Find(L"params") &&
+        undo->Find(L"params")->GetString(L"value")==L"Hello" && undo->Find(L"params")->GetString(L"handle")==handle,
+        "and answers with the literal write that undoes it, addressed by handle");
+
+    tree.resolved.clear();
+    auto again=assign(L"\"handle\":\""+handle+L"\"",L"Missing");
+    check(again.Find(L"error") && tree.local && diagnostics.text.text==L"from Greeting" &&
+        tree.resolved==std::vector<std::wstring>{L"Missing",L"Greeting"},
+        "a failed key after an earlier assignment re-assigns that earlier key, not its resolved value");
+    auto chained=assign(L"\"handle\":\""+handle+L"\"",L"Other");
+    const DevToolsJson* chainedList=chained.Find(L"result") ? chained.Find(L"result")->Find(L"undo") : nullptr;
+    const DevToolsJson* chainedUndo=chainedList && chainedList->type==DevToolsJsonType::Array && chainedList->arr.size()==1 ? &chainedList->arr[0] : nullptr;
+    check(chainedUndo && chainedUndo->GetString(L"method")==L"Resource.assign" &&
+        chainedUndo->Find(L"params")->GetString(L"key")==L"Greeting",
+        "and the undo of a second assignment re-assigns the first key");
+
+    const std::wstring beforeSecret=diagnostics.text.text;
+    DevToolsJson secret;
+    DevToolsJsonParse(HandleRpc(nullptr,DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Binding.install\","
+        L"\"params\":{\"handle\":\""+handle+L"\",\"prop\":\"Text\",\"path\":\"Vm.Password\"}}")),secret);
+    check(secret.Find(L"error") && secret.Find(L"error")->GetInt(L"code",0)==DevToolsErr::RefusedUnsafe &&
+        secret.Find(L"error")->Find(L"data") && secret.Find(L"error")->Find(L"data")->GetString(L"token")==L"refused-secret" &&
+        diagnostics.text.text==beforeSecret,
+        "Binding.install refuses a path that reads a secret before touching the property, with its own token");
+
+    DevToolsJson listed;
+    DevToolsJsonParse(HandleRpc(nullptr,DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Resource.list\","
+        L"\"params\":{\"handle\":\""+handle+L"\",\"prop\":\"Text\"}}")),listed);
+    const DevToolsJson* keys=listed.Find(L"result") ? listed.Find(L"result")->Find(L"keys") : nullptr;
+    check(keys && keys->type==DevToolsJsonType::Array && listed.Find(L"result")->GetBool(L"partial",false),
+        "Resource.list answers with a key list, partial when the element has no resource scope to search");
+    DevToolsJson unknown;
+    DevToolsJsonParse(HandleRpc(nullptr,DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Resource.list\","
+        L"\"params\":{\"handle\":\""+handle+L"\",\"prop\":\"NoSuchProperty\"}}")),unknown);
+    check(unknown.Find(L"error") && unknown.Find(L"error")->Find(L"data") &&
+        unknown.Find(L"error")->Find(L"data")->GetString(L"token")==L"unknown-property",
+        "and refuses a property the element does not have");
+    { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+    g_testEnqueueUiOperation=nullptr; g_dispatcher=nullptr;
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_nameOf.clear(); g_type.clear();
+    g_diag=previousDiagnostics; g_vts3=previousService;
+}
+
+// Stands in for the managed agent's pipe: answers each binding op with `answer(op)` and records the ops it saw.
+struct FakeBindingAgent {
+    std::function<std::wstring(const std::wstring&)> answer;
+    std::vector<std::wstring> ops;
+    std::mutex mutex;
+    std::atomic<bool> stopping{false};
+    std::wstring name=L"\\\\.\\pipe\\winapp-devtools-binding-"+std::to_wstring(GetCurrentProcessId());
+    HANDLE pipe=INVALID_HANDLE_VALUE;
+    std::thread thread;
+    explicit FakeBindingAgent(std::function<std::wstring(const std::wstring&)> reply):answer(std::move(reply)) {
+        pipe=CreateNamedPipeW(name.c_str(),PIPE_ACCESS_DUPLEX|FILE_FLAG_FIRST_PIPE_INSTANCE,PIPE_TYPE_BYTE|PIPE_WAIT,1,4096,4096,0,nullptr);
+        if(pipe!=INVALID_HANDLE_VALUE) thread=std::thread([this]{Serve();});
+    }
+    ~FakeBindingAgent() {
+        if(pipe==INVALID_HANDLE_VALUE) return;
+        stopping=true;
+        HANDLE wake=CreateFileW(name.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,0,nullptr);
+        if(wake!=INVALID_HANDLE_VALUE) CloseHandle(wake);
+        thread.join();
+        CloseHandle(pipe);
+    }
+    std::vector<std::wstring> Ops() { std::lock_guard<std::mutex> lock(mutex); return ops; }
+    bool Exact(void* value,DWORD bytes) {
+        auto target=static_cast<char*>(value);
+        while(bytes){ DWORD got=0; if(!ReadFile(pipe,target,bytes,&got,nullptr)||!got) return false; target+=got; bytes-=got; }
+        return true;
+    }
+    bool Field(std::string* out) {
+        DWORD size=0;
+        if(!Exact(&size,4)||size>65536) return false;
+        out->assign(size,'\0');
+        return !size || Exact(out->data(),size);
+    }
+    void Serve() {
+        while(!stopping) {
+            if(!ConnectNamedPipe(pipe,nullptr) && GetLastError()!=ERROR_PIPE_CONNECTED) break;
+            char header[9]; DWORD length=0; std::string op,prop,authored;
+            if(!stopping && Exact(header,9) && std::string(header,9)=="BINDING2\n" && Exact(&length,4) && length<=65536) {
+                std::vector<char> packet(length);
+                if(Exact(packet.data(),length) && Field(&op) && Field(&prop) && Field(&authored)) {
+                    const std::wstring wide(op.begin(),op.end());
+                    { std::lock_guard<std::mutex> lock(mutex); ops.push_back(wide); }
+                    const std::string reply="BINDING2 "+DevToolsToUtf8(answer(wide))+"\n";
+                    DWORD sent=0; WriteFile(pipe,reply.data(),static_cast<DWORD>(reply.size()),&sent,nullptr);
+                    FlushFileBuffers(pipe);
+                }
+            }
+            DisconnectNamedPipe(pipe);
+        }
+    }
+};
+
+// Runs each UI turn on its own thread, so the binding relay (which refuses to run on the UI thread) can be reached.
+static HRESULT AgentThreadEnqueue(void*,IUnknown* handler,bool* enqueued)
+{
+    IDispatcherQueueHandler* callback=nullptr;
+    const HRESULT hr=handler->QueryInterface(IID_PPV_ARGS(&callback));
+    if(FAILED(hr)) return hr;
+    *enqueued=true;
+    std::thread([callback]{
+        const HRESULT com=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
+        callback->Invoke(); callback->Release();
+        if(SUCCEEDED(com)) CoUninitialize();
+    }).detach();
+    return S_OK;
+}
+
+static std::function<void(InstanceHandle,const std::wstring&)> g_bindingInstallFake;
+static std::wstring g_bindingInstallMode;
+static std::wstring g_bindingInstallAnswer;
+static std::wstring FakeBindingInstall(InstanceHandle ih,const std::wstring& prop,const std::wstring& path,const std::wstring& mode)
+{
+    g_bindingInstallMode=mode;
+    if(g_bindingInstallFake) g_bindingInstallFake(ih,path);
+    return g_bindingInstallAnswer;
+}
+
+static void CheckBindingEdits(const std::function<void(bool,const char*)>& check)
+{
+    TextDiagnostics diagnostics;
+    ResourceTreeService tree(diagnostics.text);
+    auto* previousDiagnostics=g_diag; auto* previousService=g_vts3;
+    g_diag=&diagnostics;g_vts3=&tree;
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_nameOf.clear(); g_byName.clear(); g_type.clear();
+    { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+    MintSlot_nolock(901);
+    g_type[901]=L"Microsoft.UI.Xaml.Controls.TextBox"; g_nameOf[901]=L"Title";
+    const auto handle=std::to_wstring(PackWire_nolock(901));
+    g_dispatcher=reinterpret_cast<IInspectable*>(1);
+    g_testEnqueueUiOperation=QueryEnqueue;
+    g_testBindingInstall=FakeBindingInstall;
+    DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
+    auto call=[](const std::wstring& method,const std::wstring& params){
+        DevToolsJson parsed;
+        DevToolsJsonParse(HandleRpc(nullptr,DevToolsRpcParse(L"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\""+method+
+            L"\",\"params\":{"+params+L"}}")),parsed);
+        return parsed;
+    };
+    auto token=[](const DevToolsJson& reply){
+        const DevToolsJson* error=reply.Find(L"error");
+        return error && error->Find(L"data") ? error->Find(L"data")->GetString(L"token") : std::wstring();
+    };
+    // The relay needs an MTA caller that is not the UI thread, as a pipe connection thread is.
+    auto callAgent=[&call](const std::wstring& method,const std::wstring& params){
+        DevToolsJson reply;
+        std::thread caller([&]{ reply=call(method,params); });
+        caller.join();
+        return reply;
+    };
+    const std::wstring target=L"\"handle\":\""+handle+L"\",\"prop\":\"Text\"";
+
+    // A successful install, with no managed agent to ask about secrets.
+    diagnostics.text.text=L"Hello"; tree.local=true;
+    g_bindingInstallFake=[&](InstanceHandle,const std::wstring& path){ diagnostics.text.text=L"bound "+path; };
+    g_bindingInstallAnswer=L"{\"state\":\"bound\",\"bound\":\"True\",\"after\":\"expr-1\"}";
+    auto installed=call(L"Binding.install",target+L",\"path\":\"Vm.Title\",\"mode\":\"twoway\"");
+    const DevToolsJson* result=installed.Find(L"result");
+    const DevToolsJson* undo=result ? result->Find(L"undo") : nullptr;
+    check(result && result->GetString(L"state")==L"bound" && result->GetString(L"before")==L"Hello" &&
+        result->GetString(L"after")==L"bound Vm.Title" && result->GetString(L"mode")==L"TwoWay" && g_bindingInstallMode==L"TwoWay",
+        "Binding.install reports the value the new binding produces, and takes mode in any letter case");
+    check(undo && undo->type==DevToolsJsonType::Array && undo->arr.size()==2 &&
+        undo->arr[0].GetString(L"method")==L"HotReload.clearProperty" &&
+        undo->arr[1].GetString(L"method")==L"HotReload.setProperty" && undo->arr[1].Find(L"params")->GetString(L"value")==L"Hello" &&
+        result->GetString(L"warning").find(L"prior managed capture")==std::wstring::npos,
+        "and its undo clears the binding before writing the literal back; the warning has no window-only note");
+
+    // Wrong JSON types are refused before anything is touched.
+    diagnostics.text.text=L"Hello";
+    for (const wchar_t* bad : {L",\"path\":\"Vm.Title\",\"mode\":null", L",\"path\":true", L",\"path\":\"Vm.Title\",\"mode\":\"Sideways\""})
+        check(token(call(L"Binding.install",target+bad))==L"bad-args" && diagnostics.text.text==L"Hello",
+            "Binding.install refuses a mode or path of the wrong type or value");
+    check(token(call(L"Binding.install",L"\"handle\":7,\"prop\":\"Text\",\"path\":\"Vm.Title\""))==L"bad-args",
+        "and a numeric handle");
+
+    // An install the runtime refused is an error, not a result.
+    g_bindingInstallFake=nullptr;
+    g_bindingInstallAnswer=L"{\"state\":\"unavailable\",\"reason\":\"the XAML runtime refused the binding\"}";
+    auto refused=call(L"Binding.install",target+L",\"path\":\"Vm.Title\"");
+    check(token(refused)==L"binding-unavailable" && refused.Find(L"error")->GetInt(L"code",0)==DevToolsErr::CapabilityUnsupported &&
+        refused.Find(L"error")->GetString(L"message").find(L"refused the binding")!=std::wstring::npos && diagnostics.text.text==L"Hello",
+        "a binding the runtime would not install is reported as an error that says why");
+
+    // A bound property with no saved copy of its binding (no agent): only a key the inspector can see is tried.
+    tree.bound=true; tree.resolved.clear();
+    auto unconfirmed=call(L"Resource.assign",target+L",\"key\":\"Missing\"");
+    check(token(unconfirmed)==L"resource-unconfirmed" && tree.resolved.empty() && tree.bound && diagnostics.text.text==L"Hello",
+        "Resource.assign does not risk an app binding it could not save on a key it cannot find");
+    tree.bound=false;
+
+    check(token(call(L"Binding.walk",target+L",\"path\":5"))==L"bad-args", "Binding.walk refuses a path that is not a string");
+    for (const wchar_t* secretPath : {L"Creds.Password.Value", L"AdminPassword.Value", L"Settings[DbPassword]"}) {
+        auto secretWalk=call(L"Binding.walk",target+L",\"path\":\""+secretPath+L"\"");
+        check(token(secretWalk)==L"refused-secret" && secretWalk.Find(L"error")->GetInt(L"code",0)==DevToolsErr::RefusedUnsafe &&
+            !secretWalk.Find(L"result"),
+            "Binding.walk refuses a proposed path through a secret before walking it, as Binding.install does");
+    }
+    auto badPath=call(L"Binding.walk",target+L",\"path\":\"Vm..Title\"");
+    check(badPath.Find(L"result") && badPath.Find(L"result")->GetString(L"state")==L"bad-path" &&
+        !badPath.Find(L"result")->GetBool(L"resolves",true),
+        "and answers a malformed proposed path as not resolving, without walking it");
+
+    // With a managed agent: secrets the path does not name, held originals and source writes.
+    g_testEnqueueUiOperation=AgentThreadEnqueue;
+    {
+        FakeBindingAgent agent([](const std::wstring& op) -> std::wstring {
+            if(op==L"diagnose") return L"{\"state\":\"evaluated\",\"redacted\":true}";
+            return L"{\"state\":\"none\"}";
+        });
+        diagnostics.text.text=L"Hello";
+        g_bindingInstallFake=[&](InstanceHandle,const std::wstring&){ diagnostics.text.text=L"Login { User = ada, Password = hunter2 }"; };
+        g_bindingInstallAnswer=L"{\"state\":\"bound\",\"bound\":\"True\",\"after\":\"expr-2\"}";
+        auto leak=callAgent(L"Binding.install",target+L",\"path\":\"Logins[0]\"");
+        check(token(leak)==L"refused-secret" && leak.Find(L"error")->Find(L"data")->GetBool(L"restored",false) &&
+            diagnostics.text.text==L"Hello" && leak.Find(L"error")->GetString(L"message").find(L"hunter2")==std::wstring::npos &&
+            agent.Ops().empty(),
+            "Binding.install puts the old value back when the new value's text prints a password, with no agent needed");
+        g_bindingInstallFake=[&](InstanceHandle,const std::wstring&){ diagnostics.text.text=L""; };
+        auto later=callAgent(L"Binding.install",target+L",\"path\":\"Selected\"");
+        check(token(later)==L"refused-secret" && diagnostics.text.text==L"Hello" &&
+            agent.Ops()==std::vector<std::wstring>{L"diagnose"},
+            "and when the agent redacts it, as for a member that is null now but holds a password-printing type");
+    }
+    {
+        // A secret refused over a binding DevTools installed earlier: the rollback reinstalls that binding and does
+        // not save the refused one as the app's original.
+        FakeBindingAgent agent([](const std::wstring&) -> std::wstring { return L"{\"state\":\"none\"}"; });
+        diagnostics.text.text=L"Hello"; tree.bound=false; tree.local=true;
+        g_bindingInstallFake=[&](InstanceHandle,const std::wstring& path){
+            diagnostics.text.text=path==L"Current" ? L"Login { User = ada, Password = hunter2 }" : L"bound "+path;
+            tree.bound=true;
+        };
+        g_bindingInstallAnswer=L"{\"state\":\"bound\",\"bound\":\"True\",\"after\":\"bound Name\"}";
+        auto first=callAgent(L"Binding.install",target+L",\"path\":\"Name\"");
+        check(first.Find(L"result") && diagnostics.text.text==L"bound Name", "a first install over a literal");
+        auto secretOverInstalled=callAgent(L"Binding.install",target+L",\"path\":\"Current\"");
+        const auto ops=agent.Ops();
+        check(token(secretOverInstalled)==L"refused-secret" && secretOverInstalled.Find(L"error")->Find(L"data")->GetBool(L"restored",false) &&
+            diagnostics.text.text==L"bound Name" &&
+            std::find(ops.begin(),ops.end(),std::wstring(L"captureoriginal"))==ops.end(),
+            "a refused secret over an installed binding puts that binding back and saves nothing in its place");
+        tree.bound=false;
+    }
+    {
+        // A key over a TwoWay binding DevTools saved: the binding is cleared first, so the key never reaches the data.
+        FakeBindingAgent agent([](const std::wstring& op) -> std::wstring {
+            if(op==L"captureoriginal") return L"{\"state\":\"captured\",\"restoreKind\":\"binding\"}";
+            return L"{\"state\":\"none\"}";
+        });
+        { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+        diagnostics.text.text=L"Hello"; tree.bound=true; tree.local=true; tree.writtenThrough=false;
+        auto assigned=callAgent(L"Resource.assign",target+L",\"key\":\"Greeting\"");
+        const DevToolsJson* a=assigned.Find(L"result");
+        const DevToolsJson* aUndo=a ? a->Find(L"undo") : nullptr;
+        check(a && a->GetString(L"after")==L"from Greeting" && !tree.writtenThrough && !tree.bound &&
+            aUndo && aUndo->arr.size()==1 && aUndo->arr[0].GetString(L"method")==L"Binding.restore",
+            "Resource.assign over a saved binding clears it first, so nothing is written through to the app's data");
+        tree.bound=false;
+    }
+    {
+        FakeBindingAgent agent([](const std::wstring& op) -> std::wstring {
+            if(op==L"captureoriginal") return L"{\"state\":\"captured\",\"restoreKind\":\"binding\"}";
+            return L"{\"state\":\"released\"}";
+        });
+        tree.bound=true;
+        g_bindingInstallFake=nullptr;
+        g_bindingInstallAnswer=L"{\"state\":\"unavailable\",\"reason\":\"the XAML runtime refused the binding\"}";
+        auto failed=callAgent(L"Binding.install",target+L",\"path\":\"Vm.Title\"");
+        check(token(failed)==L"binding-unavailable" &&
+            agent.Ops()==std::vector<std::wstring>{L"captureoriginal",L"releaseoriginal"},
+            "a failed install lets go of the original binding it saved, so a later capture is not misreported");
+        tree.bound=false;
+    }
+    {
+        // An earlier edit already holds the app's original: a failed second edit must not let go of it.
+        FakeBindingAgent agent([](const std::wstring& op) -> std::wstring {
+            if(op==L"captureoriginal") return L"{\"state\":\"captured\",\"restoreKind\":\"binding\",\"heldOriginal\":\"True\"}";
+            return L"{\"state\":\"released\"}";
+        });
+        tree.bound=true;
+        g_bindingInstallAnswer=L"{\"state\":\"unavailable\",\"reason\":\"the XAML runtime refused the binding\"}";
+        auto failed=callAgent(L"Binding.install",target+L",\"path\":\"Vm.Title\"");
+        check(token(failed)==L"binding-unavailable" && agent.Ops()==std::vector<std::wstring>{L"captureoriginal"},
+            "a failed edit keeps an original an earlier edit saved, so Binding.restore can still undo that edit");
+        tree.bound=false;
+    }
+    {
+        // The value that prints a password cannot be removed: the error says it is still there.
+        FakeBindingAgent agent([](const std::wstring&) -> std::wstring { return L"{\"state\":\"none\"}"; });
+        diagnostics.text.text=L"Hello"; tree.local=true; tree.failClear=true;
+        g_bindingInstallFake=[&](InstanceHandle,const std::wstring&){ diagnostics.text.text=L"Login { User = ada, Password = hunter2 }"; };
+        g_bindingInstallAnswer=L"{\"state\":\"bound\",\"bound\":\"True\",\"after\":\"expr-3\"}";
+        auto stuck=callAgent(L"Binding.install",target+L",\"path\":\"Logins[0]\"");
+        check(token(stuck)==L"refused-secret" && !stuck.Find(L"error")->Find(L"data")->GetBool(L"restored",true) &&
+            stuck.Find(L"error")->GetString(L"message").find(L"still in place")!=std::wstring::npos,
+            "a rollback whose clear fails says the new value is still in place, not that it was cleared");
+        tree.failClear=false;
+    }
+    {
+        // The in-app window's install refuses the same value and puts the literal back, as Binding.install does.
+        FakeBindingAgent agent([](const std::wstring&) -> std::wstring { return L"{\"state\":\"none\"}"; });
+        diagnostics.text.text=L"Hello"; tree.local=true; tree.bound=false;
+        g_bindingInstallFake=[&](InstanceHandle,const std::wstring&){ diagnostics.text.text=L"Login { User = ada, Password = hunter2 }"; };
+        g_bindingInstallAnswer=L"{\"state\":\"bound\",\"bound\":\"True\",\"after\":\"expr-4\"}";
+        std::wstring windowJson;
+        std::thread worker([&]{ Route1Bind(static_cast<InstanceHandle>(PackWire_nolock(901)), L"bind", L"Text", L"Logins[0]", L"OneWay", &windowJson); });
+        worker.join();
+        DevToolsJson windowAnswer;
+        check(DevToolsJsonParse(windowJson, windowAnswer) && windowAnswer.GetString(L"state")==L"unavailable" &&
+            windowAnswer.GetString(L"reason").find(L"put the previous value back")!=std::wstring::npos &&
+            diagnostics.text.text==L"Hello" && windowJson.find(L"hunter2")==std::wstring::npos,
+            "the window's install refuses a value that prints a password and puts the previous literal back");
+    }
+    {
+        // A literal written over an installed TwoWay binding goes through it and keeps it, so its record stays.
+        { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+        const unsigned long long wire=PackWire_nolock(901);
+        SessionEditNoteBinding(wire, L"Text", L"Vm.Title", L"TwoWay", L"expr-5");
+        RunOnUiThread([]() -> HRESULT { return SetLiteral(901, L"Text", L"String", L"typed"); });
+        DevToolsSessionEdit kept;
+        check(SessionEditFind(wire, L"Text", &kept) && !kept.resource && kept.path==L"Vm.Title",
+            "a literal write keeps the record of a binding DevTools installed");
+        RunOnUiThread([]() -> HRESULT { return ClearLiteral(901, L"Text"); });
+        check(!SessionEditFind(wire, L"Text", &kept), "and a clear forgets it");
+    }
+    {
+        std::wstring writeAnswer;
+        FakeBindingAgent agent([&](const std::wstring&) { return writeAnswer; });
+        writeAnswer=L"{\"state\":\"wroteSource\",\"before\":\"Hello\",\"after\":\"Hi\",\"sourceTarget\":\"Vm.Title\",\"sourceBefore\":\"Hello\\nthere\",\"bound\":\"True\"}";
+        auto wrote=callAgent(L"Binding.writeSource",target+L",\"value\":\"Hi\"");
+        const DevToolsJson* w=wrote.Find(L"result");
+        check(w && w->GetString(L"state")==L"wroteSource" && w->GetString(L"sourceBefore")==L"Hello\nthere" &&
+            !w->Find(L"undo") && agent.Ops()==std::vector<std::wstring>{L"writesource"},
+            "Binding.writeSource reports the source's old value exactly, and no undo");
+        check(token(callAgent(L"Binding.writeSource",target))==L"bad-args", "and says value is required when it is missing");
+        writeAnswer=L"{\"state\":\"unavailable\",\"reason\":\"this binding is OneWay, so its source cannot be written\"}";
+        auto oneWay=callAgent(L"Binding.writeSource",target+L",\"value\":\"Hi\"");
+        check(token(oneWay)==L"binding-unavailable" &&
+            oneWay.Find(L"error")->GetString(L"message").find(L"OneWay")!=std::wstring::npos,
+            "a source write that cannot happen is an error that says why");
+    }
+
+    // A literal written after a key forgets the key, so the next edit's undo puts the literal back.
+    g_testEnqueueUiOperation=QueryEnqueue;
+    { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+    diagnostics.text.text=L"Hello"; tree.local=true;
+    check(call(L"Resource.assign",target+L",\"key\":\"Greeting\"").Find(L"result")!=nullptr, "a key is assigned");
+    RunOnUiThread([]() -> HRESULT { return SetLiteral(901, L"Text", L"String", L"from Greeting"); });
+    auto afterLiteral=call(L"Resource.assign",target+L",\"key\":\"Other\"");
+    const DevToolsJson* literalUndo=afterLiteral.Find(L"result") ? afterLiteral.Find(L"result")->Find(L"undo") : nullptr;
+    check(literalUndo && literalUndo->arr.size()==1 && literalUndo->arr[0].GetString(L"method")==L"HotReload.setProperty",
+        "a literal written over a key, even one with the same text, is undone as that literal");
+
+    // The new methods, and Binding.restore, run inside a window or root scope like HotReload.setProperty.
+    const std::wstring rootScope=L",\"root\":\""+handle+L"\"";
+    for (const wchar_t* method : {L"Resource.assign", L"Resource.list", L"Binding.install", L"Binding.writeSource", L"Binding.restore"})
+        check(token(call(method,target+rootScope))!=L"window-scope-unsupported", "each edit method accepts a root scope");
+    check(token(call(L"Overlay.show",rootScope.substr(1)))==L"window-scope-unsupported",
+        "CONTROL: a process-wide method still refuses one");
+
+    g_bindingInstallFake=nullptr; g_testBindingInstall=nullptr;
+    { std::lock_guard<std::mutex> lock(g_sessionEditsMutex); g_sessionEdits.clear(); }
+    g_testEnqueueUiOperation=nullptr; g_dispatcher=nullptr;
+    g_slots.clear(); g_freeSlots.clear(); g_ihToSlot.clear(); g_nameOf.clear(); g_type.clear();
+    g_diag=previousDiagnostics; g_vts3=previousService;
+}
 static void CheckMalformedMutationHandles(const std::function<void(bool, const char*)>& check)
 {
     TextDiagnostics diagnostics;
@@ -1641,6 +2109,8 @@ int wmain(int argc, wchar_t** argv)
     CheckCensusFollowsReparentsAndParentlessRemoves(check);
     CheckTreeDeltasFollowSubscription(check);
     CheckQueries(check);
+    CheckResourceAssign(check);
+    CheckBindingEdits(check);
     DevToolsTrust_InitializePosture(DevToolsAccess::Mutation);
     {
         wchar_t self[MAX_PATH]{};

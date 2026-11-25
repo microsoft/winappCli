@@ -71,6 +71,25 @@ static const wchar_t* kMissingWithStaleHr =
     LR"({"path":"Titel","against":"winui_binding_fixture.FixtureViewModel","againstKind":"binding","segments":[)"
     LR"({"path":"Titel","found":false,"hr":"0x80070490"}]})";
 
+static void Test_AProposedPathGetsTheInspectorsVerdict()
+{
+    std::printf("a proposed path's verdict is the sentence the inspector's path box shows\n");
+    bool resolves = false;
+    const std::wstring ok = DevToolsPathWalk_Verdict(kHealthy, false, &resolves);
+    Check(resolves && ok.find(L"Resolves. Not applied yet.") != std::wstring::npos,
+          "a path that resolves says so, and that nothing has been applied");
+    const std::wstring missing = DevToolsPathWalk_Verdict(kMissing, false, &resolves);
+    Check(!resolves && !missing.empty() && missing != L"Resolves. Not applied yet.",
+          "a missing name does not resolve, and the verdict explains why");
+    const std::wstring nullEnd = DevToolsPathWalk_Verdict(
+        LR"({"path":"Vm.Title","against":"MainWindow","againstKind":"xbind","segments":[)"
+        LR"({"path":"Vm","found":true,"isNull":false,"hr":"0x0","type":"FixtureViewModel"},)"
+        LR"({"path":"Vm.Title","found":true,"isNull":true,"hr":"0x0"}]})", false, &resolves);
+    Check(resolves && nullEnd.find(L"null") != std::wstring::npos,
+          "a property that exists but is null now still resolves; the verdict says it is null");
+    DevToolsPathWalk_Verdict(kNullLink, false, &resolves);
+    Check(!resolves, "CONTROL: a null part way along the path stops it, so that path does not resolve");
+}
 static void Test_StatesThatMeanNothingToShow()
 {
     std::printf("the states that mean \"there is nothing to explain\" render NOTHING\n");
@@ -455,5 +474,6 @@ int RunPathWalkTests()
     Test_NoSuggestionIsInventedWithoutOne();
     Test_NoDataContextSaysSo();
     Test_GarbageIsReportedRatherThanSwallowed();
+    Test_AProposedPathGetsTheInspectorsVerdict();
     return g_testFailures;
 }

@@ -177,7 +177,8 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             m == L"VisualTree.getPreviews" || m == L"VisualTree.getAppAuthored" ||
             m == L"Property.get" || m == L"Property.setQuery" || m == L"Layout.get" || m == L"Property.references" ||
             m == L"Source.get" || m == L"Resource.resolve" || m == L"Binding.walk" ||
-            m == L"Binding.diagnose" || m == L"HotReload.setProperty" || m == L"HotReload.clearProperty" ||
+            m == L"Binding.diagnose" || m == L"Binding.restore" || m == L"HotReload.setProperty" || m == L"HotReload.clearProperty" ||
+            m == L"Resource.assign" || m == L"Resource.list" || m == L"Binding.install" || m == L"Binding.writeSource" ||
             m == L"Surface.list" || m == L"Surface.setActive" || m == L"Overlay.highlight" ||
             m == L"Selection.select" || m == L"Internal.pick" || m == L"Selection.arm" || m == L"Reactor.describe" ||
             m == L"Reactor.element" || m == L"Reactor.component" || m == L"Reactor.setState" || m == L"Reactor.rerender" ||
@@ -366,6 +367,10 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
     if (m == L"Property.references") return BridgeJson(id, L"property.references|" + p.GetString(L"handle"));
     if (m == L"Source.get")        return BridgeJson(id, L"element.source|" + p.GetString(L"handle"));
     if (m == L"Resource.resolve")  return BridgeJson(id, L"resource.resolve|" + p.GetString(L"handle") + L"|" + p.GetString(L"prop"));
+    if (m == L"Resource.assign")     return RpcResourceAssign(conn, id, p);
+    if (m == L"Resource.list")       return RpcResourceList(id, p);
+    if (m == L"Binding.install")     return RpcBindingInstall(conn, id, p);
+    if (m == L"Binding.writeSource") return RpcBindingWriteSource(conn, id, p);
 
     if (m == L"Binding.walk") {
         const std::wstring handle = p.GetString(L"handle");
@@ -375,8 +380,30 @@ static std::wstring HandleRpc(DevToolsConn* conn, const DevToolsRpcRequest& req)
             return DevToolsRpcError(id, DevToolsErr::InvalidParams,
                                L"handle must be a canonical non-zero decimal string and prop is required",
                                L"bad-args");
-        std::wstring reply = CmdBindingWalk(wire, prop);
+        // `path` checks a proposed {Binding} path against the DataContext, as the inspector's path box does.
+        const DevToolsJson* proposed = p.Find(L"path");
+        if (proposed && (proposed->type != DevToolsJsonType::String || proposed->str.empty()))
+            return DevToolsRpcError(id, DevToolsErr::InvalidParams, L"path must be a non-empty string.", L"bad-args");
+        if (proposed) {
+            if (const std::wstring why = DevToolsPathSyntax_Reason(proposed->str); !why.empty())
+                return DevToolsRpcResult(id, L"{\"path\":\"" + DevToolsJsonEscape(proposed->str) +
+                    L"\",\"expressionSource\":\"proposed\",\"state\":\"bad-path\",\"reason\":\"" + DevToolsJsonEscape(why) +
+                    L"\",\"segments\":[],\"resolves\":false,\"verdict\":\"" + DevToolsJsonEscape(why) + L"\"}");
+            // The same rule Binding.install refuses by: a walk would print values below the secret segment.
+            if (DevToolsPathNamesSecret(proposed->str))
+                return DevToolsRpcError(id, DevToolsErr::RefusedUnsafe,
+                    L"'" + proposed->str + L"' reads a secret; DevTools does not walk or bind a path through it.",
+                    L"refused-secret");
+        }
+        std::wstring reply = CmdBindingWalk(wire, prop, proposed ? proposed->str : std::wstring());
         if (reply.rfind(L"ERR ", 0) == 0) return BridgeErrToRpc(id, reply);
+        if (proposed && reply.size() > 1 && reply.back() == L'}') {
+            bool resolves = false;
+            const std::wstring verdict = DevToolsPathWalk_Verdict(reply, DevToolsBindingRelay_AgentPresent(), &resolves);
+            reply.pop_back();
+            reply += std::wstring(L",\"resolves\":") + (resolves ? L"true" : L"false") +
+                     L",\"verdict\":\"" + DevToolsJsonEscape(verdict) + L"\"}";
+        }
         return DevToolsRpcResult(id, reply);
     }
 

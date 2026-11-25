@@ -348,6 +348,70 @@ public class DevToolsAgentCommandTests : BaseCommandTests
     }
 
     [TestMethod]
+    public async Task Call_PointsANameTakingMethodAtNameForABadHandle()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Error("Resource.assign", -32602, "bad-args", "handle must be a canonical non-zero decimal string.");
+        var console = new TestConsole();
+        var handler = new DevToolsCallCommand.Handler(agent.Resolver(), console);
+        Assert.AreEqual(1, await handler.InvokeAsync(
+            new DevToolsCallCommand().Parse(["Resource.assign", "handle=SaveButton", "prop=Text", "key=K", "--json"])));
+        using var result = JsonDocument.Parse(console.Output);
+        var message = result.RootElement.GetProperty("error").GetProperty("message").GetString()!;
+        Assert.Contains("name=<x:Name>", message);
+        Assert.DoesNotContain("do not use the selector or name", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
+    [DataRow("mode must be OneWay, OneTime or TwoWay.", "mode=Both", false)]
+    [DataRow("theme must be a boolean.", "theme=true", true)]
+    public async Task Call_AddsTheTypeHintOnlyForATypeMismatch(string refusal, string argument, bool hinted)
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Error("Binding.install", -32602, "bad-args", refusal);
+        var console = new TestConsole();
+        var handler = new DevToolsCallCommand.Handler(agent.Resolver(), console);
+        Assert.AreEqual(1, await handler.InvokeAsync(
+            new DevToolsCallCommand().Parse(["Binding.install", "handle=1", "prop=Text", argument, "--json"])));
+        using var result = JsonDocument.Parse(console.Output);
+        var message = result.RootElement.GetProperty("error").GetProperty("message").GetString()!;
+        Assert.AreEqual(hinted, message.Contains("name:=value", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task Call_JsonKeepsTheAppsErrorData()
+    {
+        using var agent = new FakeDevToolsProtocolAgent()
+            .Error("Resource.assign", -32009, "resource-not-found", "not found", "\"restored\":false,\"key\":\"Typo\"")
+            .Error("Binding.walk", -32602, "bad-args", "plain");
+        var console = new TestConsole();
+        var handler = new DevToolsCallCommand.Handler(agent.Resolver(), console);
+        Assert.AreEqual(1, await handler.InvokeAsync(
+            new DevToolsCallCommand().Parse(["Resource.assign", "handle=1", "prop=Text", "key=Typo", "--json"])));
+        using var result = JsonDocument.Parse(console.Output);
+        var data = result.RootElement.GetProperty("error").GetProperty("data");
+        Assert.IsFalse(data.GetProperty("restored").GetBoolean());
+        Assert.AreEqual("Typo", data.GetProperty("key").GetString());
+        Assert.IsFalse(data.TryGetProperty("token", out _), "the token is already error.token");
+
+        var plain = new TestConsole();
+        Assert.AreEqual(1, await new DevToolsCallCommand.Handler(agent.Resolver(), plain).InvokeAsync(
+            new DevToolsCallCommand().Parse(["Binding.walk", "handle=1", "prop=Text", "--json"])));
+        using var plainResult = JsonDocument.Parse(plain.Output);
+        Assert.IsFalse(plainResult.RootElement.GetProperty("error").TryGetProperty("data", out _), "no data when the app sent only a token");
+    }
+
+    [TestMethod]
+    public async Task Call_MissingParameterGetsNoTypeHint()
+    {
+        using var agent = new FakeDevToolsProtocolAgent().Error("Binding.writeSource", -32602, "bad-args", "value is required.");
+        var console = new TestConsole();
+        Assert.AreEqual(1, await new DevToolsCallCommand.Handler(agent.Resolver(), console).InvokeAsync(
+            new DevToolsCallCommand().Parse(["Binding.writeSource", "handle=1", "prop=Text", "--json"])));
+        using var result = JsonDocument.Parse(console.Output);
+        Assert.AreEqual("value is required.", result.RootElement.GetProperty("error").GetProperty("message").GetString());
+    }
+
+    [TestMethod]
     public async Task Call_PreservesWideNumericHandleAsAString()
     {
         using var agent = new FakeDevToolsProtocolAgent().Answer("Binding.walk", "{}");

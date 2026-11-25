@@ -60,7 +60,8 @@ internal static class DevToolsJson
         Error(pid, new DevToolsProtocolError(0, token, message));
 
     /// <summary>
-    /// Writes the <c>error</c> member. It is ALWAYS an object of <c>{code, token, message}</c>, whatever
+    /// Writes the <c>error</c> member. It is ALWAYS an object of <c>{code, token, message}</c>, plus <c>data</c> when
+    /// the app sent more than a token (for example <c>restored</c>), whatever
     /// produced the failure.
     /// <para>
     /// A semantic outcome (nothing matched, no source recorded, a binding that could not be diagnosed) is
@@ -76,6 +77,11 @@ internal static class DevToolsJson
         writer.WriteNumber("code", error.Code);
         writer.WriteString("token", error.Token);
         writer.WriteString("message", error.Message);
+        if (error.DataJson is not null)
+        {
+            writer.WritePropertyName("data");
+            WriteRaw(writer, error.DataJson);
+        }
         writer.WriteEndObject();
     }
 

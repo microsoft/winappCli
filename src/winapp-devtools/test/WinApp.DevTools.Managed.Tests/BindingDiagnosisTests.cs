@@ -257,4 +257,86 @@ public sealed class BindingDiagnosisTests
         Assert.AreEqual("evaluated", result.RootElement.GetProperty("state").GetString());
         Assert.AreEqual("whole-source", result.RootElement.GetProperty("sourceValue").GetString());
     }
+
+    private enum Shade { Light, Dark }
+
+    [TestMethod]
+    public void WriteSourceUndoTextRoundTripsTheSourceValue()
+    {
+        Assert.AreEqual("Draft", BindingDiagnosis.SourceUndoText("Draft", typeof(string)));
+        Assert.AreEqual("", BindingDiagnosis.SourceUndoText("", typeof(string)));
+        Assert.AreEqual("0.1", BindingDiagnosis.SourceUndoText(0.1, typeof(double)));
+        Assert.AreEqual("42", BindingDiagnosis.SourceUndoText(42, typeof(int?)));
+        Assert.AreEqual("True", BindingDiagnosis.SourceUndoText(true, typeof(bool)));
+        Assert.AreEqual("Dark", BindingDiagnosis.SourceUndoText(Shade.Dark, typeof(Shade)));
+        Assert.IsNull(BindingDiagnosis.SourceUndoText(null, typeof(string)), "null has no text form to write back");
+        Assert.IsNull(BindingDiagnosis.SourceUndoText(new object(), typeof(object)), "an object cannot be written back as text");
+    }
+
+    [TestMethod]
+    public void SourceBeforeTextDecodesToTheExactSourceValue()
+    {
+        const string original = "first\r\nsecond\titem \"quoted\" \\ \u0001";
+        using var decoded = JsonDocument.Parse("\"" + BindingDiagnosis.JsonText(original) + "\"");
+        Assert.AreEqual(original, decoded.RootElement.GetString());
+    }
+
+    private sealed class SelectionSource
+    {
+        public Login? Selected { get; set; }
+    }
+
+    [TestMethod]
+    public void AMemberThatIsNullNowIsRedactedWhenItsDeclaredTypeHoldsAPassword()
+    {
+        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate("Selected", new SelectionSource(), "Source", "{Binding}", "OneWay",
+            typeof(string), "Text", () => ""));
+        Assert.IsTrue(result.RootElement.GetProperty("redacted").GetBoolean(), result.RootElement.GetRawText());
+    }
+
+    private sealed class CredentialSource
+    {
+        public Dictionary<string, string> Creds { get; } = new() { ["User"] = "ada", ["Password"] = "hunter2" };
+        public Dictionary<string, string> Labels { get; } = new() { ["Title"] = "Home" };
+        public List<KeyValuePair<string, string>> Pairs { get; } = [new("DbPassword", "hunter2")];
+        public List<object> Logins { get; } = [new Login("ada", "hunter2")];
+        public Dictionary<string, object> ById { get; } = new() { ["1"] = new Login("ada", "hunter2") };
+        public List<object> Names { get; } = ["ada", 7];
+    }
+
+    [TestMethod]
+    [DataRow("Creds")]
+    [DataRow("Creds.Values")]
+    [DataRow("Pairs")]
+    [DataRow("Logins")]
+    [DataRow("ById")]
+    public void ADictionaryKeyedPasswordIsRedacted_EvenThroughOneOfItsMembers(string path)
+    {
+        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate(path, new CredentialSource(), "Source", "{Binding}", "OneWay",
+            typeof(object), "ItemsSource", () => null));
+        Assert.IsTrue(result.RootElement.GetProperty("redacted").GetBoolean(), result.RootElement.GetRawText());
+        Assert.IsFalse(result.RootElement.GetRawText().Contains("hunter2", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [DataRow("Labels")]
+    [DataRow("Names")]
+    public void ADictionaryWithoutAPasswordKeyIsShown(string path)
+    {
+        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate(path, new CredentialSource(), "Source", "{Binding}", "OneWay",
+            typeof(object), "ItemsSource", () => null));
+        Assert.IsFalse(result.RootElement.TryGetProperty("redacted", out _), result.RootElement.GetRawText());
+    }
+
+    [TestMethod]
+    public void WriteSourceTextsAreBudgetedInUtf8Bytes()
+    {
+        // 6000 CJK characters are 18000 UTF-8 bytes: within a character count, over the relay's byte budget.
+        string wide = new('文', 6000);
+        string clipped = BindingDiagnosis.Clip(wide);
+        Assert.IsTrue(System.Text.Encoding.UTF8.GetByteCount(clipped) <= 4 * 1024 + 3, clipped.Length.ToString());
+        Assert.IsTrue(clipped.EndsWith("...", StringComparison.Ordinal));
+        Assert.IsNull(BindingDiagnosis.SourceBeforeJson(wide), "an old value too large for the reply is left out");
+        Assert.AreEqual("short", BindingDiagnosis.SourceBeforeJson("short"));
+    }
 }

@@ -363,61 +363,14 @@ static std::wstring BindingExprFrom(const std::wstring& bindPath, const std::wst
 }
 
 // Resource keys remain free text; suggestions exclude known incompatible types.
-static std::wstring ResourceTypeFamily(const std::wstring& type)
-{
-    std::wstring s = ShortType(type);
-    if (s.size() >= 5 && s.compare(s.size() - 5, 5, L"Brush") == 0) return L"Brush";
-    return s;
-}
+static std::wstring ResourceTypeFamily(const std::wstring& type) { return DevToolsResourceKeys_TypeFamily(type); }
 
 static std::wstring RowResourceType(const DevToolsCardRow& r)
 {
     return r.valueType.empty() ? r.type : r.valueType;
 }
 
-struct ResourceKeys
-{
-    std::vector<std::wstring> keys;
-    std::set<std::wstring> seen;
-    std::set<void*> dictionaries;
-    size_t entries = 0;
-    bool partial = false;
-};
-
-static const wchar_t* ResourceTheme(DevToolsX::ElementTheme theme, bool highContrast)
-{
-    if (highContrast) return L"HighContrast";
-    return theme == DevToolsX::ElementTheme::Dark ? L"Dark" : L"Light";
-}
-
-static void CollectResourceDictionary(const DevToolsX::ResourceDictionary& dictionary,
-                                     const std::wstring& want, const wchar_t* theme, ResourceKeys& out)
-{
-    if (!dictionary || !out.dictionaries.insert(winrt::get_abi(dictionary)).second) return;
-    if (out.dictionaries.size() > 128) { out.partial = true; return; }
-    for (const auto& entry : dictionary) {
-        if (++out.entries > 4096) { out.partial = true; return; }
-        const auto key = entry.Key().try_as<winrt::Windows::Foundation::IPropertyValue>();
-        if (!key || key.Type() != winrt::Windows::Foundation::PropertyType::String) continue;
-        const std::wstring name(key.GetString());
-        if (!out.seen.insert(name).second) continue;
-        const auto value = entry.Value();
-        if (!value) continue;
-        std::wstring type(winrt::get_class_name(value));
-        const std::wstring boxed = L"Windows.Foundation.IReference`1<";
-        if (type.starts_with(boxed) && type.back() == L'>')
-            type = type.substr(boxed.size(), type.size() - boxed.size() - 1);
-        if (ResourceTypeFamily(type) == want) out.keys.push_back(name);
-    }
-    const auto themes = dictionary.ThemeDictionaries();
-    auto key = winrt::box_value(theme);
-    if (!themes.HasKey(key)) key = winrt::box_value(L"Default");
-    if (themes.HasKey(key))
-        CollectResourceDictionary(themes.Lookup(key).try_as<DevToolsX::ResourceDictionary>(), want, theme, out);
-    const auto merged = dictionary.MergedDictionaries();
-    for (uint32_t i = merged.Size(); i > 0 && !out.partial; --i)
-        CollectResourceDictionary(merged.GetAt(i - 1), want, theme, out);
-}
+using ResourceKeys = DevToolsResourceKeyList;
 
 static ResourceKeys ResourceKeyCandidates(const DevToolsCardRow& target)
 {
@@ -427,25 +380,9 @@ static ResourceKeys ResourceKeyCandidates(const DevToolsCardRow& target)
     try {
         winrt::com_ptr<IInspectable> raw;
         if (g_elementFn) raw.attach(g_elementFn(g_selWire));
-        if (raw) {
-            winrt::Windows::Foundation::IInspectable selected;
-            winrt::copy_from_abi(selected, raw.get());
-            auto node = selected.try_as<DevToolsX::DependencyObject>();
-            const auto selectedFe = selected.try_as<DevToolsX::FrameworkElement>();
-            const wchar_t* theme = ResourceTheme(
-                selectedFe ? selectedFe.ActualTheme() : DevToolsX::ElementTheme::Default, SystemHighContrast());
-            size_t ancestors = 0;
-            while (node && !out.partial) {
-                if (++ancestors > 128) { out.partial = true; break; }
-                const auto fe = node.try_as<DevToolsX::FrameworkElement>();
-                if (fe) CollectResourceDictionary(fe.Resources(), want, theme, out);
-                node = fe && fe.Parent() ? fe.Parent() : DevToolsXM::VisualTreeHelper::GetParent(node);
-            }
-            if (!out.partial)
-                CollectResourceDictionary(DevToolsX::Application::Current().Resources(), want, theme, out);
-        } else {
-            out.partial = true;
-        }
+        winrt::Windows::Foundation::IInspectable selected;
+        if (raw) winrt::copy_from_abi(selected, raw.get());
+        DevToolsResourceKeys_Collect(selected, want, out);
     } catch (const winrt::hresult_error& error) {
         out.partial = true;
         DevToolsOverlayLog(L"route1.resources enumeration FAILED hr=0x%08X: %s",
@@ -457,14 +394,10 @@ static ResourceKeys ResourceKeyCandidates(const DevToolsCardRow& target)
     // Keep source-derived and built-in suggestions when runtime enumeration is unavailable.
     for (const auto& row : g_propRows) {
         if (row.authoredKind != L"themeResource" && row.authoredKind != L"staticResource") continue;
-        if (row.authoredKey.empty()) continue;
         if (ResourceTypeFamily(RowResourceType(row)) != want) continue;
-        if (out.seen.insert(row.authoredKey).second) out.keys.push_back(row.authoredKey);
+        DevToolsResourceKeys_Add(row.authoredKey, out);
     }
-    if (want == L"Brush") {
-        for (const auto& k : BrushResourceNames())
-            if (out.seen.insert(k).second) out.keys.push_back(k);
-    }
+    DevToolsResourceKeys_AddDefaults(want, out);
     return out;
 }
 
@@ -496,10 +429,12 @@ static bool ApplyLiteralValue(const std::wstring& path, const std::wstring& type
 // Resource assignment records a session witness because runtime local values forget the key.
 // A failed lookup can clear the target. Restore the prior session key, then authored key, then
 // literal when available; report both lookup and restoration outcomes.
-static bool RestoreAfterFailedResolve(const DevToolsCardRow& r, const std::wstring& path, const std::wstring& preVal)
+// `assigned` is the session key read before the lookup; a protocol client's key can't be read after it cleared the value.
+static bool RestoreAfterFailedResolve(const DevToolsCardRow& r, const std::wstring& path, const std::wstring& preVal,
+                                      const SessionAssign* assigned)
 {
     if (!g_ctx.resolveFn) return false;
-    if (const SessionAssign* sa = SessionAssignFind(path))
+    if (const SessionAssign* sa = assigned)
         if (KindIsResource(sa->kind))
             return g_ctx.resolveFn(g_selWire, path, MarkupInner(sa->detail), sa->kind == DevToolsKind::Theme);
     if (!r.authoredKey.empty() && (r.authoredKind == L"themeResource" || r.authoredKind == L"staticResource"))
@@ -519,6 +454,15 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
     if (!g_ctx.resolveFn) { error = L"This build cannot assign resources."; SetStatusText(error); return false; }
     if (key.empty()) { error = L"Type a resource key first."; SetStatusText(error); return false; }
     CheckEditRecordsNow(g_selWire);
+    const DevToolsKind was = CurrentKindOf(r, path);
+    // What Restore puts back, read before the lookup: it replaces any key record a protocol client left.
+    EditRecord first;
+    const AppChange* appChange = AppChangedFind(g_selWire, path);
+    const std::wstring before = appChange ? appChange->value : preVal;
+    const bool haveFirst = !DirtyFind(path) && OriginalFor(path, before, first);
+    const SessionAssign* found = SessionAssignFind(path);
+    const bool hadAssign = found != nullptr;
+    const SessionAssign priorAssign = found ? *found : SessionAssign{};
     // CHECK THE RETURNED VALUE, not just that the call was made. The runtime's own return says nothing
     // -- IVisualTreeService3::ResolveResource answers S_OK for a key the app does not have -- so what is
     // being checked here is the tap's verdict, which is built from the diagnostics callback the failure
@@ -527,20 +471,28 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
     if (!g_ctx.resolveFn(g_selWire, path, key, asTheme)) {
         // The failed lookup and the put-back are DevTools' changes, not the app's: rebaseline around them.
         RebaselineRecords(g_selWire);
-        const bool restored = RestoreAfterFailedResolve(r, path, preVal);
+        const bool restored = RestoreAfterFailedResolve(r, path, preVal, hadAssign ? &priorAssign : nullptr);
         RebaselineRecords(g_selWire);
+        // A failed lookup removes a binding; only Restore binding can put it back.
+        const bool bindingLost = was == DevToolsKind::Binding || was == DevToolsKind::XBind;
+        if (bindingLost) { DirtyErase(path); NoteBindingLost(path); }
         // SAY WHICH KEY, AND WHAT IT COST. The box takes free text against the APP's dictionary, so the
         // useful sentence separates "you typed it wrong" from "this app has no such resource" -- and then
         // says whether the value survived, which is not the same question and has a different answer.
         error = L"Resource '" + key + L"' was not found or could not be assigned to " + path + L". "
-              + (restored ? std::wstring(L"The previous value was restored. Check the key and resource type.")
-                          : std::wstring(L"The previous value could not be restored; set the property again."));
+              + (bindingLost ? std::wstring(L"Its binding was removed; use Restore binding to put it back.")
+                 : restored ? std::wstring(L"The previous value was restored. Check the key and resource type.")
+                            : std::wstring(L"The previous value could not be restored; set the property again."));
         SetStatusText(error);
         return false;
     }
     // Record the original before the session witness changes, so a first edit that assigns a resource still
     // remembers what the property was before it. Undo also clears the session assignment witness.
-    NoteChange(path, preVal, std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}");
+    const std::wstring assigned = std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}";
+    if (haveFirst && !DirtyFind(path) && assigned != before) g_editRecords.push_back(std::move(first));
+    NoteChange(path, preVal, assigned);
+    // A key over a binding replaced it, as a literal does: offer Restore binding, not a Restore of its last value.
+    if (was == DevToolsKind::Binding || was == DevToolsKind::XBind) { DirtyErase(path); NoteBindingLost(path); }
     NoteSessionAssign(path, asTheme ? DevToolsKind::Theme : DevToolsKind::Static,
                       std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}");
     if (EditRecord* rec = DirtyFind(path)) rec->themeAssigned = asTheme;
@@ -1009,15 +961,9 @@ static void CALLBACK ValidateTimerProc(HWND, UINT, UINT_PTR id, DWORD)
 
 static void ApplyValidateAnswer(const std::wstring& json)
 {
-    const DevToolsPathWalkView v = DevToolsPathWalk_FromJson(json, DevToolsBindingRelay_AgentPresent());
-    if (!v.show) {
-        g_validateBad = false;
-        g_validateVerdict = L"Resolves. Not applied yet.";
-    } else {
-        g_validateBad = true;
-        g_validateVerdict = v.answer.empty() ? std::wstring(L"This path does not resolve.") : v.answer;
-    }
-    if (!v.againstNote.empty()) g_validateVerdict = v.againstNote + L" " + g_validateVerdict;
+    bool resolves = false;
+    g_validateVerdict = DevToolsPathWalk_Verdict(json, DevToolsBindingRelay_AgentPresent(), &resolves);
+    g_validateBad = !resolves;
     if (g_validateBad && g_validateFromXBind)
         g_validateVerdict += L" This path was copied from x:Bind, which starts at the page. {Binding} starts at "
                              L"the DataContext, so you may need to remove the first part (for example, ViewModel.).";
@@ -1032,7 +978,9 @@ static void ValidateOnType(const std::wstring& prop, const std::wstring& text)
         g_validateVerdict.clear();
         g_validateBad = false;
     } else {
-        const std::wstring why = DevToolsPathSyntax_Reason(text);
+        std::wstring why = DevToolsPathSyntax_Reason(text);
+        if (why.empty() && DevToolsPathNamesSecret(text))
+            why = L"This path reads a secret; DevTools does not walk or bind a path through it.";
         g_validateBad = !why.empty();
         g_validateVerdict = why.empty() ? std::wstring(L"Checking \u2026") : why;
     }

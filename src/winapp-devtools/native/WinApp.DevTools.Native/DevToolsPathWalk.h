@@ -49,3 +49,6 @@ std::wstring DevToolsPathWalk_PlainText(const DevToolsPathWalkView& v);
 const wchar_t* DevToolsPathWalk_OutcomeText(DevToolsWalkOutcome outcome);
 
 const wchar_t* DevToolsPathWalk_StopMark();
+
+// The verdict on a proposed binding path, as the inspector's path box shows it while you type.
+std::wstring DevToolsPathWalk_Verdict(const std::wstring& json, bool agentPresent, bool* resolves);

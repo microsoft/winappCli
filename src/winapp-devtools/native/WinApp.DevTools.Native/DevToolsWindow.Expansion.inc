@@ -371,9 +371,9 @@ static void PopulateExpansionInto(void* fe, const DevToolsCardRow& r, const std:
         blk->Release();
     }
 
-    // A binding replaced by a literal still gets the BINDING block, so Restore binding stays reachable.
+    // A binding replaced by a literal or a resource key still gets the BINDING block, so Restore binding stays reachable.
     // This includes bindings set in code or applied from the panel, which the XAML doesn't declare.
-    const bool lostBinding = current == DevToolsKind::Literal && BindingLost(path);
+    const bool lostBinding = (current == DevToolsKind::Literal || KindIsResource(current)) && BindingLost(path);
     const bool bound = (current == DevToolsKind::XBind || current == DevToolsKind::Binding) || lostBinding;
     if (bound) { PostWalk(path); PostDiagnose(path); }
     const WalkAnswer* answer = bound ? WalkFind(path) : nullptr;

@@ -134,6 +134,10 @@ using DevToolsWindowWalkFn = std::function<bool(InstanceHandle wire, const std::
                                            const std::wstring& tryPath, std::wstring* outJson)>;
 void DevToolsWindow_SetPathWalk(DevToolsWindowWalkFn walkFn);
 
+// Any thread: the resource key a protocol edit (Resource.assign) left on a property, while it is still recorded.
+using DevToolsWindowSessionKeyFn = bool (*)(InstanceHandle wire, const std::wstring& prop, std::wstring* key, bool* theme);
+void DevToolsWindow_SetSessionKey(DevToolsWindowSessionKeyFn keyFn);
+
 // Worker-only: ask the managed agent a Reactor question about one element (reactorcomponent, reactorelement,
 // reactorsetstate, reactorinvoke). Feeds the property pane's Reactor section.
 using DevToolsWindowReactorAskFn = std::function<bool(InstanceHandle wire, const std::wstring& op, const std::wstring& arg,

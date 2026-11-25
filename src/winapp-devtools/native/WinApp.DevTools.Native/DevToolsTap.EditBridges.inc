@@ -568,9 +568,18 @@ static bool Route1Resolve(InstanceHandle wire, const std::wstring& prop, const s
     ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
     ReleaseSRWLockShared(&g_censusLock);
     if (!ok) { Log(L"route1.resolve stale wire (%s)", e ? e : L"?"); return false; }
+    // A key written over a TwoWay binding goes through it into the app's data, so the binding is removed first, as
+    // Resource.assign does. A failed lookup would remove it anyway. If it can't be removed, nothing is written.
+    if (!ObserveEditTarget_ui(ih, prop).bindingId.empty() && FAILED(ClearPropertyByPath(ih, prop))) {
+        Log(L"route1.resolve '%s': could not remove the binding first", prop.c_str());
+        return false;
+    }
     HRESULT hr = ResolveResourceApply(ih, prop, resourceName, asTheme);
     if (FAILED(hr)) { Log(L"route1.resolve '%s' <- %s hr=0x%08X", prop.c_str(), resourceName.c_str(), hr); return false; }
     Log(L"route1.resolve '%s' <- %s OK", prop.c_str(), resourceName.c_str());
+    // Recorded like Resource.assign, so a protocol edit after this one can undo back to the key.
+    SessionEditNoteResource_ui(ih, (unsigned long long)wire, prop, resourceName, asTheme, ReadEditedRow_ui(ih, prop).value,
+                               /*byWindow*/ true);
     return true;
 }
 
@@ -587,10 +596,30 @@ static bool Route1Bind(InstanceHandle wire, const std::wstring& op, const std::w
         return false;
     }
     if (op == L"bind") {
+        // Read before the install, so a refused value can be replaced by what the property held.
+        const DevToolsEditPriorRead pre = ReadEditPriorCore((unsigned long long)wire, prop);
         *outJson = CmdBindingInstall((unsigned long long)wire, prop, payload, mode);
         if (outJson->rfind(L"ERR ", 0) == 0) {
             *outJson = DevToolsBindingRelay_UnavailableJson(L"this element is no longer in the visual tree");
             return false;
+        }
+        // Recorded like Binding.install, so a protocol edit after this one can undo back to this binding. The same
+        // check as Binding.install: a value that prints a secret its path does not name is not kept.
+        DevToolsJson answer;
+        const bool parsed = DevToolsJsonParse(*outJson, answer) && answer.IsObject();
+        std::wstring shown;
+        bool secret = parsed && answer.GetBool(L"secret", false);
+        if (!secret && parsed && answer.GetString(L"bound") == L"True" &&
+            ReadInstalledValue((unsigned long long)wire, prop, &shown, &secret) && !secret) {
+            SessionEditNoteBinding((unsigned long long)wire, prop, payload, CanonicalBindingMode(mode), answer.GetString(L"after"));
+        } else if (secret) {
+            const bool known = pre.completed && SUCCEEDED(pre.hr) && pre.found;
+            const DevToolsRollback back = known ? RollBackEdit((unsigned long long)wire, prop, pre.prior, pre.local)
+                                                : DevToolsRollback{};
+            std::wstring sentence = known ? RollbackSentence(back) : std::wstring(L"DevTools could not put the previous value back.");
+            if (!sentence.empty() && sentence.back() == L'.') sentence.pop_back();
+            *outJson = DevToolsBindingRelay_UnavailableJson(L"'" + payload + L"' shows a secret: its value prints a "
+                L"member or key whose name ends in Password. " + sentence);
         }
         // TRUE means "an answer was produced", not "it worked". The caller decides success from the answer's
         // own read-back (`bound`), which is the same discipline it already applies to the agent ops --

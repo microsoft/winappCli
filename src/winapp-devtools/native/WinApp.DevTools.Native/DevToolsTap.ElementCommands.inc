@@ -47,14 +47,15 @@ static std::wstring CmdBindingOp(unsigned long long wire, const std::wstring& op
     struct BindState { winrt::com_ptr<IAgileReference> element; std::wstring authored; };
     auto st = std::make_shared<BindState>();
     st->authored = authoredOverride;
-    HRESULT hr = RunOnUiThread([wire, prop, st]() -> HRESULT {
+    HRESULT hr = RunOnUiThread([wire, prop, op, st]() -> HRESULT {
         DevToolsBindingRelay_NoteUiThread();
         // RE-RESOLVE inside the closure: never carry a raw handle across the UI-thread hop (UAF by
         // construction), same discipline as property.get.
         InstanceHandle ih = 0; const wchar_t* e = nullptr; bool ok;
         AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih, &e); ReleaseSRWLockShared(&g_censusLock);
         if (!ok) return E_INVALIDARG;
-        if (st->authored.empty()) {
+        // writesource carries the value in this slot, so an empty value must not be replaced by the markup.
+        if (st->authored.empty() && op != L"writesource") {
             std::vector<DevToolsReadProp> props;
             if (SUCCEEDED(ReadCuratedProps(ih, &props, nullptr))) {
                 for (const auto& r : props) { if (r.name == prop) { st->authored = r.authored; break; } }
@@ -83,6 +84,12 @@ static std::wstring CmdBindingOp(unsigned long long wire, const std::wstring& op
     return json;
 }
 
+#ifdef WINAPP_DEVTOOLS_NATIVE_RUNTIME_TESTS
+// Stands in for the runtime Binding install, which a headless test cannot activate.
+static std::wstring (*g_testBindingInstall)(InstanceHandle, const std::wstring&, const std::wstring&,
+                                            const std::wstring&) = nullptr;
+#endif
+
 // The caller already has both -- the pane's editor collects them as separate fields -- so carrying "{Binding
 // Vm.Title, Mode=OneWay}" across this boundary would mean writing a native parser to take it apart again, and a
 // second parser that can disagree with the C# one about what "{Binding Path=A, Converter={StaticResource B}}" means.
@@ -90,6 +97,10 @@ static std::wstring CmdBindingInstall(unsigned long long wire, const std::wstrin
                                       const std::wstring& path, const std::wstring& mode)
 {
     if (!wire || prop.empty()) return L"ERR bad-args";
+    if (RefuseSecretWrite(prop, nullptr))
+        return DevToolsBindingRelay_UnavailableJson(L"'" + prop + L"' holds a secret; DevTools does not read or write it.");
+    if (DevToolsPathNamesSecret(path))
+        return DevToolsBindingRelay_UnavailableJson(L"'" + path + L"' reads a secret; DevTools does not bind a property to it.");
     { InstanceHandle ih0 = 0; const wchar_t* e = nullptr; bool ok;
       AcquireSRWLockShared(&g_censusLock); ok = ResolveWire_nolock(wire, &ih0, &e); ReleaseSRWLockShared(&g_censusLock);
       if (!ok) return std::wstring(L"ERR ") + e; }
@@ -120,7 +131,27 @@ static std::wstring CmdBindingInstall(unsigned long long wire, const std::wstrin
             return rb;
         };
 
+#ifdef WINAPP_DEVTOOLS_NATIVE_RUNTIME_TESTS
+        if (g_testBindingInstall) *json = g_testBindingInstall(ih, prop, path, mode);
+        else
+#endif
         DevToolsBindingInstall_Apply(g_diag, g_vts3, ih, idx, path, mode, readBack, json.get());
+        // A value whose text prints a password (a record lists every member) is removed in this same UI turn, so
+        // no other read can see it. The caller puts the previous value back.
+        DevToolsJson answer;
+        if (DevToolsJsonParse(*json, answer) && answer.IsObject() && answer.GetString(L"bound") == L"True") {
+            std::vector<DevToolsReadProp> rows;
+            const std::set<std::wstring> only{ prop };
+            ReadCuratedProps(ih, &rows, nullptr, nullptr, &only, nullptr);
+            for (const auto& row : rows) {
+                if (row.name != prop || !DevToolsTextPrintsSecret(row.value)) continue;
+                ClearPropertyByPath(ih, prop);
+                ClearOriginatedError();
+                *json = L"{\"state\":\"unavailable\",\"secret\":true,\"reason\":\"" + DevToolsJsonEscape(L"'" + path +
+                        L"' shows a secret: its value prints a member or key whose name ends in Password") + L"\"}";
+                break;
+            }
+        }
         return S_OK;
     });
     if (FAILED(hr)) return L"ERR not-found";

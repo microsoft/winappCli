@@ -258,9 +258,9 @@ static PriorLocalValue ReadPriorLocalValue(InstanceHandle h, unsigned int idx)
     return prior;
 }
 
-static void RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const PriorLocalValue& prior)
+static HRESULT RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const PriorLocalValue& prior)
 {
-    if (!prior.restorable || !WindowElementCurrent_ui(h)) return;
+    if (!prior.restorable || !WindowElementCurrent_ui(h)) return E_FAIL;
     HRESULT hr = S_OK;
     if (!prior.had) hr = g_vts3->ClearProperty(h, idx);
     else if (prior.object) hr = g_vts3->SetProperty(h, prior.object, idx);
@@ -272,6 +272,7 @@ static void RestorePriorLocalValue(InstanceHandle h, unsigned int idx, const Pri
         SysFreeString(tn); SysFreeString(vv);
     }
     Log(L"setprop: restored the previous value after a rejected write (hr=0x%08X)", hr);
+    return hr;
 }
 
 // Takes (and so clears) the error WinUI originated on this thread. Left in place, a later failure on this thread, for
@@ -287,6 +288,9 @@ static HRESULT ReadCuratedProps(InstanceHandle h, std::vector<DevToolsReadProp>*
                                 std::wstring* outAuthoredXaml, const std::set<std::wstring>* projection,
                                 size_t* retrievedRows,
                                 std::map<std::wstring, std::pair<unsigned int, std::wstring>>* outIndices = nullptr);
+
+// Defined in DevToolsTap.EditRpc.inc. A literal write forgets an assigned key; a clear forgets any edit record.
+static void SessionEditForget(unsigned long long wire, const std::wstring& prop, bool resourceOnly);
 
 // Set a literal property: CreateInstance from a XAML type-converter literal, then SetProperty. UI thread.
 static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std::wstring& type, const std::wstring& value,
@@ -332,6 +336,7 @@ static HRESULT SetLiteral(InstanceHandle h, const std::wstring& prop, const std:
         const unsigned long long wire = PackWire_nolock(h);
         ReleaseSRWLockShared(&g_censusLock);
         DevToolsBindingRow_NoteLiveWrite(wire, prop);
+        SessionEditForget(wire, prop, /*resourceOnly*/ true);
         // Read the property once now, so the edit records the value it wrote before the app can write its own.
         std::vector<DevToolsReadProp> written;
         const std::set<std::wstring> only{ prop };
@@ -353,6 +358,7 @@ static HRESULT ClearLiteral(InstanceHandle h, const std::wstring& prop)
         const unsigned long long wire = PackWire_nolock(h);
         ReleaseSRWLockShared(&g_censusLock);
         DevToolsBindingRow_ForgetLiveWrite(wire, prop);
+        SessionEditForget(wire, prop, /*resourceOnly*/ false);
     }
     return hr;
 }
@@ -397,5 +403,10 @@ static HRESULT ResolveResourceApply(InstanceHandle h, const std::wstring& prop, 
         Log(L"resolveres: '%s' <- %s DID NOT RESOLVE (errelem=%llu ours=%llu context='%s')", prop.c_str(),
             resourceName.c_str(), (unsigned long long)after.elem, (unsigned long long)h, after.context.c_str());
     if (SUCCEEDED(hr) && notFound) return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    // The key took effect only if the property now holds a local value; a binding left in place means it did not.
+    if (SUCCEEDED(hr)) {
+        const PriorLocalValue now = ReadPriorLocalValue(h, idx);
+        if (!now.had || !now.restorable) return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    }
     return hr;
 }

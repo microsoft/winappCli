@@ -51,6 +51,42 @@ internal static class DevToolsSecrets
     internal static bool PrintsSecret(object? value, string? text) =>
         value is not string && text is not null && !text.StartsWith('"') && RecordBraces.IsMatch(text) && SecretMember.IsMatch(text);
 
+    // A collection this large is not scanned: listing it is slow, and it is unlikely to be one of credentials.
+    private const int MaxKeys = 4096;
+
+    // Whether a list or dictionary would show a secret when bound: an entry keyed "...Password" ([Password, hunter2]), or
+    // an entry whose runtime type holds one, as in a list typed as object that holds records with a Password member.
+    internal static bool HoldsSecretEntry(object? value)
+    {
+        try
+        {
+            if (value is System.Collections.IDictionary dictionary)
+            {
+                return dictionary.Count <= MaxKeys &&
+                    (dictionary.Keys.Cast<object?>().Any(key => key is string name && IsSecretName(name)) ||
+                     dictionary.Values.Cast<object?>().Any(item => item is not null && HoldsSecret(item.GetType())));
+            }
+            if (value is System.Collections.ICollection { Count: <= MaxKeys } collection)
+            {
+                return collection.Cast<object?>().Any(item => item is not null &&
+                    ((KeyOf(item) is { } name && IsSecretName(name)) || HoldsSecret(item.GetType())));
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
+        {
+            return false;
+        }
+        return false;
+    }
+
+    private static string? KeyOf(object item)
+    {
+        var type = item.GetType();
+        return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(KeyValuePair<,>)
+            ? type.GetProperty("Key")?.GetValue(item) as string
+            : null;
+    }
+
     /// <summary>Forgets what was learned about types, after .NET Hot Reload changed them.</summary>
     internal static void ClearCache()
     {
