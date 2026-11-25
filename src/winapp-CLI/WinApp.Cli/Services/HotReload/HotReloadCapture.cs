@@ -38,6 +38,9 @@ internal sealed class HotReloadCapture : IDisposable
           <Target Name="WinAppHotReloadXamlInputs" AfterTargets="MarkupCompilePass2"
                   Condition="'$(WinAppHotReloadProject)' == '$(MSBuildProjectFullPath)' and '$(XamlGeneratedOutputPath)' != '' and Exists('$(XamlGeneratedOutputPath)input.json') and $([System.IO.File]::ReadAllText('$(XamlGeneratedOutputPath)input.json').Contains('RealBuildPass2'))">
             <Copy SourceFiles="$(XamlGeneratedOutputPath)input.json" DestinationFiles="$(WinAppHotReloadOut)\xaml-input.json" />
+            <!-- Which build's hot reload state the app runs with: another build that replaces it starts a new session. -->
+            <Delete Files="$(WinAppHotReloadOut)\xaml-build.txt" />
+            <Copy SourceFiles="$(XamlGeneratedOutputPath)XamlHotReload\build.txt" DestinationFiles="$(WinAppHotReloadOut)\xaml-build.txt" Condition="Exists('$(XamlGeneratedOutputPath)XamlHotReload\build.txt')" />
           </Target>
           <Target Name="WinAppHotReloadReferences" DependsOnTargets="ResolveReferences;FindReferenceAssembliesForReferences;WinAppHotReloadSettings">
             <WriteLinesToFile File="$(WinAppHotReloadOut)\references.txt" Overwrite="true" Lines="@(ReferencePathWithRefAssemblies->'/reference:%(FullPath)');@(Analyzer->'/analyzer:%(FullPath)');@(ReferenceCopyLocalPaths->'/copylocal:%(FullPath)|%(DestinationSubDirectory)')" />

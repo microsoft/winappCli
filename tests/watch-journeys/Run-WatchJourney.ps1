@@ -254,6 +254,14 @@ function Invoke-Journey([string]$Name) {
                 if (-not $compilers) { throw 'killCompiler: no XAML compiler service is running under this journey.' }
                 $compilers | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
             }
+            # A build the developer runs by hand while the watch runs (the app keeps its files open, so copying to bin
+            # can fail; obj is what matters).
+            if ($step.buildBefore) {
+                $csproj = (Get-ChildItem $projectDir -Filter *.csproj | Select-Object -First 1).FullName
+                $buildArgs = @('build', "`"$csproj`"", '-nologo', '-v:q') + $(if ($step.buildBefore -eq 'hotreload') { @('-p:EnableXamlHotReloadCodegen=true') } else { @() })
+                Start-Process dotnet -ArgumentList $buildArgs -WorkingDirectory $projectDir -WindowStyle Hidden -Wait -RedirectStandardOutput (Join-Path $dir "build-$($step.id).log")
+                $null = Read-NewLines
+            }
             $saveStart = Get-Date
             if ($step.op -eq 'key') {
                 if ($step.key -ne 'ctrl+r') { throw "Unknown key '$($step.key)'." }

@@ -63,7 +63,7 @@ internal static class Program
             }
             // WinUI's XAML compiler as a service and its runtime hook: XAML saves apply to the running app.
             string? xamlUnavailable = null;
-            using var xaml = engine is RoslynEngine ? XamlCompiler.Start(graph.CompilerArguments(), graph.ProjectDirectory, graph.XamlInputsAsBuilt, out xamlUnavailable) : null;
+            using var xaml = engine is RoslynEngine ? XamlCompiler.Start(graph.CompilerArguments(), graph.ProjectDirectory, graph.XamlInputsAsBuilt, graph.XamlBuildAsBuilt, out xamlUnavailable) : null;
             if (xamlUnavailable is not null)
             {
                 Console.WriteLine($"[watch] note: XAML saves aren't applied: {xamlUnavailable}");

@@ -105,7 +105,7 @@ internal sealed class XamlCompiler : IDisposable
     /// update (EnableXamlHotReloadCodegen, which only a WinUI with hot reload support honors: it leaves its state in
     /// obj\...\XamlHotReload); null otherwise, with the reason when it should have worked.
     /// </summary>
-    public static XamlCompiler? Start(string[] compilerArguments, string projectDirectory, string inputsAsBuilt, out string? unavailable)
+    public static XamlCompiler? Start(string[] compilerArguments, string projectDirectory, string inputsAsBuilt, string buildAsBuilt, out string? unavailable)
     {
         unavailable = null;
         // A source file argument, not an option naming it (/embed:...\XamlTypeInfo.g.cs).
@@ -114,6 +114,8 @@ internal sealed class XamlCompiler : IDisposable
         var intermediate = typeInfo is null ? null : Path.GetDirectoryName(Path.GetFullPath(Path.Combine(projectDirectory, typeInfo)))!;
         if (intermediate is null || !File.Exists(Path.Combine(intermediate, "XamlHotReload", "typeinfo.txt")))
         {
+            // The app's build made hot reload state, and another build removed it before this session started.
+            unavailable = File.Exists(buildAsBuilt) ? StateRemoved : null;
             return null;
         }
         // The build's own copy: an editor's design-time build (VS Code, Visual Studio) rewrites obj's input.json
@@ -145,9 +147,40 @@ internal sealed class XamlCompiler : IDisposable
                 }
             }
         }
-        var compiler = new XamlCompiler(exe, inputs, intermediate, projectDirectory, files);
+        var compiler = new XamlCompiler(exe, inputs, intermediate, projectDirectory, files)
+        {
+            // The build the running app came from; an older package writes no ID, and its state ties to "".
+            _buildId = ReadBuildId(File.Exists(buildAsBuilt) ? buildAsBuilt : Path.Combine(intermediate, "XamlHotReload", "build.txt")),
+        };
+        if (compiler.StateReplaced() is { } replaced)
+        {
+            unavailable = replaced;
+            return null;
+        }
         compiler._warm = compiler.WarmUpAsync();
         return compiler;
+    }
+
+    private const string StateRemoved =
+        "a build without XAML hot reload (dotnet build, for example) removed the hot reload state the running app was built with; press Ctrl+R to rebuild and restart";
+
+    private string _buildId = "";
+
+    private static string ReadBuildId(string path) => File.Exists(path) ? File.ReadAllText(path).Trim() : "";
+
+    /// <summary>
+    /// Why the compiler can't continue this session: another build replaced (or removed) the hot reload state in obj
+    /// that the running app was built with, and the compiler would continue from that build instead. Null if it's the same.
+    /// </summary>
+    public string? StateReplaced()
+    {
+        var state = Path.Combine(Intermediate, "XamlHotReload");
+        if (!File.Exists(Path.Combine(state, "typeinfo.txt")))
+        {
+            return StateRemoved;
+        }
+        return ReadBuildId(Path.Combine(state, "build.txt")) == _buildId ? null
+            : "another build replaced the XAML hot reload state the running app was built with (a build with EnableXamlHotReloadCodegen, or a second winapp); press Ctrl+R to restart from it";
     }
 
     /// <summary>From the app's compiler references: the package with Microsoft.WinUI.dll ships its XAML compiler in tools\net472.</summary>

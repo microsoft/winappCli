@@ -1,0 +1,49 @@
+{
+  "id": "other-builds",
+  "title": "A build the developer runs by hand while the watch runs: without hot reload (dotnet build), and with it",
+  "app": "winui",
+  "project": "App",
+  "process": "TodoBench",
+  "steps": [
+    {
+      "id": "b1-plain-build-then-save", "row": 63, "title": "dotnet build by hand, then a XAML save",
+      "buildBefore": "plain",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Contacts\"", "text": "Text=\"People\"",
+      "expect": { "v1": "live", "today": "not-applied", "stock": "not-applied", "reason": "removed the hot reload state" },
+      "checks": [ { "assert": "invoke", "target": "HelloButton" }, { "assert": "text-equals", "target": "StatusText", "value": "hello-v1" } ],
+      "note": "a build without EnableXamlHotReloadCodegen deletes obj\\...\\XamlHotReload\\ (the fork will leave it alone); until then nothing is applied and winapp says why"
+    },
+    {
+      "id": "b2-ctrl-r", "row": 63, "title": "Ctrl+R restarts from winapp's own build, with the save",
+      "op": "key", "key": "ctrl+r",
+      "expect": { "v1": "restart", "reason": "^requested \\(Ctrl\\+R\\)", "today": "restart" },
+      "checks": [ { "assert": "text-equals", "target": "Header", "value": "People" } ]
+    },
+    {
+      "id": "b3-live-again", "row": 63, "title": "Then XAML saves are live again",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"People\"", "text": "Text=\"Folks\"",
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
+      "checks": [ { "assert": "text-equals", "target": "Header", "value": "Folks" } ]
+    },
+    {
+      "id": "b4-hotreload-build-then-save", "row": 63, "title": "A build with the hot reload property by hand (another session), then a XAML save: not applied, and it says why",
+      "buildBefore": "hotreload",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Folks\"", "text": "Text=\"Crowd\"",
+      "expect": { "v1": "not-applied", "today": "not-applied", "stock": "not-applied", "reason": "another build replaced the XAML hot reload state" },
+      "checks": [ { "assert": "text-equals", "target": "Header", "value": "Folks" } ],
+      "note": "the compiler would continue from that build, which the running app doesn't have"
+    },
+    {
+      "id": "b5-ctrl-r", "row": 63, "title": "Ctrl+R restarts from it",
+      "op": "key", "key": "ctrl+r",
+      "expect": { "v1": "restart", "reason": "^requested \\(Ctrl\\+R\\)", "today": "restart" },
+      "checks": [ { "assert": "text-equals", "target": "Header", "value": "Crowd" } ]
+    },
+    {
+      "id": "b6-live-again", "row": 63, "title": "Then XAML saves are live again",
+      "file": "App/ContactsPage.xaml", "op": "replace", "find": "Text=\"Crowd\"", "text": "Text=\"Contacts\"",
+      "expect": { "v1": "live+note", "today": "applied", "stock": "not-applied" },
+      "checks": [ { "assert": "text-equals", "target": "Header", "value": "Contacts" } ]
+    }
+  ]
+}

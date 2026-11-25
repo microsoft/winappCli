@@ -98,6 +98,8 @@ to make the scoreboard green: change its expectation instead, and say why.
   runs once until the app starts, the session ends, the file is touched, and then the journey starts. An incremental
   XAML build orders the app's members differently from a full one; `winui-gallery` uses it, the other journeys start
   from a clean build, and parity always compares with a clean build.
+- `buildBefore: "plain"` runs `dotnet build` by hand before the step; `"hotreload"` adds
+  `-p:EnableXamlHotReloadCodegen=true`, as another session would (`other-builds`).
 
 The apps: `apps\winui` is a WinUI app (`App`, with `Core` and `Data` class libraries beside it) and `apps\reactor` is a
 Microsoft.UI.Reactor app. Both use the stock Windows App SDK 2.7.0 through `Microsoft.WindowsAppSDK.WinUI` and

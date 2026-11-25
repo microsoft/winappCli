@@ -94,6 +94,11 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
         var compiled = new XamlResult(null, new Dictionary<string, string>(), []);
         if (xaml is not null && documents.Count > 0)
         {
+            if (xaml.StateReplaced() is { } replaced)
+            {
+                // The compiler would continue from a build the running app doesn't have: nothing in this save is applied.
+                return new SaveResult(Outcome.NotApplied, $"{string.Join(", ", documents.Keys.Select(Relative))}: {replaced}");
+            }
             if (await NewPageWithoutCodeAsync(documents, cancellationToken).ConfigureAwait(false) is { } waiting)
             {
                 return new SaveResult(Outcome.Waiting, waiting);

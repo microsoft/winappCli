@@ -35,6 +35,9 @@ internal sealed class ProjectGraph
     /// <summary>The XAML compiler's inputs as the build used them (an editor's design-time build rewrites obj's).</summary>
     public string XamlInputsAsBuilt => Path.Combine(_capture, "xaml-input.json");
 
+    /// <summary>The ID of the build whose XAML hot reload state the running app has (XamlHotReload\build.txt).</summary>
+    public string XamlBuildAsBuilt => Path.Combine(_capture, "xaml-build.txt");
+
     /// <summary>The copy of an app source the build compiled, or null for other files.</summary>
     public string? AsBuiltCopy(string path) =>
         IsUnder(path, ProjectDirectory) && LibraryOf(path) is null ? Path.Combine(SourcesAsBuilt, Path.GetRelativePath(ProjectDirectory, path)) : null;
