@@ -299,12 +299,17 @@ public sealed class BindingDiagnosisTests
         public Dictionary<string, string> Creds { get; } = new() { ["User"] = "ada", ["Password"] = "hunter2" };
         public Dictionary<string, string> Labels { get; } = new() { ["Title"] = "Home" };
         public List<KeyValuePair<string, string>> Pairs { get; } = [new("DbPassword", "hunter2")];
+        public List<object> Logins { get; } = [new Login("ada", "hunter2")];
+        public Dictionary<string, object> ById { get; } = new() { ["1"] = new Login("ada", "hunter2") };
+        public List<object> Names { get; } = ["ada", 7];
     }
 
     [TestMethod]
     [DataRow("Creds")]
     [DataRow("Creds.Values")]
     [DataRow("Pairs")]
+    [DataRow("Logins")]
+    [DataRow("ById")]
     public void ADictionaryKeyedPasswordIsRedacted_EvenThroughOneOfItsMembers(string path)
     {
         using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate(path, new CredentialSource(), "Source", "{Binding}", "OneWay",
@@ -314,9 +319,11 @@ public sealed class BindingDiagnosisTests
     }
 
     [TestMethod]
-    public void ADictionaryWithoutAPasswordKeyIsShown()
+    [DataRow("Labels")]
+    [DataRow("Names")]
+    public void ADictionaryWithoutAPasswordKeyIsShown(string path)
     {
-        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate("Labels", new CredentialSource(), "Source", "{Binding}", "OneWay",
+        using var result = JsonDocument.Parse(BindingDiagnosis.Evaluate(path, new CredentialSource(), "Source", "{Binding}", "OneWay",
             typeof(object), "ItemsSource", () => null));
         Assert.IsFalse(result.RootElement.TryGetProperty("redacted", out _), result.RootElement.GetRawText());
     }

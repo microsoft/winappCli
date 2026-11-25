@@ -180,9 +180,20 @@ internal static class BindingDiagnosis
         }
 
         _ = sb;
-        return WalkAndJudge(element, dp, prop, path, source, sourceLabel, "{Binding}", parent.Mode.ToString(),
+        string answer = WalkAndJudge(element, dp, prop, path, source, sourceLabel, "{Binding}", parent.Mode.ToString(),
             parent.Converter, parent.ConverterParameter, parent.ConverterLanguage,
             EffectiveTrigger(parent.UpdateSourceTrigger.ToString(), element.GetType(), prop));
+        // The path may not say (an indexer is not walked), but the value the property now holds can: a list whose items
+        // print a password is shown item by item.
+        return answer.EndsWith('}') && !answer.Contains("\"redacted\":true", StringComparison.Ordinal) && TargetHoldsSecret(element, dp)
+            ? answer[..^1] + ",\"redacted\":true}"
+            : answer;
+    }
+
+    private static bool TargetHoldsSecret(FrameworkElement element, DependencyProperty dp)
+    {
+        object? held = element.GetValue(dp);
+        return held is not string && (DevToolsSecrets.HoldsSecret(held?.GetType()) || DevToolsSecrets.HoldsSecretEntry(held));
     }
 
     private static string DiagnoseCompiledBinding(FrameworkElement element, DependencyProperty dp, string prop, string path, string authored)
@@ -226,7 +237,7 @@ internal static class BindingDiagnosis
         for (int i = 0; i < segments.Length; i++)
         {
             string seg = segments[i];
-            keyedSecret |= DevToolsSecrets.HoldsSecretKey(current);
+            keyedSecret |= DevToolsSecrets.HoldsSecretEntry(current);
             if (declared is not null && Nullable.GetUnderlyingType(declared) is { } underlying && seg is "Value" or "HasValue")
             {
                 declared = seg == "Value" ? underlying : typeof(bool);
@@ -294,7 +305,7 @@ internal static class BindingDiagnosis
         secret |= DevToolsSecrets.HoldsSecret(declared) || keyedSecret;
         string Value(object? value)
         {
-            secret |= DevToolsSecrets.HoldsSecret(value?.GetType()) || DevToolsSecrets.HoldsSecretKey(value);
+            secret |= DevToolsSecrets.HoldsSecret(value?.GetType()) || DevToolsSecrets.HoldsSecretEntry(value);
             var text = secret ? DevToolsSecrets.Redacted : Str(value);
             secret |= text == DevToolsSecrets.Redacted && value is not string;
             return text;

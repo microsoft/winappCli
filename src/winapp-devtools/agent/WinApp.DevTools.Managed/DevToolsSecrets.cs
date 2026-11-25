@@ -54,19 +54,22 @@ internal static class DevToolsSecrets
     // A collection this large is not scanned: listing it is slow, and it is unlikely to be one of credentials.
     private const int MaxKeys = 4096;
 
-    // Whether a value holds entries by key, as a dictionary does, and a key ends in "Password". No member is named that
-    // way, but a list bound to it shows each entry ([Password, hunter2]), so it is treated as a secret.
-    internal static bool HoldsSecretKey(object? value)
+    // Whether a list or dictionary would show a secret when bound: an entry keyed "...Password" ([Password, hunter2]), or
+    // an entry whose runtime type holds one, as in a list typed as object that holds records with a Password member.
+    internal static bool HoldsSecretEntry(object? value)
     {
         try
         {
             if (value is System.Collections.IDictionary dictionary)
             {
-                return dictionary.Count <= MaxKeys && dictionary.Keys.Cast<object?>().Any(key => key is string name && IsSecretName(name));
+                return dictionary.Count <= MaxKeys &&
+                    (dictionary.Keys.Cast<object?>().Any(key => key is string name && IsSecretName(name)) ||
+                     dictionary.Values.Cast<object?>().Any(item => item is not null && HoldsSecret(item.GetType())));
             }
             if (value is System.Collections.ICollection { Count: <= MaxKeys } collection)
             {
-                return collection.Cast<object?>().Any(item => item is not null && KeyOf(item) is { } name && IsSecretName(name));
+                return collection.Cast<object?>().Any(item => item is not null &&
+                    ((KeyOf(item) is { } name && IsSecretName(name)) || HoldsSecret(item.GetType())));
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)

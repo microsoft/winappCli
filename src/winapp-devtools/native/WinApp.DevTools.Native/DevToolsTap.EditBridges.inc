@@ -568,9 +568,12 @@ static bool Route1Resolve(InstanceHandle wire, const std::wstring& prop, const s
     ok = ResolveWire_nolock((unsigned long long)wire, &ih, &e);
     ReleaseSRWLockShared(&g_censusLock);
     if (!ok) { Log(L"route1.resolve stale wire (%s)", e ? e : L"?"); return false; }
-    // A key written over a TwoWay binding goes through it into the app's data, so a key found in scope replaces the
-    // binding first, like Resource.assign. Any other key behaves as before.
-    if (!ObserveEditTarget_ui(ih, prop).bindingId.empty() && KeyInScope_ui(ih, resourceName)) ClearPropertyByPath(ih, prop);
+    // A key written over a TwoWay binding goes through it into the app's data, so the binding is removed first, as
+    // Resource.assign does. A failed lookup would remove it anyway. If it can't be removed, nothing is written.
+    if (!ObserveEditTarget_ui(ih, prop).bindingId.empty() && FAILED(ClearPropertyByPath(ih, prop))) {
+        Log(L"route1.resolve '%s': could not remove the binding first", prop.c_str());
+        return false;
+    }
     HRESULT hr = ResolveResourceApply(ih, prop, resourceName, asTheme);
     if (FAILED(hr)) { Log(L"route1.resolve '%s' <- %s hr=0x%08X", prop.c_str(), resourceName.c_str(), hr); return false; }
     Log(L"route1.resolve '%s' <- %s OK", prop.c_str(), resourceName.c_str());

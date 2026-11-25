@@ -707,6 +707,19 @@ int main()
         g_bindingLost.clear();
         DirtyErase(L"Background");
         SessionAssignErase(L"Background");
+        g_sessionKeyFn = [](InstanceHandle, const std::wstring&, std::wstring* key, bool* theme) {
+            *key = L"ProtocolBrush"; *theme = false; return true;
+        };
+        g_ctx.resolveFn = [](InstanceHandle, const std::wstring&, const std::wstring&, bool) {
+            g_sessionKeyFn = nullptr;  // the tap's record now holds the window's own key, which the bridge ignores
+            return true;
+        };
+        check(ApplyResourceKey(row, L"Background", L"WindowBrush", false, row.value, error) && DirtyFind(L"Background") &&
+              DirtyFind(L"Background")->kind == DevToolsOriginal::Resource && DirtyFind(L"Background")->key == L"ProtocolBrush",
+              "a window key over a key a protocol client assigned restores that client's key");
+        g_sessionKeyFn = nullptr;
+        DirtyErase(L"Background");
+        SessionAssignErase(L"Background");
         PendingKindErase(L"Background");
         g_ctx.writeFn = nullptr;
         g_ctx.resolveFn = nullptr;

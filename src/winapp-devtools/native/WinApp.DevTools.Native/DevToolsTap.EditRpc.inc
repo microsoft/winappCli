@@ -25,18 +25,6 @@ static void SessionEditNote(unsigned long long wire, const std::wstring& prop, D
     g_sessionEdits[{ wire, prop }] = std::move(edit);
 }
 
-// The in-app window's view of a key a protocol client assigned, so it edits and undoes that key, not the XAML's. A key
-// the window assigned itself is left to the window's own record.
-static bool WindowSessionKeyBridge(InstanceHandle wire, const std::wstring& prop, std::wstring* key, bool* theme)
-{
-    DevToolsSessionEdit record;
-    if (!key || !theme || !SessionEditFind((unsigned long long)wire, prop, &record) || !record.resource || record.byWindow)
-        return false;
-    *key = record.key;
-    *theme = record.theme;
-    return true;
-}
-
 // A literal write forgets a resource record: the value is no longer the key's. A binding record checks itself (by the
 // expression's runtime handle), and a TwoWay binding keeps its expression through a write, so it is kept then.
 static void SessionEditForget(unsigned long long wire, const std::wstring& prop, bool resourceOnly)
@@ -155,8 +143,6 @@ static winrt::Windows::Foundation::IInspectable KeyValueInScope_ui(InstanceHandl
         return nullptr;
     }
 }
-
-static bool KeyInScope_ui(InstanceHandle ih, const std::wstring& key) { return KeyValueInScope_ui(ih, key) != nullptr; }
 
 // UI thread. Whether the property's local value is still the one `key` gives where the element looks it up: the same
 // object, or for a value type the same text. App code may have set something else since. 1 yes, 0 no, -1 when
@@ -289,6 +275,26 @@ static DevToolsReadProp ReadEditedRow_ui(InstanceHandle ih, const std::wstring& 
     return {};
 }
 
+// The in-app window's view of a key a protocol client assigned, so it edits and undoes that key, not the XAML's. A key
+// the window assigned itself is left to the window's own record. UI thread, like the window. The same check as a
+// protocol edit's undo: the property must still hold that key's value.
+static bool WindowSessionKeyBridge(InstanceHandle wire, const std::wstring& prop, std::wstring* key, bool* theme)
+{
+    DevToolsSessionEdit record;
+    if (!key || !theme || !SessionEditFind((unsigned long long)wire, prop, &record) || !record.resource || record.byWindow)
+        return false;
+    InstanceHandle ih = 0; const wchar_t* e = nullptr;
+    { CensusSharedLock lock; if (!ResolveWire_nolock((unsigned long long)wire, &ih, &e)) return false; }
+    const DevToolsReadProp row = ReadEditedRow_ui(ih, prop);
+    DevToolsEditObserved observed = ObserveEditTarget_ui(ih, prop);
+    observed.sessionKeyMatch = KeyMatch_ui(ih, prop, row, record.key);
+    const DevToolsEditPrior now = DevToolsClassifyPrior(row, &record, observed);
+    if (now.kind != DevToolsPriorKind::Resource || now.key != record.key) return false;
+    *key = record.key;
+    *theme = record.theme;
+    return true;
+}
+
 // After an install: the value the new binding shows, and whether it prints a secret its path does not name (a
 // record's text lists every member). Checks the text, then the managed agent's redaction, which also sees a declared
 // type whose value is null now. Not on the UI thread. False when the UI thread did not answer.
@@ -346,9 +352,15 @@ static DevToolsRollback RollBackEdit(unsigned long long wire, const std::wstring
             out.restored = true;
             break;
         case DevToolsPriorKind::Literal:
-            out.restored = EditStepOnUi(wire, [prop, prior](InstanceHandle ih) {
-                return SetLiteral(ih, prop, prior.writeType, prior.value);
-            });
+            // The exact object first, so a brush shared with other elements stays shared; then its text.
+            if (local.had && local.restorable)
+                out.restored = EditStepOnUi(wire, [prop, local](InstanceHandle ih) {
+                    return RestorePriorLocalValue(ih, FindPropIndex(ih, prop), local);
+                });
+            if (!out.restored)
+                out.restored = EditStepOnUi(wire, [prop, prior](InstanceHandle ih) {
+                    return SetLiteral(ih, prop, prior.writeType, prior.value);
+                });
             break;
         case DevToolsPriorKind::Resource:
             out.restored = EditStepOnUi(wire, [wire, prop, prior](InstanceHandle ih) {
@@ -493,14 +505,14 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
 
     // A key written over a binding that is left in place goes through it into the app's data, so clear it first.
     const bool clearFirst = prior.kind == DevToolsPriorKind::Binding || prior.kind == DevToolsPriorKind::InstalledBinding;
-    struct Outcome { bool applied = false; DevToolsReadProp after; const wchar_t* error = nullptr; };
+    struct Outcome { bool applied = false, kept = false; DevToolsReadProp after; const wchar_t* error = nullptr; };
     auto out = std::make_shared<Outcome>();
     bool completed = false;
     const HRESULT hr = RunOnUiThread([wire, prop, key, theme, clearFirst, out]() -> HRESULT {
         InstanceHandle ih = 0;
         { CensusSharedLock lock; if (!ResolveWire_nolock(wire, &ih, &out->error)) return E_INVALIDARG; }
         if (FindPropIndex(ih, prop) == 0xFFFFFFFF || !WindowElementCurrent_ui(ih)) return E_INVALIDARG;
-        if (clearFirst) ClearPropertyByPath(ih, prop);
+        if (clearFirst && FAILED(ClearPropertyByPath(ih, prop))) { ClearOriginatedError(); out->kept = true; return S_OK; }
         const HRESULT applied = ResolveResourceApply(ih, prop, key, theme);
         ClearOriginatedError();
         if (FAILED(applied)) return S_OK;
@@ -515,6 +527,13 @@ static std::wstring RpcResourceAssign(DevToolsConn* conn, const std::wstring& id
         if (completed) ReleaseHeldOriginal(wire, prop, prior);
         return DevToolsRpcError(id, DevToolsErr::NotOnDispatcher, L"The app's UI thread did not answer.", L"ui-thread",
                                 L"\"hresult\":\"" + HrStr(hr) + L"\"");
+    }
+    if (out->kept) {
+        ReleaseHeldOriginal(wire, prop, prior);
+        return DevToolsRpcError(id, DevToolsErr::CapabilityUnsupported, L"DevTools could not remove the binding on " + prop +
+            L" before assigning resource '" + key + L"', so nothing was changed. A key written over a binding would reach "
+            L"the app's data.", L"binding-unavailable", L"\"key\":\"" + DevToolsJsonEscape(key) + L"\",\"prop\":\"" +
+            DevToolsJsonEscape(prop) + L"\"");
     }
     if (!out->applied) {
         // A failed lookup can clear the property: put back what it held, the same way a refused install does.

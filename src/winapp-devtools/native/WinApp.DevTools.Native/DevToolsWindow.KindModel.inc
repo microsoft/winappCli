@@ -429,10 +429,12 @@ static bool ApplyLiteralValue(const std::wstring& path, const std::wstring& type
 // Resource assignment records a session witness because runtime local values forget the key.
 // A failed lookup can clear the target. Restore the prior session key, then authored key, then
 // literal when available; report both lookup and restoration outcomes.
-static bool RestoreAfterFailedResolve(const DevToolsCardRow& r, const std::wstring& path, const std::wstring& preVal)
+// `assigned` is the session key read before the lookup; a protocol client's key can't be read after it cleared the value.
+static bool RestoreAfterFailedResolve(const DevToolsCardRow& r, const std::wstring& path, const std::wstring& preVal,
+                                      const SessionAssign* assigned)
 {
     if (!g_ctx.resolveFn) return false;
-    if (const SessionAssign* sa = SessionAssignFind(path))
+    if (const SessionAssign* sa = assigned)
         if (KindIsResource(sa->kind))
             return g_ctx.resolveFn(g_selWire, path, MarkupInner(sa->detail), sa->kind == DevToolsKind::Theme);
     if (!r.authoredKey.empty() && (r.authoredKind == L"themeResource" || r.authoredKind == L"staticResource"))
@@ -453,6 +455,14 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
     if (key.empty()) { error = L"Type a resource key first."; SetStatusText(error); return false; }
     CheckEditRecordsNow(g_selWire);
     const DevToolsKind was = CurrentKindOf(r, path);
+    // What Restore puts back, read before the lookup: it replaces any key record a protocol client left.
+    EditRecord first;
+    const AppChange* appChange = AppChangedFind(g_selWire, path);
+    const std::wstring before = appChange ? appChange->value : preVal;
+    const bool haveFirst = !DirtyFind(path) && OriginalFor(path, before, first);
+    const SessionAssign* found = SessionAssignFind(path);
+    const bool hadAssign = found != nullptr;
+    const SessionAssign priorAssign = found ? *found : SessionAssign{};
     // CHECK THE RETURNED VALUE, not just that the call was made. The runtime's own return says nothing
     // -- IVisualTreeService3::ResolveResource answers S_OK for a key the app does not have -- so what is
     // being checked here is the tap's verdict, which is built from the diagnostics callback the failure
@@ -461,7 +471,7 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
     if (!g_ctx.resolveFn(g_selWire, path, key, asTheme)) {
         // The failed lookup and the put-back are DevTools' changes, not the app's: rebaseline around them.
         RebaselineRecords(g_selWire);
-        const bool restored = RestoreAfterFailedResolve(r, path, preVal);
+        const bool restored = RestoreAfterFailedResolve(r, path, preVal, hadAssign ? &priorAssign : nullptr);
         RebaselineRecords(g_selWire);
         // A failed lookup removes a binding; only Restore binding can put it back.
         const bool bindingLost = was == DevToolsKind::Binding || was == DevToolsKind::XBind;
@@ -478,7 +488,9 @@ static bool ApplyResourceKey(const DevToolsCardRow& r, const std::wstring& path,
     }
     // Record the original before the session witness changes, so a first edit that assigns a resource still
     // remembers what the property was before it. Undo also clears the session assignment witness.
-    NoteChange(path, preVal, std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}");
+    const std::wstring assigned = std::wstring(asTheme ? L"{ThemeResource " : L"{StaticResource ") + key + L"}";
+    if (haveFirst && !DirtyFind(path) && assigned != before) g_editRecords.push_back(std::move(first));
+    NoteChange(path, preVal, assigned);
     // A key over a binding replaced it, as a literal does: offer Restore binding, not a Restore of its last value.
     if (was == DevToolsKind::Binding || was == DevToolsKind::XBind) { DirtyErase(path); NoteBindingLost(path); }
     NoteSessionAssign(path, asTheme ? DevToolsKind::Theme : DevToolsKind::Static,

@@ -1368,6 +1368,11 @@ static void CheckResourceAssign(const std::function<void(bool,const char*)>& che
             SessionEditNoteResource_ui(901, PackWire_nolock(901), L"Text", L"Greeting", false, L"from Greeting");
             return S_OK;
         });
+        const std::wstring keyValue=diagnostics.text.text;
+        diagnostics.text.text=L"set by app code";
+        check(!WindowSessionKeyBridge(static_cast<InstanceHandle>(PackWire_nolock(901)),L"Text",&windowKey,&windowTheme),
+            "nor one the property no longer holds, as after app code or an undo replaced it");
+        diagnostics.text.text=keyValue;
     }
     check(result && result->GetString(L"after")==L"from Greeting" && result->GetString(L"before")==L"Hello" &&
         result->GetString(L"kind")==L"staticResource" && !result->Find(L"previousKind"),

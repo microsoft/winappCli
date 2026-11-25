@@ -357,10 +357,10 @@ winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 1
   DataContext. Use it to switch an `{x:Bind}` property to `{Binding}`; the app's compiled
   bindings can still overwrite the property when they next update. Converter, source and
   other options are not kept; `warning` lists them. A path that reads a password, or whose
-  value prints one (such as a record with a `Password` member, or a dictionary with a
-  `Password` key), fails with
-  `refused-secret`. DevTools puts the previous value back when it can; the message says
-  if it couldn't, or if it had to refresh the page's compiled bindings to do it.
+  value prints one (such as a record with a `Password` member, a list of such records, or
+  a dictionary with a `Password` key), fails with `refused-secret`. DevTools puts the
+  previous value back when it can; the message says if it couldn't, or if it had to
+  refresh the page's compiled bindings to do it.
 - `Binding.writeSource` writes through a TwoWay `{Binding}` to its source and keeps the
   binding. It needs the managed agent, which `winapp run --devtools on` and
   `winapp devtools attach` load into a .NET app. It has no `undo`: by the time you undo,
@@ -368,8 +368,9 @@ winapp devtools call Binding.writeSource handle=123 prop=Text value="Draft" -a 1
   `sourceBefore`. That field is missing when the old value has no text form (for example
   null) or is very long.
 
-When `Binding.install` or `Binding.writeSource` can't make the change, it fails with
-`binding-unavailable` and the error message says why.
+When `Binding.install` or `Binding.writeSource` can't make the change, or `Resource.assign`
+can't remove a binding before assigning a key, it fails with `binding-unavailable` and the
+error message says why.
 
 `Resource.assign` and `Binding.install` return `before`, `after` and `undo`: the calls to
 run, in order, to put back what the edit replaced. For example, undoing `Binding.install`
