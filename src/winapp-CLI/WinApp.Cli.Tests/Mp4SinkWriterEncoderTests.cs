@@ -63,7 +63,7 @@ public class Mp4SinkWriterEncoderTests
 
             var trimmed = Path.Join(dir, "trimmed.mp4");
             var sources = new RecordTrimSources(paddedVideo, PaddedStartFrame: 10,
-                UiRecordingService.PlanWindowCrop(new(32, 16, 96, 80), 128, 96), Background: 0x00FF00) { WindowVideo = windowVideo };
+                UiRecordingService.PlanWindowCrop((32, 16, 96, 80), 128, 96, 64, 64, 0), Background: 0x00FF00) { WindowVideo = windowVideo };
             Mp4Trimmer.Trim(sources, trimmed, new RecordTrimPlan(128, 96, 32, 0, 64, 80, 64, 80, 64, 80), fps: 1);
 
             var frames = Mp4Trimmer.ReadFrames(trimmed, 64, 80).ToList();

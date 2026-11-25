@@ -56,7 +56,7 @@ internal sealed partial class UiRecordingService
     /// that shows them. The capture also stops at the monitor's edge, where no popup can open.
     /// </summary>
     internal const int AutoPopupMargin = 400;
-    /// <summary>Test seam: re-encodes <c>source</c> to <c>destination</c> with the plan applied to every frame.</summary>
+
     /// <summary>Test seam: joins the sources into <c>destination</c>, with the plan applied to every frame.</summary>
     internal static Action<RecordTrimSources, string, RecordTrimPlan, int> s_trimVideo = Mp4Trimmer.Trim;
 
@@ -67,20 +67,27 @@ internal sealed partial class UiRecordingService
         => (uint)Math.Clamp((long)width * height * fps / 2, 4_000_000, 48_000_000);
 
     /// <summary>
-    /// Video size for a window frame with an empty border around it. <paramref name="maxEdge"/> is applied to
-    /// the window rather than the whole frame, so the border doesn't make the window smaller in the video.
+    /// Largest frame, in 16x16 macroblocks, the Media Foundation H.264 encoder accepts (H.264 level 5.1/5.2,
+    /// for example 4096x2304). Larger frames fail with MF_E_INVALIDMEDIATYPE.
     /// </summary>
-    internal static (int EncoderW, int EncoderH, int DisplayW, int DisplayH) ComputePaddedTargetSize(
-        int frameWidth, int frameHeight, PointerRect window, int maxEdge)
+    internal const int MaxEncoderMacroblocks = 36_864;
+
+    /// <summary>
+    /// Like <see cref="ComputeTargetSize"/>, but also scales down a frame the H.264 encoder would reject.
+    /// A window with a wide border can be much larger than any monitor.
+    /// </summary>
+    internal static (int EncoderW, int EncoderH, int DisplayW, int DisplayH) ComputeEncodableTargetSize(
+        int width, int height, int maxEdge)
     {
-        var windowLongest = Math.Max(window.Right - window.Left, window.Bottom - window.Top);
-        if (maxEdge <= 0 || windowLongest <= maxEdge)
+        var size = ComputeTargetSize(width, height, maxEdge);
+        static long Macroblocks(int w, int h) => (long)((w + 15) / 16) * ((h + 15) / 16);
+        if (Macroblocks(size.EncoderW, size.EncoderH) <= MaxEncoderMacroblocks)
         {
-            return ComputeTargetSize(frameWidth, frameHeight, 0);
+            return size;
         }
-        var scale = (double)maxEdge / windowLongest;
-        return ComputeTargetSize(
-            Math.Max(1, (int)Math.Round(frameWidth * scale)), Math.Max(1, (int)Math.Round(frameHeight * scale)), 0);
+        var scale = Math.Sqrt(MaxEncoderMacroblocks * 256.0 / ((double)size.EncoderW * size.EncoderH));
+        // Shrink a little past the exact scale, so rounding each edge up to a whole macroblock still fits.
+        return ComputeTargetSize(width, height, Math.Max(64, (int)(Math.Max(size.EncoderW, size.EncoderH) * scale) - 32));
     }
 
     /// <summary>Maps a rectangle in a recorded frame to video pixels, rounding outward.</summary>
@@ -122,18 +129,32 @@ internal sealed partial class UiRecordingService
     }
 
     /// <summary>
-    /// Plans the cut from a padded frame down to just the window, at the window's own size so the cut is a
-    /// plain copy. <paramref name="window"/> is the window's area in the padded frame.
+    /// Plans the cut from a padded frame down to just the window. <paramref name="window"/> is the window's
+    /// area in the padded frame; it is rounded inward so no border shows along the window's edge. The output
+    /// is <paramref name="windowWidth"/>×<paramref name="windowHeight"/> sized for <paramref name="maxEdge"/>,
+    /// exactly as a recording with no border.
     /// </summary>
-    internal static RecordTrimPlan PlanWindowCrop(PointerRect window, int paddedWidth, int paddedHeight)
+    internal static RecordTrimPlan PlanWindowCrop(
+        (double Left, double Top, double Right, double Bottom) window, int paddedWidth, int paddedHeight,
+        int windowWidth, int windowHeight, int maxEdge)
     {
-        var left = Math.Clamp(window.Left, 0, paddedWidth - 2);
-        var top = Math.Clamp(window.Top, 0, paddedHeight - 2);
-        // Even sizes, inside the window, so no border shows along its edge.
-        var width = Math.Max(2, Math.Min(window.Right, paddedWidth) - left) & ~1;
-        var height = Math.Max(2, Math.Min(window.Bottom, paddedHeight) - top) & ~1;
-        var (outputWidth, outputHeight, displayWidth, displayHeight) = ComputeTargetSize(width, height, 0);
+        var left = Math.Clamp((int)Math.Ceiling(window.Left - 1e-6), 0, paddedWidth - 1);
+        var top = Math.Clamp((int)Math.Ceiling(window.Top - 1e-6), 0, paddedHeight - 1);
+        var width = Math.Max(1, Math.Min((int)Math.Floor(window.Right + 1e-6), paddedWidth) - left);
+        var height = Math.Max(1, Math.Min((int)Math.Floor(window.Bottom + 1e-6), paddedHeight) - top);
+        var (outputWidth, outputHeight, displayWidth, displayHeight) = ComputeTargetSize(windowWidth, windowHeight, maxEdge);
         return new(paddedWidth, paddedHeight, left, top, width, height, outputWidth, outputHeight, displayWidth, displayHeight);
+    }
+
+    /// <summary>Where a rectangle in a recorded frame lands in the video, in fractional video pixels.</summary>
+    internal static (double Left, double Top, double Right, double Bottom) MapToVideoExact(PointerRect area,
+        int sourceWidth, int sourceHeight, int encoderWidth, int encoderHeight, int displayWidth, int displayHeight)
+    {
+        var (offsetX, offsetY, fitWidth, fitHeight) = CaptureGeometry.ComputeFittedContentRect(
+            sourceWidth, sourceHeight, encoderWidth, encoderHeight, displayWidth, displayHeight);
+        var scaleX = (double)fitWidth / sourceWidth;
+        var scaleY = (double)fitHeight / sourceHeight;
+        return (offsetX + area.Left * scaleX, offsetY + area.Top * scaleY, offsetX + area.Right * scaleX, offsetY + area.Bottom * scaleY);
     }
 
     internal static bool Contains(PointerRect outer, PointerRect inner)

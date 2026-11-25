@@ -342,18 +342,20 @@ internal sealed partial class UiRecordingService(
             }
 
             var mode = useScreen ? "screen" : grabber?.RootCaptureBackend ?? "printwindow";
-            // Whole-window frames can carry an empty border around the window for its popups. The border is
-            // scaled with the window, so --max-edge applies to the window itself, not to the border.
+            // Whole-window frames can carry an empty border around the window for its popups.
             var padded = isWholeWindowWgc && windowInFrame is not null;
             // Automatic padding records the window as usual and, only once a popup reaches past the window,
-            // also records the padded frames; the two are joined and trimmed to the used area at the end.
+            // also records the padded frames; the two are joined and trimmed to the used area at the end, where
+            // --max-edge is applied. A fixed border is part of the final video, so --max-edge applies to it now.
             var autoPadding = padded && options.Padding is null;
             int? background = isWholeWindowWgc ? options.BackgroundColor : null;
             var (encoderW, encoderH, displayW, displayH) = padded
-                ? ComputePaddedTargetSize(cropW, cropH, windowInFrame!.Value, options.MaxEdge)
+                ? ComputeEncodableTargetSize(cropW, cropH, autoPadding ? 0 : options.MaxEdge)
                 : ComputeTargetSize(cropW, cropH, options.MaxEdge);
             var windowCrop = autoPadding
-                ? PlanWindowCrop(MapToVideo(windowInFrame!.Value, cropW, cropH, encoderW, encoderH, displayW, displayH), encoderW, encoderH)
+                ? PlanWindowCrop(MapToVideoExact(windowInFrame!.Value, cropW, cropH, encoderW, encoderH, displayW, displayH),
+                    encoderW, encoderH, windowInFrame.Value.Right - windowInFrame.Value.Left,
+                    windowInFrame.Value.Bottom - windowInFrame.Value.Top, options.MaxEdge)
                 : null;
             var coordinates = desktopBounds is { } sourceBounds
                 ? DescribeCoordinates(sourceBounds, encoderW, encoderH, displayW, displayH)
@@ -449,9 +451,10 @@ internal sealed partial class UiRecordingService(
 
             // The part of the padded video that ever showed the window or a popup, in video pixels.
             PointerRect? usedArea = null;
+            var paddedEncoderFailed = false;
             void TrackUsedArea(int sourceWidth, int sourceHeight)
             {
-                if (!autoPadding)
+                if (!autoPadding || paddedEncoderFailed)
                 {
                     return;
                 }
@@ -459,13 +462,23 @@ internal sealed partial class UiRecordingService(
                 var inVideo = MapToVideo(content, sourceWidth, sourceHeight, encoderW, encoderH, displayW, displayH);
                 usedArea = usedArea is { } soFar ? Union(soFar, inVideo) : inVideo;
 
-                // The first time a popup reaches past the window, start recording the padded frames too.
-                if (paddedEncoder is null && grabber.WindowBounds is { } window && !Contains(window, content))
+                // Record the padded frames too once a popup reaches past the window, or once the window is
+                // resized: either way the window-only crop no longer shows what the window shows.
+                if (paddedEncoder is null && grabber.WindowBounds is { } window &&
+                    (!Contains(window, content) || sourceWidth != cropW || sourceHeight != cropH))
                 {
-                    paddedStartFrame = frameIndex;
-                    paddedEncoder = Mp4SinkWriterEncoder.s_createNoClobber(
-                        paddedPath!, encoderW, encoderH, options.Fps, IntermediateBitrate(encoderW, encoderH, options.Fps));
-                    _logger.LogDebug("A popup reached past the window at frame {Frame}; recording the padded frames too", frameIndex);
+                    try
+                    {
+                        paddedEncoder = Mp4SinkWriterEncoder.s_createNoClobber(
+                            paddedPath!, encoderW, encoderH, options.Fps, IntermediateBitrate(encoderW, encoderH, options.Fps));
+                        paddedStartFrame = frameIndex;
+                        _logger.LogDebug("The window's content outgrew it at frame {Frame}; recording the padded frames too", frameIndex);
+                    }
+                    catch (Exception ex) when (IsRecoverableVideoOutputFailure(ex))
+                    {
+                        _logger.LogDebug(ex, "Could not start recording the padded frames");
+                        paddedEncoderFailed = true;
+                    }
                 }
             }
 
@@ -515,7 +528,21 @@ internal sealed partial class UiRecordingService(
                 if (windowCrop is not null)
                 {
                     encoder.WriteFrame(windowCrop.Apply(processedFrame), sampleIndex * frameDurationHns, frameDurationHns);
-                    paddedEncoder?.WriteFrame(processedFrame, sampleIndex * frameDurationHns, frameDurationHns);
+                    if (paddedEncoder is not null)
+                    {
+                        try
+                        {
+                            paddedEncoder.WriteFrame(processedFrame, sampleIndex * frameDurationHns, frameDurationHns);
+                        }
+                        catch (Exception ex) when (IsRecoverableVideoOutputFailure(ex))
+                        {
+                            // Keep the window recording; the padded one is only needed to add the popups.
+                            _logger.LogDebug(ex, "Recording the padded frames failed");
+                            paddedEncoder.Dispose();
+                            paddedEncoder = null;
+                            paddedEncoderFailed = true;
+                        }
+                    }
                 }
                 else
                 {
@@ -761,10 +788,15 @@ internal sealed partial class UiRecordingService(
                 catch (Exception ex) when (ex is not OperationCanceledException && IsRecoverableVideoOutputFailure(ex))
                 {
                     _logger.LogDebug(ex, "Could not add the menus that reached past the window");
-                    trimWarning = "A menu or other popup reached past the window, but the recording could not be " +
-                        $"widened to show it, so it is cut off at the window's edge: {ex.Message}";
+                    trimWarning = "A menu or other popup reached past the window, or the window was resized, but the " +
+                        $"recording could not be widened to show it, so only the window's first area is shown: {ex.Message}";
                     trim = null;
                 }
+            }
+            if (paddedEncoderFailed && trim is null)
+            {
+                trimWarning ??= "A menu or other popup reached past the window, or the window was resized, but the " +
+                    "recording could not be widened to show it, so only the window's first area is shown.";
             }
             if (options.Padding > 0 && !useWgc && !useScreen && string.IsNullOrEmpty(elementId))
             {
