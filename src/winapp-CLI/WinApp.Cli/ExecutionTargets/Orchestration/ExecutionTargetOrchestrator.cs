@@ -383,13 +383,23 @@ internal sealed class ExecutionTargetOrchestrator(
 
                 // A viewer this preparation just opened is still taking the session over. Waiting
                 // for it here, under the connection lock, keeps a second command from finding that
-                // window, skipping the wait, and failing while the guest still has no input.
+                // window, skipping the wait, and failing while the guest still has no input. One
+                // deadline covers every request, so a guest that stops answering cannot hold the lock.
                 if (options.RequireInteractiveDesktop && connection.ClientConnected)
                 {
-                    settled = await WaitForRealInputAsync(
-                        channel,
-                        await channel.GetCapabilitiesAsync(cancellationToken).ConfigureAwait(false),
-                        cancellationToken).ConfigureAwait(false);
+                    using var settle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    settle.CancelAfter(ClientSettleTimeout);
+                    try
+                    {
+                        settled = await WaitForRealInputAsync(
+                            channel,
+                            await channel.GetCapabilitiesAsync(settle.Token).ConfigureAwait(false),
+                            settle.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        // Out of time; the ordinary check below reports what the guest says now.
+                    }
                 }
             }
 
