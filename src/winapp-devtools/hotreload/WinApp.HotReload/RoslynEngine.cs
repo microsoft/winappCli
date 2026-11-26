@@ -341,6 +341,9 @@ internal sealed class RoslynEngine : ICSharpEngine
         return [.. notes.Distinct()];
     }
 
+    public bool Has(string path, string text) =>
+        Project.Documents.FirstOrDefault(d => SamePath(d.FilePath, path)) is { } document && document.TryGetText(out var current) && current.ToString() == text;
+
     public async Task<byte[]?> AppImageAsync(IReadOnlyList<string> files, CancellationToken cancellationToken)
     {
         await _warmUp.ConfigureAwait(false);

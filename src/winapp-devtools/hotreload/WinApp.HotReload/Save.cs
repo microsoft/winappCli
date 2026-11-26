@@ -105,7 +105,7 @@ internal sealed class Save(ICSharpEngine engine, ProjectGraph graph, XamlCompile
             }
             // Pass 1 doesn't need the image: it's built alongside.
             var image = _codeChanged ? engine.AppImageAsync(code.Where(f => Is(f, ".cs")).ToList(), cancellationToken) : Task.FromResult<byte[]?>(null);
-            compiled = await xaml.CompileAsync([.. documents.Keys], image, cancellationToken).ConfigureAwait(false);
+            compiled = await xaml.CompileAsync([.. documents.Keys], image, engine.Has, cancellationToken).ConfigureAwait(false);
             if (compiled.Error is { } xamlError)
             {
                 return new SaveResult(Outcome.Error, xamlError);

@@ -41,4 +41,28 @@ public sealed class XamlCompilerTests
         Assert.AreEqual(21, XamlCompiler.XamlLine(generated, 4));
         Assert.IsNull(XamlCompiler.XamlLine("class Page {}", 1));
     }
+
+    [TestMethod]
+    public void Pass1RunsOnlyForChangesItsCodeIsMadeFrom()
+    {
+        static string Xaml(string body, string page = "MainPage") => $"""
+            <Page x:Class="App.{page}" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                <StackPanel x:Name="Panel">{body}</StackPanel>
+            </Page>
+            """;
+        static string? Shape(string body) => XamlCompiler.Pass1Shape(Xaml(body));
+        var shape = Shape("""<TextBlock Text="Hello" />""");
+
+        foreach (var same in new[] { """<TextBlock Text="Bye" Margin="8" />""", """<TextBlock Text="Hello" /><Button Click="OnClick" />""" })
+        {
+            Assert.AreEqual(shape, Shape(same), same);
+        }
+        foreach (var changed in new[] { """<TextBlock x:Name="Greeting" />""", """<Button Name="Panel2" />""", """<TextBlock Text="{x:Bind Title}" />""",
+            """<TextBlock x:Load="False" />""", """<TextBlock><TextBlock.Text>{x:Bind Title}</TextBlock.Text></TextBlock>""" })
+        {
+            Assert.AreNotEqual(shape, Shape(changed), changed);
+        }
+        Assert.AreNotEqual(shape, XamlCompiler.Pass1Shape(Xaml("""<TextBlock Text="Hello" />""", "OtherPage")));
+        Assert.IsNull(XamlCompiler.Pass1Shape("<Page"));
+    }
 }

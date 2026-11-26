@@ -113,5 +113,7 @@ public sealed class SaveTests
         }
 
         public Task<byte[]?> AppImageAsync(IReadOnlyList<string> files, CancellationToken cancellationToken) => Task.FromResult<byte[]?>(null);
+
+        public bool Has(string path, string text) => false;
     }
 }

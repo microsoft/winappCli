@@ -20,6 +20,9 @@ internal interface ICSharpEngine
     /// saved, so the XAML compiler sees members just added. Null when that code doesn't compile yet.
     /// </summary>
     Task<byte[]?> AppImageAsync(IReadOnlyList<string> files, CancellationToken cancellationToken);
+
+    /// <summary>Whether the engine's code for <paramref name="path"/> is <paramref name="text"/>: generated code it already has.</summary>
+    bool Has(string path, string text);
 }
 
 /// <param name="Files">Saved files (full paths) the engine owns: the app's .cs files and its project file.</param>
@@ -46,4 +49,6 @@ internal sealed class RestartingEngine(string reason) : ICSharpEngine
 
     public Task<byte[]?> AppImageAsync(IReadOnlyList<string> files, CancellationToken cancellationToken) =>
         Task.FromResult<byte[]?>(null);
+
+    public bool Has(string path, string text) => false;
 }

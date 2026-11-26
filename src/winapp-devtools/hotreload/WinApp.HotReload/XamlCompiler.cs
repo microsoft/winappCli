@@ -221,12 +221,23 @@ internal sealed class XamlCompiler : IDisposable
     /// Compiles <paramref name="xaml"/> (full paths) as a build would: pass 1 (the fields and InitializeComponent the
     /// app's code compiles against), then pass 2 (.g.cs and .xbf) against <paramref name="appImage"/>, the app's types
     /// now (built while pass 1 runs); pass 2 also returns XamlTypeInfo.g.cs when the pages use a type or member it didn't describe.
+    /// Pass 2 doesn't need pass 1, so a page whose pass 1 code can't have changed (<see cref="Pass1Shape"/>) and that
+    /// <paramref name="has"/> (the C# engine) still has from its last pass 1 skips it.
     /// </summary>
-    public async Task<XamlResult> CompileAsync(IReadOnlyList<string> xaml, Task<byte[]?> appImage, CancellationToken cancellationToken)
+    public async Task<XamlResult> CompileAsync(IReadOnlyList<string> xaml, Task<byte[]?> appImage, Func<string, string, bool> has, CancellationToken cancellationToken)
     {
         await _warm.ConfigureAwait(false);
         var files = xaml.ToList();
-        var pass1 = await SendAsync(new ServeRequest { Pass = 1, Files = files }, cancellationToken).ConfigureAwait(false);
+        var shapes = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
+        {
+            shapes[file] = Pass1Shape(await RoslynEngine.ReadSharedAsync(file, cancellationToken).ConfigureAwait(false));
+        }
+        var reused = files.Where(f => shapes[f] is { } shape && _pass1.TryGetValue(f, out var last) && last.Shape == shape && has(last.Path, last.Code))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var pass1Files = files.Where(f => !reused.Contains(f)).ToList();
+        var pass1 = pass1Files.Count == 0 ? new ServeResponse { Success = true }
+            : await SendAsync(new ServeRequest { Pass = 1, Files = pass1Files }, cancellationToken).ConfigureAwait(false);
         if (Failed(pass1) is { } error1)
         {
             _ = appImage.ContinueWith(static t => t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
@@ -239,16 +250,33 @@ internal sealed class XamlCompiler : IDisposable
         {
             return CompilerFailed(pass2, files, error2);
         }
-        var stems = files.Select(f => Path.ChangeExtension(Path.GetRelativePath(_projectDirectory, f), null)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var stems = files.ToDictionary(StemOf, f => f, StringComparer.OrdinalIgnoreCase);
         var generated = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (path, text) in new[] { pass1, pass2 }.SelectMany(r => r.Files ?? []))
+        var pass1Code = new Dictionary<string, (string Path, string Code)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (path, text, isPass1) in (pass1.Files ?? []).Select(p => (p.Key, p.Value, true)).Concat((pass2.Files ?? []).Select(p => (p.Key, p.Value, false))))
         {
             var relative = Path.GetRelativePath(Intermediate, path);
             var isTypeInfo = Path.GetFileName(relative).Equals("XamlTypeInfo.g.cs", StringComparison.OrdinalIgnoreCase);
             // The service may return every page's code; the other pages' is what the app already runs.
-            if (isTypeInfo || (relative.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase) && stems.Contains(Stem(relative))))
+            if (isTypeInfo || (relative.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase) && stems.ContainsKey(Stem(relative))))
             {
                 generated[path] = _generated[Path.GetFullPath(path)] = text.TrimStart('\uFEFF');
+                if (isPass1 && !isTypeInfo)
+                {
+                    pass1Code[stems[Stem(relative)]] = (path, generated[path]);
+                }
+            }
+        }
+        foreach (var file in reused)
+        {
+            // What pass 1 would return: its last code, with the checksum of the file as saved (the same line pass 2 wrote).
+            var (path, code) = (_pass1[file].Path, _pass1[file].Code);
+            var pass2Code = generated.FirstOrDefault(g => !g.Key.EndsWith(".i.g.cs", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(Stem(Path.GetRelativePath(Intermediate, g.Key)), StemOf(file), StringComparison.OrdinalIgnoreCase)).Value;
+            if (ChecksumLine(pass2Code) is { } checksum && ChecksumLine(code) is { } old)
+            {
+                generated[path] = _generated[Path.GetFullPath(path)] = code.Replace(old, checksum, StringComparison.Ordinal);
+                pass1Code[file] = (path, generated[path]);
             }
         }
         var markup = new List<MarkupPayload>();
@@ -260,7 +288,17 @@ internal sealed class XamlCompiler : IDisposable
             {
                 return XamlResult.Failed($"{Relative(file)}: the XAML compiler produced no .xbf for it");
             }
-            var root = XDocument.Parse(await RoslynEngine.ReadSharedAsync(file, cancellationToken).ConfigureAwait(false)).Root!;
+            var text = await RoslynEngine.ReadSharedAsync(file, cancellationToken).ConfigureAwait(false);
+            // Kept for the next save only when the file didn't change while it compiled.
+            if (pass1Code.TryGetValue(file, out var p1) && shapes[file] is { } shape && Pass1Shape(text) == shape)
+            {
+                _pass1[file] = (shape, p1.Path, p1.Code);
+            }
+            else
+            {
+                _pass1.Remove(file);
+            }
+            var root = XDocument.Parse(text).Root!;
             var className = root.Attribute(XName.Get("Class", XamlNamespace))?.Value;
             var uri = "ms-appx:///" + Files[file];
             markup.Add(new MarkupPayload
@@ -277,6 +315,44 @@ internal sealed class XamlCompiler : IDisposable
         }
         return new XamlResult(null, generated, markup);
     }
+
+    /// <summary>Each page's shape (<see cref="Pass1Shape"/>) and code at its last pass 1, by XAML file.</summary>
+    private readonly Dictionary<string, (string Shape, string Path, string Code)> _pass1 = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// What pass 1's code (.i.g.cs) is made from: the root element and its attributes (the class, its base type), every
+    /// element with a name or an x: attribute (the fields, x:Load), and every x:Bind (the Bindings members). Text,
+    /// layout, styles and event handlers only change pass 2's code. Null for XML that doesn't parse.
+    /// </summary>
+    internal static string? Pass1Shape(string xaml)
+    {
+        XDocument document;
+        try
+        {
+            document = XDocument.Parse(xaml);
+        }
+        catch (System.Xml.XmlException)
+        {
+            return null;
+        }
+        var shape = new StringBuilder();
+        foreach (var element in document.Root!.DescendantsAndSelf())
+        {
+            var kept = element.Attributes().Where(a => element == document.Root || a.Name.NamespaceName == XamlNamespace || a.Name.LocalName == "Name" ||
+                a.Value.Contains("x:Bind", StringComparison.Ordinal)).ToList();
+            var bound = element.Nodes().OfType<XText>().Where(t => t.Value.Contains("x:Bind", StringComparison.Ordinal)).ToList();
+            if (kept.Count > 0 || bound.Count > 0 || element.Name.NamespaceName == XamlNamespace)
+            {
+                shape.Append(element.Name).Append(string.Concat(kept.Select(a => $" {a.Name}={a.Value}"))).Append(string.Concat(bound.Select(t => " " + t.Value))).Append('\n');
+            }
+        }
+        return shape.ToString();
+    }
+
+    private static string? ChecksumLine(string? code) =>
+        code?.Split('\n').FirstOrDefault(l => l.StartsWith("#pragma checksum", StringComparison.Ordinal))?.TrimEnd('\r');
+
+    private string StemOf(string xamlFile) => Path.ChangeExtension(Path.GetRelativePath(_projectDirectory, xamlFile), null);
 
     /// <summary>"Views\ContactsPage" for Views\ContactsPage.g.cs and Views\ContactsPage.i.g.cs.</summary>
     private static string Stem(string relative) =>
