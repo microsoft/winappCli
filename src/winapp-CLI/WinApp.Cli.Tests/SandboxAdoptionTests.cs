@@ -458,6 +458,29 @@ public class SandboxAdoptionTests
     }
 
     [TestMethod]
+    public async Task WarmReconnect_ConnectThatLeavesNoWorkingWindow_FailsInsteadOfReportingReady()
+    {
+        // A hidden viewer keeps the guest reporting input, so only the user's desktop shows the
+        // new window failed.
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        harness.Windows.UserHasWindow = false;
+        harness.Windows.ConnectShowsWindow = false;
+        var pair = new LoopbackTransportPair();
+        await using var host = pair.Host;
+        await using var guest = pair.Guest;
+        harness.Backend.ReconnectTransport = (_, _, _) => Task.FromResult<IGuestTransport>(host);
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() => harness.Backend.TryReconnectAsync(
+            EnsureTargetOptions.Interactive, TestContext.CancellationToken));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, ex.Error.Code);
+        Assert.AreEqual(SandboxWindowRecovery.NextCommand, ex.Error.NextCommand);
+    }
+
+    [TestMethod]
     public async Task WarmReconnect_ToASandboxThatEnded_OpensNoWindow()
     {
         // A state record can outlive its Sandbox. Connecting to it would leave an error window on
@@ -1576,6 +1599,9 @@ public class SandboxAdoptionTests
         /// <summary>Whether the user's desktop shows a Sandbox window.</summary>
         public bool UserHasWindow { get; set; } = true;
 
+        /// <summary>Whether a connect leaves a working window on the user's desktop.</summary>
+        public bool ConnectShowsWindow { get; set; } = true;
+
         public bool HasUsableClient() => UserHasWindow;
 
         public WindowsSandboxWindowSnapshot Capture() => new(default);
@@ -1583,7 +1609,11 @@ public class SandboxAdoptionTests
         public Task<SandboxClientWindow?> PlaceConnectedClientAsync(
             WindowsSandboxWindowSnapshot snapshot,
             SandboxConnectAttempt attempt,
-            CancellationToken cancellationToken) => Task.FromResult<SandboxClientWindow?>(null);
+            CancellationToken cancellationToken)
+        {
+            UserHasWindow |= ConnectShowsWindow;
+            return Task.FromResult<SandboxClientWindow?>(null);
+        }
 
         public SandboxClientWindow ResolveClient(SandboxClientWindow? remembered) =>
             throw new NotSupportedException("These tests never capture the target's desktop.");

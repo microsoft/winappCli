@@ -1380,6 +1380,18 @@ internal sealed class WindowsSandboxBackend(
         // Only called once the handshake proved the Sandbox is running, so a failed connect is a
         // real failure. Continuing would launch the app into a Sandbox the user cannot see.
         await ConnectClientAsync(instanceId, cancellationToken).ConfigureAwait(false);
+
+        // A connect that left only an error page, or no window, would let a hidden viewer keep the
+        // guest reporting input while the user still sees nothing.
+        if (!windowController.HasUsableClient())
+        {
+            throw ExecutionTargetException.Create(
+                ExecutionTargetErrorCodes.NoInteractiveSession,
+                "winapp could not open a working Windows Sandbox window on your desktop.",
+                userAction: SandboxWindowRecovery.UserAction,
+                nextCommand: SandboxWindowRecovery.NextCommand);
+        }
+
         return true;
     }
 
