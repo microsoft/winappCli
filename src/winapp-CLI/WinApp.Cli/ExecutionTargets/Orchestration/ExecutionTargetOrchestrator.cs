@@ -337,6 +337,7 @@ internal sealed class ExecutionTargetOrchestrator(
         try
         {
             TargetConnection connection;
+            ExecutionTargetCapabilities? settled = null;
 
             using (AcquireConnection(cancellationToken))
             {
@@ -379,17 +380,23 @@ internal sealed class ExecutionTargetOrchestrator(
                 channel.Start();
                 logger?.LogDebug("Target {Target}: connected in {ElapsedMs:F0} ms (reused: {Reused}).",
                     backend.Target.Selector, Stopwatch.GetElapsedTime(connectionStarted).TotalMilliseconds, connection.Reused);
+
+                // A viewer this preparation just opened is still taking the session over. Waiting
+                // for it here, under the connection lock, keeps a second command from finding that
+                // window, skipping the wait, and failing while the guest still has no input.
+                if (options.RequireInteractiveDesktop && connection.ClientConnected)
+                {
+                    settled = await WaitForRealInputAsync(
+                        channel,
+                        await channel.GetCapabilitiesAsync(cancellationToken).ConfigureAwait(false),
+                        cancellationToken).ConfigureAwait(false);
+                }
             }
 
             // Negotiated before any lock is taken, not after. A guest that is refusing this channel
             // says so here, and waiting up to the lock timeout first would turn an immediate,
             // actionable "the agent is busy" into a stale channel and a confusing transport error.
-            var capabilities = await channel.GetCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
-            if (options.RequireInteractiveDesktop && connection.ClientConnected)
-            {
-                capabilities = await WaitForRealInputAsync(channel, capabilities, cancellationToken)
-                    .ConfigureAwait(false);
-            }
+            var capabilities = settled ?? await channel.GetCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
 
             mutationLease = options.RequiresMutation ? AcquireLock(cancellationToken) : null;
 
@@ -561,7 +568,6 @@ internal sealed class ExecutionTargetOrchestrator(
             capabilities.SupportsInteractiveDesktop
                 ? "The Windows Sandbox window is disconnected, so real input and screen capture are unavailable."
                 : "The execution target has no interactive desktop, so this command cannot run there.",
-            userAction: SandboxWindowRecovery.UserAction,
-            nextCommand: SandboxWindowRecovery.NextCommand);
+            userAction: SandboxWindowRecovery.WaitAction);
     }
 }

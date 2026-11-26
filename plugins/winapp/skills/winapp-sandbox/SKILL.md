@@ -171,7 +171,7 @@ suppressed with `--quiet`/`--json`.
 - Input unavailable: restore the existing client or run the error's `nextCommand`.
 - "Only one running instance of Windows Sandbox is allowed" from the Start menu: a Sandbox
   is already running. Point the user to **Windows Sandbox** in the taskbar; if it has no
-  window, run `winapp target screenshot sandbox -o .\sandbox.png`, which reopens it on the
+  window, run `winapp target screenshot sandbox -o .\winapp-sandbox-check.png`, which reopens it on the
   user's desktop. Never stop the Sandbox without consent.
 - Incompatible CLI: follow the error; upgrade the installed CLI through its install method,
   **not `winapp update`**. Obtain consent before stopping a Sandbox (`wsb stop --id <id>`)

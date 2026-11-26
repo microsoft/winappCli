@@ -45,7 +45,7 @@ internal static class SandboxClientErrorProbe
         controls.Count(control => control is
         {
             ClassName: "TextBlock", ControlType: 50020, IsControlElement: false,
-        } && control.Name.Length == 1) == 1 &&
+        }) == 1 &&
         controls.Count(control => control is
         {
             ClassName: "TextBlock", ControlType: 50020, IsControlElement: true,
@@ -78,6 +78,15 @@ internal static class SandboxClientErrorProbe
             shell.Count(control => control.ClassName == "InputNonClientPointerSource") == 1 &&
             shell.Count(control => control.ClassName == "Microsoft.UI.Content.DesktopChildSiteBridge") == 1;
 
+        // The lost-connection page appears in a viewer that has stopped showing the guest, and the
+        // viewer drops its title bar from the tree once that happens, so the windowed-shell check
+        // below would read it as unknown. Its renderer is gone and its dialog layout is exact.
+        if (renderHosts == 0 && !renderer && IsLostConnection(page, complete: true) &&
+            shell.Count(control => control.ClassName == "Microsoft.UI.Content.DesktopChildSiteBridge") == 1)
+        {
+            return SandboxClientSurface.TerminalError;
+        }
+
         if (!windowedShell && !fullScreenShell)
         {
             return SandboxClientSurface.Unknown;
@@ -86,7 +95,7 @@ internal static class SandboxClientErrorProbe
         // Sandbox 0.8.107.0's ShowErrorAsync replaces the remote-session page with
         // this raw XAML dialog. Its critical glyph is fixed, not localized. A new
         // shell layout, warning, partial tree, or missing renderer is not proof.
-        if (IsTerminalError(page, complete: true) || IsLostConnection(page, complete: true))
+        if (IsTerminalError(page, complete: true))
         {
             return windowedShell && renderHosts == 0 && !renderer
                 ? SandboxClientSurface.TerminalError

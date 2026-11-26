@@ -49,17 +49,24 @@ internal static partial class UserDesktop
     /// The one-line warning for a local <c>run</c> or <c>ui</c> command on a desktop the user cannot see,
     /// or null when this process runs on the user's desktop.
     /// </summary>
-    public static string? HiddenDesktopWarning => WarningFor(CurrentName.Value);
+    public static string? HiddenDesktopWarning(bool uiCommand) => WarningFor(CurrentName.Value, uiCommand);
 
     /// <summary>Whether a desktop with this name is hidden from the user. Unknown is not hidden.</summary>
     internal static bool IsHidden(string? desktopName) =>
         desktopName is not null && !string.Equals(desktopName, Name, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The warning for a process on <paramref name="desktopName"/>, or null when none is needed.</summary>
-    internal static string? WarningFor(string? desktopName) => IsHidden(desktopName)
-        ? $"⚠️ winapp is running on a hidden desktop ({desktopName}) created by your agent tool. " +
-          "Apps it launches locally won't be visible to you; use --on sandbox to see them."
-        : null;
+    /// <remarks>
+    /// The two commands fail in opposite directions there: <c>run</c> opens an app the user cannot
+    /// see, and <c>ui</c> cannot see the user's apps.
+    /// </remarks>
+    internal static string? WarningFor(string? desktopName, bool uiCommand) => !IsHidden(desktopName)
+        ? null
+        : uiCommand
+            ? $"⚠️ winapp is running on a hidden desktop ({desktopName}) created by your agent tool, so it can't see " +
+              "windows on your desktop. To test an app you can see, launch it with 'winapp run --on sandbox' and use --on sandbox here."
+            : $"⚠️ winapp is running on a hidden desktop ({desktopName}) created by your agent tool. " +
+              "Apps it launches locally won't be visible to you; use --on sandbox to see them.";
 
     /// <summary>
     /// Runs <paramref name="action"/> on a thread attached to the user's desktop when this process

@@ -193,6 +193,16 @@ public class SandboxClientErrorProbeTests
         // guest, so it must neither count as the user's window nor make window selection ambiguous.
         Assert.AreEqual(SandboxClientSurface.TerminalError,
             SandboxClientErrorProbe.Classify(Shell(), LostConnectionPage(), renderer: false));
+
+        // Read from a live viewer: once the connection is lost, its title bar leaves the tree and
+        // the warning glyph reads with no name.
+        SandboxClientErrorProbe.Control[] shellWithoutTitleBar = [.. Shell().Where(control => control.AutomationId != "TitleBar")];
+        var page = LostConnectionPage();
+        page[4] = page[4] with { Name = "" };
+        Assert.AreEqual(SandboxClientSurface.TerminalError,
+            SandboxClientErrorProbe.Classify(shellWithoutTitleBar, page, renderer: false));
+
+        // Still showing the guest: not dead, whatever the page says.
         Assert.AreEqual(SandboxClientSurface.Unknown,
             SandboxClientErrorProbe.Classify(Shell(renderer: true), LostConnectionPage(), renderer: true));
     }

@@ -170,9 +170,10 @@ public class ExecutionTargetOrchestratorTests
         // commands that then report input they never delivered.
         Assert.AreEqual(ExecutionTargetErrorCodes.InputNotReady, failure.Error.Code);
 
-        // The recovery is a winapp command, which reopens the window on the user's desktop. A raw
-        // `wsb connect` from an agent tool's hidden desktop would hide the Sandbox again.
-        Assert.AreEqual(SandboxWindowRecovery.NextCommand.Command, failure.Error.NextCommand?.Command);
+        // A window is there but the guest is not taking input. A command that reopens a missing
+        // window would find this one and change nothing, so the advice is to wait, not to run it.
+        Assert.IsNull(failure.Error.NextCommand);
+        Assert.AreEqual(SandboxWindowRecovery.WaitAction, failure.Error.UserAction);
     }
 
     [TestMethod]

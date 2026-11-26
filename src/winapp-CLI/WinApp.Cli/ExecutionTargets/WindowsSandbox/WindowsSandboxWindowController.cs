@@ -383,9 +383,22 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
     /// A window whose surface cannot be classified yet, typically one still connecting, counts as
     /// present. Counting only verified sessions would let two commands that arrive together each open
     /// a window, and each new window takes the session from the one before it.
+    /// <para>
+    /// An unclassified window is read once more before it counts. This is usually the first UI
+    /// Automation call in the process, and a cold start can exceed the probe's time budget, which
+    /// reads a dead window as unknown. A window that is really still connecting stays unknown.
+    /// </para>
     /// </remarks>
-    public bool HasUsableClient() =>
-        _listClients().Any(candidate => candidate.Surface != SandboxClientSurface.TerminalError);
+    public bool HasUsableClient()
+    {
+        var live = _listClients();
+        if (live.Any(candidate => candidate.Surface == SandboxClientSurface.Unknown))
+        {
+            live = _listClients();
+        }
+
+        return live.Any(candidate => candidate.Surface != SandboxClientSurface.TerminalError);
+    }
 
     /// <inheritdoc/>
     public SandboxClientWindow ResolveClient(SandboxClientWindow? remembered) =>

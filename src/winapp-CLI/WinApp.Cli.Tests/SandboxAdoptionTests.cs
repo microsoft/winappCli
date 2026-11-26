@@ -1101,7 +1101,7 @@ public class SandboxAdoptionTests
                 new EnsureTargetOptions(true), TestContext.CancellationToken));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.InputNotReady, failure.Error.Code);
-        Assert.AreEqual(SandboxWindowRecovery.NextCommand.Command, failure.Error.NextCommand!.Command);
+        Assert.IsNull(failure.Error.NextCommand, "The window was just reopened; reopening it again cannot help.");
         Assert.AreEqual(
             1,
             harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)),

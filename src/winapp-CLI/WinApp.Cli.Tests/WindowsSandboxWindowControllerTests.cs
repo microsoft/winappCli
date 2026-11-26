@@ -256,6 +256,20 @@ public class WindowsSandboxWindowControllerTests
     }
 
     [TestMethod]
+    public void HasUsableClient_RereadsAWindowTheFirstReadCouldNotClassify()
+    {
+        // The first UI Automation call in a process can run out of time and read a dead window as
+        // unknown. A second, warm read tells the user's dead window from one still connecting.
+        var dead = Candidate(12, 200, OtherLauncher) with { Surface = SandboxClientSurface.TerminalError };
+        var reads = 0;
+        var controller = new WindowsSandboxWindowController(() =>
+            reads++ == 0 ? [dead with { Surface = SandboxClientSurface.Unknown }] : [dead]);
+
+        Assert.IsFalse(controller.HasUsableClient());
+        Assert.AreEqual(2, reads);
+    }
+
+    [TestMethod]
     public void ResolveClient_FailsWhenSeveralWindowsAreOpenAndNoneWasRecorded()
     {
         var ex = Assert.ThrowsExactly<ExecutionTargetException>(

@@ -448,12 +448,13 @@ internal static class Program
 
             // A local run or ui command on a desktop the user cannot see is legal but surprising:
             // the app it launches, or the windows it looks for, are on that hidden desktop. Said on
-            // standard error so the JSON on standard output stays intact.
+            // standard error, and not under --json, where `run` reports it as `hiddenDesktop`.
             if (ExecutionTargetSelection.IsCommandInvocation(parsedArgs) &&
                 (parsedArgs.CommandResult.Command is RunCommand || IsUiDescendant(parsedArgs)) &&
                 !targetsSandbox &&
+                !effectiveJson &&
                 !parsedArgs.GetValue(WinAppRootCommand.QuietOption) &&
-                UserDesktop.HiddenDesktopWarning is { } hiddenDesktopWarning)
+                UserDesktop.HiddenDesktopWarning(uiCommand: IsUiDescendant(parsedArgs)) is { } hiddenDesktopWarning)
             {
                 Console.Error.WriteLine(hiddenDesktopWarning);
             }

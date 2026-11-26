@@ -423,10 +423,9 @@ internal sealed class WindowsSandboxBackend(
         // A repaired or adopted Sandbox can still be viewed only from a desktop the user cannot
         // see. Checked last, after the privileged steps, for the reason measured above: a viewer
         // that takes over the session mid-bootstrap slows those steps down.
-        var clientConnected = options.RequireInteractiveDesktop &&
-            await ShowToUserAsync(lease.InstanceId, cancellationToken).ConfigureAwait(false);
-
-        return new TargetConnection(lease.Epoch, transport, lease.IsWarm, clientConnected);
+        return await ShowToUserAfterHandshakeAsync(
+            new TargetConnection(lease.Epoch, transport, lease.IsWarm), lease.InstanceId, options, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -1378,18 +1377,10 @@ internal sealed class WindowsSandboxBackend(
             return false;
         }
 
-        try
-        {
-            await ConnectClientAsync(instanceId, cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-        catch (ExecutionTargetException ex) when (ex.Error.Code == ExecutionTargetErrorCodes.NoInteractiveSession)
-        {
-            // A Sandbox that is no longer running fails to connect here and fails the handshake
-            // that follows, which repairs it; the connect failure adds nothing to report.
-            System.Diagnostics.Trace.TraceWarning($"Could not open a Sandbox window on the user's desktop: {ex.Message}");
-            return false;
-        }
+        // Only called once the handshake proved the Sandbox is running, so a failed connect is a
+        // real failure. Continuing would launch the app into a Sandbox the user cannot see.
+        await ConnectClientAsync(instanceId, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     /// <summary>Connects the interactive client and parks the window this connect created.</summary>
@@ -1591,9 +1582,8 @@ internal sealed class WindowsSandboxBackend(
                     ExecutionTargetErrorCodes.InputNotReady,
                     "The Windows Sandbox guest has no input desktop, so real input and screen capture "
                     + "are unavailable.",
-                    userAction: SandboxWindowRecovery.UserAction,
+                    userAction: SandboxWindowRecovery.WaitAction,
                     context: new Dictionary<string, string> { ["sandboxId"] = instanceId },
-                    nextCommand: SandboxWindowRecovery.NextCommand,
                     innerException: ex);
             }
         }
