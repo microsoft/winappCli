@@ -92,7 +92,7 @@ function Save-Screenshot {
 }
 
 try {
-    $ArtifactDirectory = [IO.Path]::GetFullPath($ArtifactDirectory)
+    $ArtifactDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ArtifactDirectory)
     New-Item -ItemType Directory -Force -Path $ArtifactDirectory | Out-Null
     if ($AppPid -lt 0) { throw 'AppPid must be positive, or zero to launch.' }
     if ($AppPid -gt 0) {
