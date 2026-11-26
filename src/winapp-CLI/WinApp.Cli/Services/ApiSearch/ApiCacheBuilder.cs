@@ -28,13 +28,13 @@ internal static class ApiCacheBuilder
         string projectDir,
         string cacheDir,
         bool scan,
-        string? winAppSdkRuntimePath,
+        IReadOnlyList<string>? winAppSdkRuntimePaths,
         Func<string, string> globalPackagesDirFor,
         Action<string>? onProgress = null,
         bool force = false)
     {
         string fullDir = Path.GetFullPath(projectDir);
-        winAppSdkRuntimePath ??= DetectWinAppSdkRuntime();
+        winAppSdkRuntimePaths ??= DetectWinAppSdkRuntimes();
 
         List<string> projectFiles = DiscoverProjectFiles(fullDir, scan);
         int parsed = 0, reused = 0, processed = 0;
@@ -87,7 +87,7 @@ internal static class ApiCacheBuilder
                 }
             }
 
-            List<PackageWithWinMd> packages = NuGetResolver.FindPackagesWithWinMd(dir, projectFile, globalPackagesDirFor(dir), winAppSdkRuntimePath, collect);
+            List<PackageWithWinMd> packages = NuGetResolver.FindPackagesWithWinMd(dir, projectFile, globalPackagesDirFor(dir), winAppSdkRuntimePaths, collect);
             if (packages.Count == 0)
             {
                 continue;
@@ -913,40 +913,22 @@ internal static class ApiCacheBuilder
     }
 
     /// <summary>
-    /// Best-effort discovery of the installed WinAppSDK runtime path via
-    /// <c>Get-AppxPackage</c>, used to index framework-dependent apps whose
-    /// <c>.winmd</c> files live in the runtime rather than a NuGet package.
-    /// Failures are non-fatal — NuGet and Windows SDK metadata still index.
+    /// Lists every installed Windows App Runtime for the current architecture. Which one
+    /// is indexed depends on the project, so the choice is made later by
+    /// <see cref="NuGetResolver.SelectWinAppSdkRuntime"/>.
     /// </summary>
-    /// <summary>
-    /// Selects the newest installed Windows App Runtime for the current architecture.
-    /// </summary>
-    /// <remarks>
-    /// Sorting on the raw Appx <c>Version</c> picks the wrong runtime, because the two
-    /// release lines number their packages differently: <c>Microsoft.WindowsAppRuntime.1.8</c>
-    /// reports <c>8000.946.1701.0</c> while the newer <c>Microsoft.WindowsAppRuntime.2</c>
-    /// reports <c>2.4.0.0</c>, so a descending Version sort ranks 1.8 far above 2.4.
-    /// The release identity therefore comes from the package name: a
-    /// <c>major.minor</c> suffix is the release outright, while a major-only suffix
-    /// takes its minor from the package version. Stable beats experimental within a
-    /// release, and experimental is still used when it is all that is installed.
-    /// </remarks>
-    private const string NewestRuntimeScript =
+    private const string InstalledRuntimesScript =
         "Get-AppxPackage -Name 'Microsoft.WindowsAppRuntime.*' | " +
         "Where-Object { $_.Name -notmatch 'CBS' -and $_.Architecture -eq '{ARCH}' } | " +
-        "ForEach-Object { " +
-            "$suffix = $_.Name -replace '^Microsoft\\.WindowsAppRuntime\\.',''; " +
-            "$core = ($suffix -split '-')[0]; " +
-            "$v = [version]$_.Version; " +
-            "if ($core -match '^\\d+\\.\\d+$') { $rel = [version]$core } " +
-            "elseif ($core -match '^\\d+$') { $rel = [version]('{0}.{1}' -f $v.Major, $v.Minor) } " +
-            "else { $rel = [version]'0.0' }; " +
-            "[pscustomobject]@{ Rel = $rel; Stable = [int]($suffix -notmatch '-'); Ver = $v; Path = $_.InstallLocation } " +
-        "} | " +
-        "Sort-Object Rel, Stable, Ver -Descending | " +
-        "Select-Object -First 1 -ExpandProperty Path";
+        "ForEach-Object { $_.InstallLocation }";
 
-    internal static string? DetectWinAppSdkRuntime()
+    /// <summary>
+    /// Best-effort discovery of the installed WinAppSDK runtime folders via
+    /// <c>Get-AppxPackage</c>, used to index framework-dependent apps whose
+    /// <c>.winmd</c> files live in the runtime rather than a NuGet package.
+    /// Failures are non-fatal: NuGet and Windows SDK metadata still index.
+    /// </summary>
+    internal static IReadOnlyList<string> DetectWinAppSdkRuntimes()
     {
         try
         {
@@ -958,12 +940,12 @@ internal static class ApiCacheBuilder
             string powershellPath = Path.Combine(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
             if (!File.Exists(powershellPath))
             {
-                return null;
+                return [];
             }
             using Process? process = Process.Start(new ProcessStartInfo
             {
                 FileName = powershellPath,
-                Arguments = "-NoProfile -Command \"" + NewestRuntimeScript.Replace("{ARCH}", arch, StringComparison.Ordinal) + "\"",
+                Arguments = "-NoProfile -Command \"" + InstalledRuntimesScript.Replace("{ARCH}", arch, StringComparison.Ordinal) + "\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -971,7 +953,7 @@ internal static class ApiCacheBuilder
             });
             if (process == null)
             {
-                return null;
+                return [];
             }
 
             // Both streams are drained asynchronously *before* waiting. Reading
@@ -996,7 +978,7 @@ internal static class ApiCacheBuilder
             if (!process.WaitForExit(15000))
             {
                 KillProcessTree(process);
-                return null;
+                return [];
             }
             // Second, untimed wait: it is what flushes the async output handlers, so
             // the buffer below is complete rather than racing the last callback.
@@ -1005,11 +987,14 @@ internal static class ApiCacheBuilder
             string output;
             lock (stdout)
             {
-                output = stdout.ToString().Trim();
+                output = stdout.ToString();
             }
-            if (process.ExitCode == 0 && !string.IsNullOrEmpty(output) && Directory.Exists(output))
+            if (process.ExitCode == 0)
             {
-                return output;
+                return output
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(Directory.Exists)
+                    .ToList();
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
@@ -1019,7 +1004,7 @@ internal static class ApiCacheBuilder
             // cannot be launched or the query fails, report "not found" and let the
             // caller fall back to the packages it already resolved.
         }
-        return null;
+        return [];
     }
 
     private static void KillProcessTree(Process process)

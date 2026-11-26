@@ -118,7 +118,7 @@ internal sealed class ApiMetadataService(
             return ApiQueryResult<ApiRefreshOutput>.NoProject(writeError);
         }
 
-        string? runtimePath = ApiCacheBuilder.DetectWinAppSdkRuntime();
+        IReadOnlyList<string> runtimePaths = ApiCacheBuilder.DetectWinAppSdkRuntimes();
 
         // 'refresh --project sdk' rebuilds the machine-wide scope explicitly (the
         // only way to pick up a newly installed Windows SDK / WinAppSDK runtime).
@@ -158,7 +158,7 @@ internal sealed class ApiMetadataService(
         }
 
         ApiRefreshOutput output = ApiCacheBuilder.BuildCache(
-            projectDir, cacheDir, scan, runtimePath, dir => nugetService.GetNuGetGlobalPackagesDir(dir).FullName, onProgress, force);
+            projectDir, cacheDir, scan, runtimePaths, dir => nugetService.GetNuGetGlobalPackagesDir(dir).FullName, onProgress, force);
 
         // Nothing to index here means there is no project in this directory, which is
         // exactly when queries fall back to the SDK scope — so build that instead of

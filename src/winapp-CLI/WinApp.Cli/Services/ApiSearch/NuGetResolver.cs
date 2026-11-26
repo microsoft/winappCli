@@ -23,7 +23,7 @@ internal static partial class NuGetResolver
     /// The NuGet global packages folder configured for <paramref name="projectDir"/>
     /// (see <see cref="Services.INugetService.GetNuGetGlobalPackagesDir(string)"/>).
     /// </param>
-    public static List<PackageWithWinMd> FindPackagesWithWinMd(string projectDir, string projectFile, string globalPackagesDir, string? winAppSdkRuntimePath, Action<string>? warn = null)
+    public static List<PackageWithWinMd> FindPackagesWithWinMd(string projectDir, string projectFile, string globalPackagesDir, IReadOnlyList<string> winAppSdkRuntimePaths, Action<string>? warn = null)
     {
         var packages = new List<PackageWithWinMd>();
 
@@ -87,7 +87,7 @@ internal static partial class NuGetResolver
         string? referencedWinAppSdkVersion = ReferencedWinAppSdkVersion(packages);
         packages.AddRange(CollectSdkPackages(
             globalPackagesDir,
-            winAppSdkRuntimePath,
+            winAppSdkRuntimePaths,
             targetPlatformVersion,
             referencedWinAppSdkVersion is not null,
             warn,
@@ -211,12 +211,12 @@ internal static partial class NuGetResolver
     /// a query runs outside any project, so it must not consult
     /// <c>project.assets.json</c>, <c>packages.config</c>, or project references.
     /// </summary>
-    public static List<PackageWithWinMd> FindSdkPackages(string globalPackagesDir, string? winAppSdkRuntimePath) =>
-        Deduplicate(CollectSdkPackages(globalPackagesDir, winAppSdkRuntimePath));
+    public static List<PackageWithWinMd> FindSdkPackages(string globalPackagesDir, IReadOnlyList<string> winAppSdkRuntimePaths) =>
+        Deduplicate(CollectSdkPackages(globalPackagesDir, winAppSdkRuntimePaths));
 
     private static List<PackageWithWinMd> CollectSdkPackages(
         string globalPackagesDir,
-        string? winAppSdkRuntimePath,
+        IReadOnlyList<string> winAppSdkRuntimePaths,
         string? preferredSdkVersion = null,
         bool includeWinAppSdkRuntime = true,
         Action<string>? warn = null,
@@ -232,16 +232,18 @@ internal static partial class NuGetResolver
 
         if (includeWinAppSdkRuntime)
         {
-            (List<string> Files, string Version) runtime = FindWinAppSdkRuntimeWinMd(winAppSdkRuntimePath);
-            // The installed runtime is machine-wide and detection picks the newest one,
-            // but a project compiles against the release it references. Indexing a 2.4
-            // runtime for a project on WinAppSDK 1.8 makes the index confirm types that
-            // release does not have, and an agent then writes code that will not build.
+            string? runtimePath = SelectWinAppSdkRuntime(winAppSdkRuntimePaths, requiredRuntimeRelease);
+            (List<string> Files, string Version) runtime = FindWinAppSdkRuntimeWinMd(runtimePath);
+            // A project compiles against the release it references. When no installed
+            // runtime belongs to that release, indexing another one (2.4 for a project on
+            // 1.8) makes the index confirm types the project cannot use, and an agent then
+            // writes code that will not build. The NuGet packages still answer for it.
             if (runtime.Files.Count > 0 && !RuntimeMatchesRelease(runtime.Version, requiredRuntimeRelease))
             {
                 warn?.Invoke(
-                    $"Installed Windows App Runtime {runtime.Version} does not match the referenced " +
-                    $"Windows App SDK {requiredRuntimeRelease}; its metadata is excluded from this project's API surface.");
+                    "Using API data from the project's NuGet packages; installed Windows App Runtime " +
+                    $"{runtime.Version} was skipped because the project uses Windows App SDK " +
+                    $"{MajorMinor(requiredRuntimeRelease!) ?? requiredRuntimeRelease}.");
             }
             else if (runtime.Files.Count > 0)
             {
@@ -251,6 +253,49 @@ internal static partial class NuGetResolver
 
         DiscoverSdkXmlDocs(packages, globalPackagesDir);
         return packages;
+    }
+
+    /// <summary>
+    /// Picks which installed Windows App Runtime folder to index, or null when none is installed.
+    /// </summary>
+    /// <remarks>
+    /// <para>For a project (<paramref name="referencedSdkVersion"/> set), the runtime from the
+    /// same <c>major.minor</c> release wins, so a machine with both 2.7 and 3.0-experimental
+    /// installed answers a 2.7 project from 2.7. If no installed runtime matches, the general
+    /// order below applies and the caller reports the mismatch.</para>
+    /// <para>Otherwise stable beats experimental, then the newer release, then the newer
+    /// package. Experimental is used only when it is all that is installed, so the
+    /// machine-wide scope does not confirm APIs that exist only in a preview.</para>
+    /// <para>The release comes from the folder name via <see cref="RuntimeReleaseLabel"/>, not
+    /// the raw package version: <c>Microsoft.WindowsAppRuntime.1.8</c> is versioned
+    /// <c>8000.946.1701.0</c> while the newer <c>Microsoft.WindowsAppRuntime.2</c> is
+    /// <c>2.4.0.0</c>, so a version sort would rank 1.8 far above 2.4.</para>
+    /// </remarks>
+    internal static string? SelectWinAppSdkRuntime(IEnumerable<string> runtimePaths, string? referencedSdkVersion)
+    {
+        string? referenced = referencedSdkVersion is null ? null : MajorMinor(referencedSdkVersion);
+        return runtimePaths
+            .Select(path =>
+            {
+                string folder = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                string label = RuntimeReleaseLabel(folder);
+                string? release = MajorMinor(label);
+                string[] parts = folder.Split('_');
+                return new
+                {
+                    Path = path,
+                    Matches = referenced is not null && string.Equals(release, referenced, StringComparison.Ordinal),
+                    Stable = !label.Contains('-', StringComparison.Ordinal),
+                    Release = Version.TryParse(release, out Version? r) ? r : new Version(0, 0),
+                    PackageVersion = parts.Length > 1 && Version.TryParse(parts[1], out Version? v) ? v : new Version(0, 0),
+                };
+            })
+            .OrderByDescending(r => r.Matches)
+            .ThenByDescending(r => r.Stable)
+            .ThenByDescending(r => r.Release)
+            .ThenByDescending(r => r.PackageVersion)
+            .Select(r => r.Path)
+            .FirstOrDefault();
     }
 
     /// <summary>
