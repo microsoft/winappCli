@@ -35,7 +35,10 @@ internal static partial class ScaffoldRestoreCheck
         /// </summary>
         public string? MissingWindowsAppSdkVersion { get; set; }
 
-        /// <summary>True when a missing or unresolvable package is the Windows App SDK or one of its parts.</summary>
+        /// <summary>
+        /// True when restore resolved a Windows App SDK release (<see cref="MissingWindowsAppSdkVersion"/>) but
+        /// couldn't find one of its packages, so pinning an older complete release fixes it.
+        /// </summary>
         public bool WindowsAppSdkPackageMissing { get; set; }
 
         /// <summary>Direct package references still at the template's <c>Version="*"</c> placeholder.</summary>
@@ -57,55 +60,20 @@ internal static partial class ScaffoldRestoreCheck
     /// Returns the restore problem a project scaffold left behind, or null when restore succeeded (or there
     /// is no evidence either way).
     /// </summary>
-    /// <param name="outputDir">The directory the project was scaffolded into.</param>
+    /// <param name="outputDir">The directory the project was scaffolded into. WinUI project templates put the project file there.</param>
     /// <param name="output">Combined stdout and stderr of <c>dotnet new</c>.</param>
-    /// <param name="scaffoldStartedUtc">When <c>dotnet new</c> started; older assets files are ignored.</param>
+    /// <param name="scaffoldStartedUtc">When <c>dotnet new</c> started; an older assets file is ignored.</param>
     public static Problem? Detect(DirectoryInfo outputDir, string output, DateTime scaffoldStartedUtc)
     {
-        Problem? fromAssets = null;
-        foreach (var assetsFile in FindAssetsFiles(outputDir, scaffoldStartedUtc))
+        // A fresh assets file is restore's own verdict for this project, including "succeeded"; the output
+        // text is only consulted when restore left no assets file behind.
+        var assetsFile = new FileInfo(Path.Join(outputDir.FullName, "obj", "project.assets.json"));
+        if (assetsFile.Exists && assetsFile.LastWriteTimeUtc >= scaffoldStartedUtc - TimestampSlack)
         {
-            var problem = ReadAssetsFile(assetsFile);
-            if (problem is not null)
-            {
-                fromAssets = problem;
-                break;
-            }
-        }
-
-        if (fromAssets is not null)
-        {
-            return fromAssets;
+            return ReadAssetsFile(assetsFile);
         }
 
         return ReadOutput(output);
-    }
-
-    private static IEnumerable<FileInfo> FindAssetsFiles(DirectoryInfo outputDir, DateTime scaffoldStartedUtc)
-    {
-        IEnumerable<string> paths;
-        try
-        {
-            paths = Directory.EnumerateFiles(outputDir.FullName, "project.assets.json", new EnumerationOptions
-            {
-                RecurseSubdirectories = true,
-                MaxRecursionDepth = 3,
-                IgnoreInaccessible = true,
-            }).ToList();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            yield break;
-        }
-
-        foreach (var path in paths)
-        {
-            var file = new FileInfo(path);
-            if (file.LastWriteTimeUtc >= scaffoldStartedUtc - TimestampSlack)
-            {
-                yield return file;
-            }
-        }
     }
 
     internal static Problem? ReadAssetsFile(FileInfo assetsFile)
@@ -141,7 +109,8 @@ internal static partial class ScaffoldRestoreCheck
 
                 var code = GetString(log, "code");
                 var package = GetString(log, "libraryId");
-                var message = GetString(log, "message") ?? code ?? "Unknown restore error";
+                // NuGet quotes the full source URL, which can carry a signed query string or user-info.
+                var message = NugetErrorMessage.Redact(GetString(log, "message") ?? code ?? "Unknown restore error");
                 problem.Errors.Add(new RestoreError(code, package, message));
 
                 if (code is not null && package is not null && PackageNotFoundCodes.Contains(code) && IsWindowsAppSdkPackage(package))
@@ -199,6 +168,10 @@ internal static partial class ScaffoldRestoreCheck
                     .FirstOrDefault();
             }
 
+            // Pinning an older release only helps when restore resolved one and then missed a part of it.
+            // With no Windows App SDK at all on the feed, the fix is the feed setup, not a version.
+            problem.WindowsAppSdkPackageMissing &= problem.MissingWindowsAppSdkVersion is not null;
+
             return problem;
         }
     }
@@ -222,7 +195,7 @@ internal static partial class ScaffoldRestoreCheck
             if (match.Success)
             {
                 var code = match.Groups["code"].Success ? match.Groups["code"].Value : null;
-                var message = match.Groups["message"].Value.Trim();
+                var message = NugetErrorMessage.Redact(match.Groups["message"].Value.Trim());
                 if (message.Length > 0 && !problem.Errors.Any(e => e.Message == message))
                 {
                     problem.Errors.Add(new RestoreError(code, null, message));

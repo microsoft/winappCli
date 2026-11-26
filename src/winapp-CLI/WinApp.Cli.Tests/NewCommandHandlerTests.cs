@@ -2404,7 +2404,7 @@ public class NewCommandHandlerTests : BaseCommandTests
         const string output =
             "The template \"WinUI Blank App\" was created successfully.\n" +
             "Processing post-creation actions...\n" +
-            "error: NU1301: Unable to load the service index for source https://example.invalid/index.json.\n" +
+            "error: NU1301: Unable to load the service index for source https://user:secret@example.invalid/index.json?sig=abc.\n" +
             "Failed to add a reference to the project file.\n" +
             "Post action failed.\n";
         ScriptScaffoldWithRestoreResult(assetsJson: null, output);
@@ -2417,19 +2417,40 @@ public class NewCommandHandlerTests : BaseCommandTests
         var error = restore.GetProperty("Errors").EnumerateArray().Single();
         Assert.AreEqual("NU1301", error.GetProperty("Code").GetString());
         Assert.StartsWith("Unable to load the service index", error.GetProperty("Message").GetString()!);
+        Assert.DoesNotContain("secret", TestAnsiConsole.Output, "Feed credentials in a NuGet error must be redacted.");
+        Assert.DoesNotContain("sig=abc", TestAnsiConsole.Output, "Feed credentials in a NuGet error must be redacted.");
         Assert.StartsWith("dotnet restore ", restore.GetProperty("FixCommands").EnumerateArray().Single().GetString()!);
         Assert.IsEmpty(_nuget.QueriedPackages, "Only a missing Windows App SDK package needs a version lookup.");
     }
 
     [TestMethod]
-    public async Task Handler_RestoreSucceeded_OmitsRestoreField()
+    public async Task Handler_RestoreSucceededAfterAFailedPinStep_OmitsRestoreField()
     {
-        ScriptScaffoldWithRestoreResult("""{ "version": 4, "logs": [ { "code": "NU1603", "level": "Warning", "message": "w" } ] }""");
+        // A pin step can fail while the final restore still succeeds; the fresh assets file is the verdict.
+        ScriptScaffoldWithRestoreResult(
+            """{ "version": 4, "logs": [ { "code": "NU1603", "level": "Warning", "message": "w" } ] }""",
+            "error: NU1301: Unable to load the service index for source https://example.invalid/index.json.\nPost action failed.\n");
         var command = GetRequiredService<NewCommand>();
 
         await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json", "--name", "CleanApp"]);
 
         Assert.IsFalse(ParseJson(TestAnsiConsole.Output).TryGetProperty("Restore", out _));
+    }
+
+    [TestMethod]
+    public async Task Handler_FeedHasNoWindowsAppSdk_SuggestsFixingSourcesNotAVersion()
+    {
+        ScriptScaffoldWithRestoreResult("""
+            { "version": 4, "libraries": {}, "logs": [ { "code": "NU1101", "level": "Error", "libraryId": "Microsoft.WindowsAppSDK",
+              "message": "Unable to find package Microsoft.WindowsAppSDK. No packages exist with this id in source(s): corp-feed" } ] }
+            """);
+        var command = GetRequiredService<NewCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json", "--name", "NoSdkApp"]);
+
+        var restore = ParseJson(TestAnsiConsole.Output).GetProperty("Restore");
+        Assert.StartsWith("dotnet restore ", restore.GetProperty("FixCommands").EnumerateArray().Single().GetString()!);
+        Assert.IsEmpty(_nuget.QueriedPackages, "With no release resolved there is nothing older to suggest.");
     }
 
     [TestMethod]

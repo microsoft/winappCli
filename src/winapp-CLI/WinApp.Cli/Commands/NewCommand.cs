@@ -911,7 +911,7 @@ internal class NewCommand : Command, IShortDescription
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogDebug("Could not find a Windows App SDK version to suggest: {Message}", ex.Message);
+                logger.LogDebug("Could not find a Windows App SDK version to suggest: {Message}", NugetErrorMessage.Redact(ex.Message));
                 return null;
             }
         }
@@ -974,10 +974,9 @@ internal class NewCommand : Command, IShortDescription
             message.AppendLine();
             if (problem.WindowsAppSdkPackageMissing)
             {
-                var release = problem.MissingWindowsAppSdkVersion is { } failed ? $"Windows App SDK {failed}" : "the newest Windows App SDK";
                 message.Append(suggestedVersion is not null
-                    ? $"Your NuGet feed is missing part of {release}. Pin the newest version it has in full:"
-                    : $"Your NuGet feed is missing part of {release}. Pin an older version that your feed has in full:");
+                    ? $"Your NuGet feed is missing part of Windows App SDK {problem.MissingWindowsAppSdkVersion}. Pin the newest version it has in full:"
+                    : $"Your NuGet feed is missing part of Windows App SDK {problem.MissingWindowsAppSdkVersion}. Pin an older version that your feed has in full:");
             }
             else
             {

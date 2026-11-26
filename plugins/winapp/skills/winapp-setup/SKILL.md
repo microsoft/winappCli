@@ -325,7 +325,8 @@ For full debugging scenarios and IDE setup, see the [Debugging Guide](https://gi
 | SDK download fails with 401/403 | Private feed requires authentication | Store credentials in `nuget.config` (`<packageSourceCredentials>`) or configure a credential provider / feed environment credentials before running in CI |
 | SDK package not found on private feed | Feed doesn't mirror the SDK packages, or the wrong source is configured | Ensure the feed serves `Microsoft.WindowsAppSDK`, `Microsoft.Windows.SDK.CPP`, `Microsoft.Windows.CppWinRT`, etc.; keep `nuget.org` enabled if the feed only supplements it |
 | `init` prompts unexpectedly in CI | Missing `--use-defaults` flag | Add `--use-defaults` to skip all prompts (note: non-interactive shells are now auto-detected) |
-| `winapp new` fails during scaffolding | A `dotnet new` post-creation action (restore, package add) failed | Re-run with `--verbose` to stream the live dotnet output and see the underlying error |
+| `winapp new` prints ⚠️ "its NuGet packages didn't restore" | The NuGet feed is missing a package the template needs (often part of the newest Windows App SDK) | Run the printed fix command (`Restore.FixCommands` in `--json`), then build |
+| `winapp new` fails during scaffolding | `dotnet new` itself failed | Re-run with `--verbose` to stream the live dotnet output and see the underlying error |
 
 ## CLI reference
 
