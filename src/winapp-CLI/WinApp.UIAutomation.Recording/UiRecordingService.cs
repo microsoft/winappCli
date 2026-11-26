@@ -77,6 +77,11 @@ internal sealed partial class UiRecordingService(
         ArgumentOutOfRangeException.ThrowIfNegative(options.DurationSec, nameof(options.DurationSec));
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.Fps, nameof(options.Fps));
         ArgumentOutOfRangeException.ThrowIfNegative(options.MaxEdge, nameof(options.MaxEdge));
+        if (options.Padding is { } padding)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(padding, nameof(options.Padding));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(padding, MaxPadding, nameof(options.Padding));
+        }
         ct.ThrowIfCancellationRequested();
 
         // The encoder cannot go below 64 pixels, so a smaller cap does not shrink the video - it

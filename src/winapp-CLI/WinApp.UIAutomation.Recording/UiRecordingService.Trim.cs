@@ -57,6 +57,9 @@ internal sealed partial class UiRecordingService
     /// </summary>
     internal const int AutoPopupMargin = 400;
 
+    /// <summary>Largest <see cref="RecordOptions.Padding"/>, in pixels; matches the CLI's --padding limit.</summary>
+    internal const int MaxPadding = 1000;
+
     /// <summary>Test seam: joins the sources into <c>destination</c>, with the plan applied to every frame.</summary>
     internal static Action<RecordTrimSources, string, RecordTrimPlan, int> s_trimVideo = Mp4Trimmer.Trim;
 

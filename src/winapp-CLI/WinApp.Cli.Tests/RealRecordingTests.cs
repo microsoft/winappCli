@@ -373,8 +373,10 @@ public partial class RealRecordingTests
     [DataRow(10, 15, -1, nameof(RecordOptions.MaxEdge))]
     [DataRow(10, 15, 1, nameof(RecordOptions.MaxEdge))]
     [DataRow(10, 15, 63, nameof(RecordOptions.MaxEdge))]
+    [DataRow(10, 15, 0, nameof(RecordOptions.Padding), -1)]
+    [DataRow(10, 15, 0, nameof(RecordOptions.Padding), 10_000)]
     public async Task RecordAsync_InvalidOptions_ThrowsBeforeTouchingTheWindow(
-        int durationSec, int fps, int maxEdge, string expectedParameter)
+        int durationSec, int fps, int maxEdge, string expectedParameter, int? padding = null)
     {
         // Direct library calls skip the CLI's command-layer validation. Without this guard fps 0
         // divided by zero when computing the frame interval, and a negative duration recorded
@@ -391,6 +393,7 @@ public partial class RealRecordingTests
                 DurationSec = durationSec,
                 Fps = fps,
                 MaxEdge = maxEdge,
+                Padding = padding,
             }, CancellationToken.None));
 
         Assert.IsNotNull(exception.ParamName);
