@@ -134,7 +134,7 @@ public class SandboxAdoptionTests
             throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Connect timed out");
         };
 
-        var connection = await harness.Backend.TryReconnectAsync(TestContext.CancellationToken);
+        var connection = await harness.Backend.TryReconnectAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken);
         Assert.IsNull(connection);
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
         Assert.AreEqual(1, attempts, "Repair must not repeat the same failed warm connection timeout.");
@@ -369,7 +369,7 @@ public class SandboxAdoptionTests
         var enumerations = harness.Cli.ListCalls;
         var operations = harness.Cli.Operations.Count;
 
-        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken));
         Assert.AreEqual(enumerations, harness.Cli.ListCalls);
         Assert.AreEqual(operations, harness.Cli.Operations.Count);
         Assert.AreEqual(before.Revision, harness.ReadState()!.Revision);
@@ -408,7 +408,7 @@ public class SandboxAdoptionTests
             return Task.FromResult<IGuestTransport>(host);
         };
 
-        var connection = await harness.Backend.TryReconnectAsync(TestContext.CancellationToken);
+        var connection = await harness.Backend.TryReconnectAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken);
 
         Assert.IsNotNull(connection);
         Assert.AreEqual(before.BootstrappedEpoch, connection.Epoch.Value);
@@ -417,6 +417,89 @@ public class SandboxAdoptionTests
         Assert.AreEqual(enumerations, harness.Cli.ListCalls, "A warm preparation must not enumerate Sandbox.");
         Assert.AreEqual(operations, harness.Cli.Operations.Count);
         Assert.AreEqual(before.Revision, harness.ReadState()!.Revision);
+    }
+
+    [TestMethod]
+    [DataRow(true, false, 1, true)]
+    [DataRow(true, true, 0, false)]
+    [DataRow(false, false, 0, false)]
+    public async Task WarmReconnect_OpensAWindowOnlyWhenAnInteractiveCommandHasNone(
+        bool interactive, bool userHasWindow, int expectedConnects, bool expectedClientConnected)
+    {
+        // A Sandbox whose only live window is on a desktop the user cannot see (an agent tool's
+        // private desktop) still reports a working session, so the guest alone cannot reveal it.
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        harness.Windows.UserHasWindow = userHasWindow;
+        var connectsBefore = harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal));
+        var connectsAtHandshake = -1;
+        var pair = new LoopbackTransportPair();
+        await using var host = pair.Host;
+        await using var guest = pair.Guest;
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+        {
+            connectsAtHandshake = harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal));
+            return Task.FromResult<IGuestTransport>(host);
+        };
+
+        var connection = await harness.Backend.TryReconnectAsync(
+            new EnsureTargetOptions(interactive), TestContext.CancellationToken);
+
+        Assert.IsNotNull(connection);
+        Assert.AreEqual(expectedClientConnected, connection.ClientConnected);
+
+        // The window comes only after the handshake proves the Sandbox is running.
+        Assert.AreEqual(connectsBefore, connectsAtHandshake);
+        Assert.AreEqual(
+            connectsBefore + expectedConnects,
+            harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task WarmReconnect_ConnectThatLeavesNoWorkingWindow_FailsInsteadOfReportingReady()
+    {
+        // A hidden viewer keeps the guest reporting input, so only the user's desktop shows the
+        // new window failed.
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        harness.Windows.UserHasWindow = false;
+        harness.Windows.ConnectShowsWindow = false;
+        var pair = new LoopbackTransportPair();
+        await using var host = pair.Host;
+        await using var guest = pair.Guest;
+        harness.Backend.ReconnectTransport = (_, _, _) => Task.FromResult<IGuestTransport>(host);
+
+        var ex = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() => harness.Backend.TryReconnectAsync(
+            EnsureTargetOptions.Interactive, TestContext.CancellationToken));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, ex.Error.Code);
+        // Reopening runs this same connect, so the error must not send the user back to it.
+        Assert.IsNull(ex.Error.NextCommand);
+    }
+
+    [TestMethod]
+    public async Task WarmReconnect_ToASandboxThatEnded_OpensNoWindow()
+    {
+        // A state record can outlive its Sandbox. Connecting to it would leave an error window on
+        // the user's screen.
+        using var harness = new AdoptionHarness();
+        harness.Cli.SetRunning(ManualInstanceId);
+        await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
+        harness.MarkBootstrapped();
+        harness.Windows.UserHasWindow = false;
+        var connectsBefore = harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal));
+        harness.Backend.ReconnectTransport = (_, _, _) =>
+            throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Sandbox ended");
+
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(
+            EnsureTargetOptions.Interactive, TestContext.CancellationToken));
+        Assert.AreEqual(
+            connectsBefore,
+            harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -466,7 +549,7 @@ public class SandboxAdoptionTests
         harness.Backend.ReconnectTransport = (_, _, _) => throw new AssertFailedException("Not a warm owned endpoint.");
         var enumerations = harness.Cli.ListCalls;
 
-        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken));
         Assert.AreEqual(enumerations, harness.Cli.ListCalls);
     }
 
@@ -489,7 +572,7 @@ public class SandboxAdoptionTests
         });
         harness.Backend.ReconnectTransport = (_, _, _) => throw new AssertFailedException("Invalid material.");
 
-        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken));
     }
 
     [TestMethod]
@@ -515,7 +598,7 @@ public class SandboxAdoptionTests
                 GuestTcpTransport.EstablishAsync(client, peerMaterial, TestContext.CancellationToken));
         }, TestContext.CancellationToken);
 
-        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken));
         await serving;
         var enumerations = harness.Cli.ListCalls;
         harness.Backend.ReconnectTransport = (_, _, _) => throw new AssertFailedException("Do not retry a rejected generation.");
@@ -541,7 +624,7 @@ public class SandboxAdoptionTests
         }, TestContext.CancellationToken);
 
         var error = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(() =>
-            harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+            harness.Backend.TryReconnectAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken));
         await dropping;
         Assert.AreEqual(ExecutionTargetErrorCodes.AgentBusy, error.Error.Code);
         Assert.AreEqual(operations, harness.Cli.Operations.Count);
@@ -563,7 +646,7 @@ public class SandboxAdoptionTests
             throw new AssertFailedException("The probe must cancel.");
         };
 
-        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken));
         await harness.RunUntilAgentLaunchAsync(TestContext.CancellationToken);
         Assert.AreEqual(1, attempts);
     }
@@ -583,7 +666,7 @@ public class SandboxAdoptionTests
             throw new AssertFailedException("The caller must cancel.");
         };
 
-        await Assert.ThrowsAsync<OperationCanceledException>(() => harness.Backend.TryReconnectAsync(cancelled.Token));
+        await Assert.ThrowsAsync<OperationCanceledException>(() => harness.Backend.TryReconnectAsync(EnsureTargetOptions.ReadOnly, cancelled.Token));
     }
 
     [TestMethod]
@@ -596,7 +679,7 @@ public class SandboxAdoptionTests
         var material = harness.ReadMaterial();
         harness.Backend.ReconnectTransport = (_, _, _) =>
             throw ExecutionTargetException.Create(ExecutionTargetErrorCodes.TransportFailed, "Old endpoint");
-        Assert.IsNull(await harness.Backend.TryReconnectAsync(TestContext.CancellationToken));
+        Assert.IsNull(await harness.Backend.TryReconnectAsync(EnsureTargetOptions.ReadOnly, TestContext.CancellationToken));
 
         var state = harness.ReadState()!;
         var epoch = ExecutionTargetEpoch.Create(ManualInstanceId, "new-boot");
@@ -1042,8 +1125,7 @@ public class SandboxAdoptionTests
                 new EnsureTargetOptions(true), TestContext.CancellationToken));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.InputNotReady, failure.Error.Code);
-        Assert.Contains("wsb connect", failure.Error.NextCommand!.Command, StringComparison.Ordinal);
-        Assert.IsTrue(failure.Error.NextCommand.Advisory);
+        Assert.IsNull(failure.Error.NextCommand, "The window was just reopened; reopening it again cannot help.");
         Assert.AreEqual(
             1,
             harness.Cli.Operations.Count(op => op.StartsWith("connect:", StringComparison.Ordinal)),
@@ -1205,12 +1287,13 @@ public class SandboxAdoptionTests
             File.WriteAllText(Path.Join(_root.FullName, "libHarfBuzzSharp.dll"), "harfbuzz");
 
             Lifecycle = new WindowsSandboxLifecycle(Cli, stateStore);
+            Windows = new NoOpWindowController();
             Backend = new WindowsSandboxBackend(
                 Cli,
                 Lifecycle,
                 directories,
                 new StaticBinaryProvider(binary),
-                new NoOpWindowController(),
+                Windows,
                 setup: null,
                 stateStore)
             {
@@ -1227,6 +1310,9 @@ public class SandboxAdoptionTests
         }
 
         public AdoptionSandboxCli Cli { get; }
+
+        /// <summary>What the host's Sandbox windows look like.</summary>
+        public NoOpWindowController Windows { get; }
 
         public WindowsSandboxLifecycle Lifecycle { get; }
 
@@ -1511,12 +1597,24 @@ public class SandboxAdoptionTests
 
     private sealed class NoOpWindowController : IWindowsSandboxWindowController
     {
+        /// <summary>Whether the user's desktop shows a Sandbox window.</summary>
+        public bool UserHasWindow { get; set; } = true;
+
+        /// <summary>Whether a connect leaves a working window on the user's desktop.</summary>
+        public bool ConnectShowsWindow { get; set; } = true;
+
+        public bool HasUsableClient() => UserHasWindow;
+
         public WindowsSandboxWindowSnapshot Capture() => new(default);
 
         public Task<SandboxClientWindow?> PlaceConnectedClientAsync(
             WindowsSandboxWindowSnapshot snapshot,
             SandboxConnectAttempt attempt,
-            CancellationToken cancellationToken) => Task.FromResult<SandboxClientWindow?>(null);
+            CancellationToken cancellationToken)
+        {
+            UserHasWindow |= ConnectShowsWindow;
+            return Task.FromResult<SandboxClientWindow?>(null);
+        }
 
         public SandboxClientWindow ResolveClient(SandboxClientWindow? remembered) =>
             throw new NotSupportedException("These tests never capture the target's desktop.");

@@ -65,10 +65,15 @@ internal sealed record EnsureTargetOptions(bool RequireInteractiveDesktop)
 /// <param name="Reused">
 /// True when an existing instance was reused.
 /// </param>
+/// <param name="ClientConnected">
+/// True when preparing this connection opened a new viewer for an instance that was already
+/// running. The guest needs a few seconds to move its input desktop to that viewer.
+/// </param>
 internal sealed record TargetConnection(
     ExecutionTargetEpoch Epoch,
     IGuestTransport Transport,
-    bool Reused);
+    bool Reused,
+    bool ClientConnected = false);
 
 /// <summary>
 /// Everything a target backend is responsible for (spec §"Target backend").

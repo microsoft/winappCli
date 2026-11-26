@@ -159,14 +159,8 @@ internal static class GuestAgentReadiness
         {
             Code = Abstractions.ExecutionTargetErrorCodes.InputNotReady,
             Message = "The Windows Sandbox window is disconnected, so real input and screen capture are unavailable.",
-            UserAction = "Reconnect the Sandbox window, then retry.",
-            NextCommand = new Abstractions.ExecutionTargetNextCommand
-            {
-                Command = "wsb connect",
-
-                // Reconnecting changes what is on screen, so it needs a user decision.
-                Advisory = true,
-            },
+            NextCommand = Abstractions.SandboxWindowRecovery.NextCommand,
+            UserAction = Abstractions.SandboxWindowRecovery.UserAction,
         },
 
         _ => new Abstractions.ExecutionTargetErrorInfo

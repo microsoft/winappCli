@@ -390,8 +390,12 @@ internal sealed class WindowsSandboxCli(IProcessRunner processRunner) : IWindows
     /// Starts the client without any inherited handle, so it cannot keep a caller's captured output
     /// open for the life of the Sandbox.
     /// </summary>
+    /// <remarks>
+    /// The client opens on the user's desktop even when winapp runs on an agent tool's private one,
+    /// because the Sandbox window is only useful where the user can see it.
+    /// </remarks>
     private static Process? LaunchConnectedClient(ProcessStartInfo startInfo) =>
-        OutlivingProcess.Start(startInfo);
+        OutlivingProcess.Start(startInfo, UserDesktop.IsElsewhere ? UserDesktop.LaunchTarget : null);
 
     /// <inheritdoc/>
     public async Task<int> ExecuteAsync(

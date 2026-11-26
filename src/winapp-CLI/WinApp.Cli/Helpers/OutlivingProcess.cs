@@ -39,8 +39,12 @@ internal static class OutlivingProcess
     private const ushort ShowMaximized = 3;
 
     /// <summary>Starts a child that inherits no handles.</summary>
+    /// <param name="startInfo">What to start.</param>
+    /// <param name="desktop">
+    /// The desktop to open the child's windows on, as <c>WinSta0\Default</c>; null for this process's own.
+    /// </param>
     /// <exception cref="Win32Exception">The process could not be created.</exception>
-    public static Process Start(ProcessStartInfo startInfo) => Create(startInfo, null);
+    public static Process Start(ProcessStartInfo startInfo, string? desktop = null) => Create(startInfo, null, desktop);
 
     /// <summary>
     /// Starts a child whose standard output and error are captured, and whose standard input is
@@ -88,7 +92,8 @@ internal static class OutlivingProcess
 
     private static unsafe Process Create(
         ProcessStartInfo startInfo,
-        (SafeHandle Input, SafeHandle Output, SafeHandle Error)? standardHandles)
+        (SafeHandle Input, SafeHandle Output, SafeHandle Error)? standardHandles,
+        string? desktop = null)
     {
         if (!Path.IsPathFullyQualified(startInfo.FileName))
         {
@@ -184,7 +189,9 @@ internal static class OutlivingProcess
             fixed (char* commandPointer = commandLine)
             fixed (char* environmentPointer = environmentBlock)
             fixed (char* directory = string.IsNullOrEmpty(startInfo.WorkingDirectory) ? null : startInfo.WorkingDirectory)
+            fixed (char* desktopName = desktop)
             {
+                startup.StartupInfo.lpDesktop = new PWSTR(desktopName);
                 // Inheritance is enabled only together with the list above, which limits it to the
                 // child's own pipes. Without redirection the child inherits nothing.
                 if (!PInvoke.CreateProcess(null, new PWSTR(commandPointer), null, null, standardHandles is not null,

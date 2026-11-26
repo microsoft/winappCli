@@ -13,6 +13,11 @@ namespace WinApp.Cli.ExecutionTargets.Abstractions;
 internal interface IReconnectableTarget
 {
     /// <summary>Attempts a bounded reconnect, returning an authenticated channel or null.</summary>
+    /// <param name="options">
+    /// What the command needs. An interactive command may also make the target visible to the user
+    /// before authenticating, so the channel describes the desktop the command will use.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the reconnect.</param>
     /// <remarks>The caller owns the returned transport. Busy and ownership errors must propagate.</remarks>
-    Task<TargetConnection?> TryReconnectAsync(CancellationToken cancellationToken);
+    Task<TargetConnection?> TryReconnectAsync(EnsureTargetOptions options, CancellationToken cancellationToken);
 }

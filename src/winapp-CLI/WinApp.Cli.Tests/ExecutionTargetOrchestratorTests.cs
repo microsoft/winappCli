@@ -170,9 +170,51 @@ public class ExecutionTargetOrchestratorTests
         // commands that then report input they never delivered.
         Assert.AreEqual(ExecutionTargetErrorCodes.InputNotReady, failure.Error.Code);
 
-        // Reconnecting changes what is on screen, so it is offered as advisory guidance rather than
-        // performed automatically.
-        Assert.IsTrue(failure.Error.NextCommand?.Advisory);
+        // A window is there but the guest is not taking input. A command that reopens a missing
+        // window would find this one and change nothing, so the advice is to wait, not to run it.
+        Assert.IsNull(failure.Error.NextCommand);
+        Assert.AreEqual(SandboxWindowRecovery.WaitAction, failure.Error.UserAction);
+    }
+
+    [TestMethod]
+    public async Task Prepare_AfterOpeningAViewer_WaitsForTheGuestToMoveItsInputDesktop()
+    {
+        // A viewer that takes over a running guest's session leaves it without an input desktop for
+        // a few seconds. Asking once would fail a command that succeeds moments later.
+        using var mutationLock = new FakeMutationLock();
+        var backend = new FakeBackend { ClientConnected = true, InputDesktopAfterProbes = 3 };
+        var delays = 0;
+        var orchestrator = new ExecutionTargetOrchestrator(backend, mutationLock, new FakeConnectionLock())
+        {
+            Delay = (_, _) =>
+            {
+                delays++;
+                return Task.CompletedTask;
+            },
+        };
+
+        await using var prepared = await orchestrator.PrepareAsync(
+            PrepareTargetOptions.Interactive, TestContext.CancellationToken);
+
+        Assert.IsTrue(prepared.Capabilities.SupportsRealInput);
+        Assert.AreEqual(3, delays);
+    }
+
+    [TestMethod]
+    public async Task Prepare_WithoutOpeningAViewer_DoesNotWaitForInput()
+    {
+        // A window the user closed is not about to come back by itself, so the failure is immediate.
+        using var mutationLock = new FakeMutationLock();
+        var backend = new FakeBackend { InputDesktopAfterProbes = 3 };
+        var orchestrator = new ExecutionTargetOrchestrator(backend, mutationLock, new FakeConnectionLock())
+        {
+            Delay = (_, _) => throw new AssertFailedException("Must not wait without a new viewer."),
+        };
+
+        var failure = await Assert.ThrowsExactlyAsync<ExecutionTargetException>(
+            () => orchestrator.PrepareAsync(PrepareTargetOptions.Interactive, TestContext.CancellationToken));
+
+        Assert.AreEqual(ExecutionTargetErrorCodes.InputNotReady, failure.Error.Code);
     }
 
     [TestMethod]
@@ -602,6 +644,12 @@ public class ExecutionTargetOrchestratorTests
 
         public bool Reused { get; init; }
 
+        /// <summary>Whether preparing the connection opened a new viewer on the user's desktop.</summary>
+        public bool ClientConnected { get; init; }
+
+        /// <summary>How many capability probes report no input desktop before the viewer settles.</summary>
+        public int InputDesktopAfterProbes { get; init; }
+
         public int EnsureCalls { get; private set; }
 
         /// <summary>How long establishing a connection takes, to widen the race window.</summary>
@@ -644,16 +692,15 @@ public class ExecutionTargetOrchestratorTests
                     pair.Guest,
                     Epoch,
                     new FakeGuestProcessHostFactory(),
-                    new StaticGuestSessionProbe(new GuestSessionInfo(
-                        SessionId,
-                        "WinSta0",
-                        HasInputDesktop: SupportsInteractiveDesktop)),
+                    new SettlingSessionProbe(
+                        new GuestSessionInfo(SessionId, "WinSta0", HasInputDesktop: SupportsInteractiveDesktop),
+                        InputDesktopAfterProbes),
                     new GuestAgentIdentity("1.0.0", "hash", "arm64", 1, 1));
 
                 _servers.Add(server);
                 _ = server.RunAsync(CancellationToken.None);
 
-                return new TargetConnection(Epoch, pair.Host, Reused);
+                return new TargetConnection(Epoch, pair.Host, Reused, ClientConnected);
             }
             finally
             {
@@ -665,6 +712,15 @@ public class ExecutionTargetOrchestratorTests
             new Dictionary<string, string> { ["sandboxId"] = "sandbox-1" };
     }
 
+    /// <summary>A guest whose input desktop appears only after a number of probes.</summary>
+    private sealed class SettlingSessionProbe(GuestSessionInfo settled, int unsettledProbes) : IGuestSessionProbe
+    {
+        private int _probes;
+
+        public GuestSessionInfo Probe() =>
+            Interlocked.Increment(ref _probes) <= unsettledProbes ? settled with { HasInputDesktop = false } : settled;
+    }
+
     private sealed class AttachableBackend : FakeBackend, IReconnectableTarget, IInspectableTarget
     {
         public bool Available { get; init; } = true;
@@ -673,7 +729,7 @@ public class ExecutionTargetOrchestratorTests
         public Task<TargetAttachment> TryAttachAsync(CancellationToken cancellationToken) =>
             throw new AssertFailedException("Preparing must not use the observational snapshot path.");
 
-        public async Task<TargetConnection?> TryReconnectAsync(CancellationToken cancellationToken)
+        public async Task<TargetConnection?> TryReconnectAsync(EnsureTargetOptions options, CancellationToken cancellationToken)
         {
             if (AttachError is { } code)
             {

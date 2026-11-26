@@ -233,6 +233,40 @@ public class WindowsSandboxWindowControllerTests
 
         Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, ex.Error.Code);
         Assert.IsNotNull(ex.Error.UserAction);
+
+        // The exact recovery is a winapp command, so the window reopens on the user's desktop even
+        // when an agent tool runs winapp on a hidden one.
+        Assert.AreEqual(SandboxWindowRecovery.NextCommand.Command, ex.Error.NextCommand?.Command);
+    }
+
+    [TestMethod]
+    public void HasUsableClient_CountsSessionsAndConnectingWindowsButNotDeadOnes()
+    {
+        var session = Candidate(13, 300, OurLauncher);
+        var connecting = Candidate(14, 400, OurLauncher) with { Surface = SandboxClientSurface.Unknown };
+        var dead = Candidate(12, 200, OtherLauncher) with { Surface = SandboxClientSurface.TerminalError };
+
+        Assert.IsTrue(new WindowsSandboxWindowController(() => [dead, session]).HasUsableClient());
+
+        // Counting a window that is still connecting keeps a second command from opening another,
+        // which would take the session away from the first.
+        Assert.IsTrue(new WindowsSandboxWindowController(() => [connecting]).HasUsableClient());
+        Assert.IsFalse(new WindowsSandboxWindowController(() => [dead]).HasUsableClient());
+        Assert.IsFalse(new WindowsSandboxWindowController(() => []).HasUsableClient());
+    }
+
+    [TestMethod]
+    public void HasUsableClient_RereadsAWindowTheFirstReadCouldNotClassify()
+    {
+        // The first UI Automation call in a process can run out of time and read a dead window as
+        // unknown. A second, warm read tells the user's dead window from one still connecting.
+        var dead = Candidate(12, 200, OtherLauncher) with { Surface = SandboxClientSurface.TerminalError };
+        var reads = 0;
+        var controller = new WindowsSandboxWindowController(() =>
+            reads++ == 0 ? [dead with { Surface = SandboxClientSurface.Unknown }] : [dead]);
+
+        Assert.IsFalse(controller.HasUsableClient());
+        Assert.AreEqual(2, reads);
     }
 
     [TestMethod]

@@ -186,6 +186,48 @@ public class SandboxClientErrorProbeTests
                 _ => throw new AssertFailedException("Unverifiable identities must not be queried.")));
     }
 
+    [TestMethod]
+    public void Classify_LostConnectionPage_IsADeadWindow()
+    {
+        // Shown by a viewer after another viewer took its session over. It no longer shows the
+        // guest, so it must neither count as the user's window nor make window selection ambiguous.
+        Assert.AreEqual(SandboxClientSurface.TerminalError,
+            SandboxClientErrorProbe.Classify(Shell(), LostConnectionPage(), renderer: false));
+
+        // Read from a live viewer: once the connection is lost, its title bar leaves the tree and
+        // the warning glyph reads with no name.
+        SandboxClientErrorProbe.Control[] shellWithoutTitleBar = [.. Shell().Where(control => control.AutomationId != "TitleBar")];
+        var page = LostConnectionPage();
+        page[4] = page[4] with { Name = "" };
+        Assert.AreEqual(SandboxClientSurface.TerminalError,
+            SandboxClientErrorProbe.Classify(shellWithoutTitleBar, page, renderer: false));
+
+        // Still showing the guest: not dead, whatever the page says.
+        Assert.AreEqual(SandboxClientSurface.Unknown,
+            SandboxClientErrorProbe.Classify(Shell(renderer: true), LostConnectionPage(), renderer: true));
+    }
+
+    [TestMethod]
+    public void LostConnectionPage_PartialOrIncompleteRead_IsNotEnough()
+    {
+        Assert.IsFalse(SandboxClientErrorProbe.IsLostConnection(LostConnectionPage(), complete: false));
+        var page = LostConnectionPage();
+        foreach (var omitted in Enumerable.Range(0, page.Length))
+        {
+            Assert.IsFalse(SandboxClientErrorProbe.IsLostConnection(
+                page.Where((_, index) => index != omitted).ToArray(), complete: true));
+        }
+    }
+
+    private static SandboxClientErrorProbe.Control[] LostConnectionPage() =>
+    [
+        new("TextBlock", "localized title", 50020, ""),
+        new("TextBlock", "localized body", 50020, ""),
+        new("Button", "localized reconnect", 50000, ""),
+        new("Button", "localized close", 50000, ""),
+        new("TextBlock", "\uE7BA", 50020, "", IsControlElement: false),
+    ];
+
     private static SandboxClientErrorProbe.Control[] Shell(bool renderer = false) =>
     [
         new("InputNonClientPointerSource", "", 50033, ""),
