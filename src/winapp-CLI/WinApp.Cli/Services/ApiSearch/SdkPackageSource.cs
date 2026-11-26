@@ -24,5 +24,5 @@ internal sealed class SdkPackageSource(INugetService nugetService, ICurrentDirec
     public List<PackageWithWinMd> GetSdkPackages() =>
         NuGetResolver.FindSdkPackages(
             nugetService.GetNuGetGlobalPackagesDir(currentDirectory.GetCurrentDirectory()).FullName,
-            ApiCacheBuilder.DetectWinAppSdkRuntime());
+            ApiCacheBuilder.DetectWinAppSdkRuntimes());
 }
