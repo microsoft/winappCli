@@ -1029,6 +1029,31 @@ export function register(test) {
             assert.deepEqual(asks(), [oid.slice(0, 7)]);
         } finally { Date.now = realNow; }
     }, { changesGitHub: true, allowMutations: true });
+    test("regression (#1406): a short headSha from a session counts as the same commit, so keep-ready doesn't ask for pr-review again", async (ctx) => {
+        const { page } = ctx;
+        const realNow = Date.now;
+        const shortHead = HEAD[101].slice(0, 8);
+        try {
+            await ctx.board.tool("pr_board_set_review", { repo: REPO, pr: 101, review: { headSha: shortHead, verdict: "approve", summary: "Fine.", findings: [] } });
+            assert.equal(state(ctx).prs["101"].review.headSha, HEAD[101], "the short SHA wasn't expanded to the head");
+            // A short SHA saved before this fix still covers the head.
+            const st = state(ctx);
+            st.prs["101"].review.headSha = shortHead;
+            st.prs["101"].prReview.headSha = shortHead;
+            fs.writeFileSync(ctx.board.stateFile, JSON.stringify(st));
+            await refresh(ctx);
+            await openRow(page, 101);
+            await tabTo(page, "overview");
+            await page.waitFor(`!!document.querySelector('#wsScroll .gates li[data-gate="review"]')`, 4000, "the pr-review gate");
+            const gate = await text(page, '#wsScroll .gates li[data-gate="review"]');
+            assert.match(gate, new RegExp(`Ran on ${HEAD[101].slice(0, 7)}`));
+            assert.doesNotMatch(gate, /not on .* yet/);
+            Date.now = () => realNow() + 6 * 60_000;
+            await refresh(ctx);
+            await sleep(1000);
+            assert.deepEqual(ctx.host.sends.filter((x) => /pr-review hasn't run on it/.test(x.prompt)).map((x) => x.prompt.slice(0, 80)), []);
+        } finally { Date.now = realNow; }
+    });
     test("regression (#1391): pr-review ran in a session but no findings reached the board: say so, and load them instead of re-running", async (ctx) => {
         const { page } = ctx;
         await ctx.board.tool("pr_board_sync_sessions", { repo: REPO, sessions: [{ pr: 101, sessionId: "s-101", name: "Uploader retries", role: "author", activity: "idle", agentMerge: { enabled: true, actions: ["address_reviews"] }, prReview: { ranAt: new Date().toISOString(), headSha: HEAD[101], result: "drafted", outcome: "passed" } }] });

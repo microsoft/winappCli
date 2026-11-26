@@ -1,6 +1,7 @@
 // Proactive mode: what the board starts on its own, and when. The board decides *what* is due; the hosting
 // agent does the work. Nothing here writes to GitHub; prompts carry the guardrails (see prompts.mjs).
 import { cpus, freemem } from "node:os";
+import { sameCommit } from "./github.mjs";
 
 export const LAYERS = [
     { id: "notice", n: 1, title: "Notice and summarize", hint: "New activity on your items: write \"What changed since you last looked\"." },
@@ -122,7 +123,7 @@ export function candidates(snap, settings, now = Date.now()) {
             const pushes = (c.activity || []).filter((e) => e.kind === "push" && !e.baseMerge);
             const lastPush = pushes.at(-1);
             const pushedSinceGitHubReview = c.myReviewAt && lastPush && ts(lastPush.at) > ts(c.myReviewAt);
-            if (settings.layers.rereview && realHead && ((reviewed && !covers.includes(reviewed)) || (!reviewed && pushedSinceGitHubReview))) {
+            if (settings.layers.rereview && realHead && ((reviewed && !covers.some((s) => sameCommit(s, reviewed))) || (!reviewed && pushedSinceGitHubReview))) {
                 const who = lastPush?.who || c.author;
                 add({ layer: "rereview", key: `rereview:${realHead}`, priority: 1,
                     reason: `${who} pushed ${short(realHead)}`, readyAt: ts(lastPush?.at) + settings.stableMin * 60_000, head: realHead, events: fresh });

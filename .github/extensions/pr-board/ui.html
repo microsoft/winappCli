@@ -1106,6 +1106,8 @@ function sinceLine(c) {
 }
 
 const cardsOf = () => snap?.cards || [];
+// A short SHA a session wrote ("03aab4ec") is the same commit as the full one it starts.
+const sameSha = (a, b) => { const x = String(a || "").toLowerCase(), y = String(b || "").toLowerCase(); return !!x && !!y && (x === y || (Math.min(x.length, y.length) >= 7 && (x.startsWith(y) || y.startsWith(x)))); };
 const current = () => cardsOf().find((c) => c.number === selected) || issuesOf().find((c) => c.number === selected) || null;
 const isBusy = (c) => c.local?.agent?.status === "running";
 const draftOf = (c) => (c.local?.draft && !c.local.draft.postedAt) ? c.local.draft : null;
@@ -1596,7 +1598,7 @@ function reviewHeadHtml(c, { compact = false } = {}) {
   const r = rvOf(c);
   if (!r) return "";
   const sha = (r.headSha || "").slice(0, 7);
-  const stale = c.review?.state === "stale" || (r.headSha && c.headSha && r.headSha !== c.headSha);
+  const stale = c.review?.state === "stale" || (r.headSha && c.headSha && !sameSha(r.headSha, c.headSha));
   const [vi, vt, vl] = VERDICT[r.verdict] || ["dash", "tone-mute", "No verdict"];
   const rk = r.risk ? RISK[r.risk] : null;
   const n = r.findings.length, posted = r.findings.filter((f) => decisionOf(c, f.id) === "post").length;

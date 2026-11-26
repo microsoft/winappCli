@@ -757,7 +757,7 @@ node test/ui.mjs --live         # read-only smoke test of your real board
   ✓ thread column: an anchor chip switches the tab on the left while the thread stays put (893ms)
   ✓ composer: a failed send puts the text back (921ms)
   ...
-102 passed, 0 failed, 102 total (375s)
+103 passed, 0 failed, 103 total (394s)
 ```
 
 The offline tests run the real extension and page in headless Edge (or Chrome; set

@@ -14,6 +14,20 @@ export class GhError extends Error {
     }
 }
 
+// Sessions often write a short SHA ("03aab4ec"). A 7+ character prefix of the other is the same commit.
+export function sameCommit(a, b) {
+    if (!a || !b) return false;
+    const x = String(a).toLowerCase(), y = String(b).toLowerCase();
+    if (x === y) return true;
+    const [s, l] = x.length <= y.length ? [x, y] : [y, x];
+    return s.length >= 7 && /^[0-9a-f]+$/.test(s) && l.startsWith(s);
+}
+// The full SHA among `known` that `sha` abbreviates, or `sha` unchanged.
+export function fullSha(sha, known = []) {
+    if (!sha) return sha;
+    return known.find((k) => k && String(k).length > String(sha).length && sameCommit(sha, k)) || sha;
+}
+
 export function gh(args, { cwd, timeoutMs = 30000 } = {}) {
     return new Promise((resolve, reject) => {
         execFile("gh", args, { cwd, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
@@ -957,7 +971,7 @@ function tracking(pr, data, local, ext) {
     // pr-review state: ran here (and on which commit), or a human review on GitHub.
     let review;
     const pv = local.prReview;
-    if (pv?.headSha && pr.headRefOid && !reviewShas.includes(pv.headSha)) review = { state: "stale", label: "Re-run needed", text: `pr-review ran on an older commit (${pv.headSha.slice(0, 7)}); new commits landed since.`, at: pv.at };
+    if (pv?.headSha && pr.headRefOid && !reviewShas.some((s) => sameCommit(s, pv.headSha))) review = { state: "stale", label: "Re-run needed", text: `pr-review ran on an older commit (${pv.headSha.slice(0, 7)}); new commits landed since.`, at: pv.at };
     // pr-review ran in a session, but its findings never reached the board: say what we know, not "Drafted".
     else if (pv && pv.result !== "posted" && !local.review && !local.draft) review = { state: "done", label: section === "yours" ? "Ran (self-check)" : "Ran", detailsMissing: true, sha: pv.headSha || null, outcome: pv.outcome || null, text: `pr-review ran${pv.headSha ? ` on ${pv.headSha.slice(0, 7)}` : ""}${section === "yours" ? " as a self-check" : ""}${pv.outcome ? `: ${pv.outcome}` : ""}. Its details aren't on the board.`, at: pv.at };
     else if (pv) review = { state: "done", label: pv.result === "posted" ? "Posted" : "Drafted", text: pv.result === "posted" ? `Review posted${pv.event ? ` (${pv.event.replace("_", " ")})` : ""}.` : "A pr-review draft is ready.", at: pv.at };
@@ -1176,7 +1190,7 @@ export function computeReadiness(raw, local = {}, ctx = {}) {
 
     // Reviews count when they cover the latest non-merge commit (or a base-only merge after it).
     const reviewHead = raw.reviewHead || head;
-    const covers = (sha) => (raw.reviewShas || [head]).includes(sha);
+    const covers = (sha) => (raw.reviewShas || [head]).some((s) => sameCommit(s, sha));
     const keepReady = !!ctx.keepReady;
 
     // Copilot review of the latest non-merge commit, with no unresolved Copilot threads.
@@ -1239,7 +1253,7 @@ export function computeReadiness(raw, local = {}, ctx = {}) {
     const askedRerun = local.reviewAsked?.sha === reviewHead ? local.reviewAsked : null;
     let rvItem;
     if (!rv && !pv) rvItem = { state: keepReady ? "pending" : "todo", reason: askedRerun ? `Asked the agent to run it on ${short(reviewHead)} ${ago(askedRerun.at)}` : `Not run on ${short(reviewHead)} yet` };
-    else if (rvHead && !covers(rvHead) && rvHead !== reviewHead) rvItem = { state: keepReady ? "pending" : "todo", reason: askedRerun ? `Asked the agent to rerun it on ${short(reviewHead)} ${ago(askedRerun.at)}` : `Ran on ${short(rvHead)}; not on ${short(reviewHead)} yet` };
+    else if (rvHead && !covers(rvHead) && !sameCommit(rvHead, reviewHead)) rvItem = { state: keepReady ? "pending" : "todo", reason: askedRerun ? `Asked the agent to rerun it on ${short(reviewHead)} ${ago(askedRerun.at)}` : `Ran on ${short(rvHead)}; not on ${short(reviewHead)} yet` };
     else {
         for (const f of rv?.findings || []) {
             const t = local.triage?.[f.id] || {};

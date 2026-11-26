@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, requestCopilotReview, fetchBranchCompare, fetchChangesSince, fetchCodeRefs, fetchDetail, fetchPrFiles, fetchGitHubView, fetchIssues, fetchRepoData, fetchReviewDiff, fetchMergeInfo, mergePr, cancelMerge, GhError, GROUPS } from "./github.mjs";
+import { buildCards, buildIssueCards, detectRepo, computeReadiness, fetchReadinessRaw, requestCopilotReview, fetchBranchCompare, fetchChangesSince, fetchCodeRefs, fetchDetail, fetchPrFiles, fetchGitHubView, fetchIssues, fetchRepoData, fetchReviewDiff, fetchMergeInfo, mergePr, cancelMerge, fullSha, GhError, GROUPS } from "./github.mjs";
 import { addHistory, addMessage, readState, stateFile, updateItem, updateMeta, updatePr } from "./store.mjs";
 import { adaptFinding, adaptReview, composeGithubReview, GUIDE, mergeReview, normalizeReview, REVIEW_SCHEMA, withLinks } from "./review.mjs";
 import { writeFileSync as writeFile, mkdirSync as mkdir } from "node:fs";
@@ -1233,16 +1233,25 @@ function loadReviewArg(args) {
     throw new Error("Pass review (an object) or path (an absolute path to a JSON file).");
 }
 
+// Full SHAs the board knows for a PR (its head, and the commits a review of the head counts for), to expand a
+// short SHA a session wrote.
+function knownShas(repo, pr) {
+    const b = board(repo);
+    const p = b.data?.open?.find((x) => x.number === pr);
+    return [p?.headRefOid, ...(b.ready.get(pr)?.raw?.reviewShas || [])].filter(Boolean);
+}
+
 function storeReview(repo, pr, review, { replace }) {
     let warnings = [];
     const head = board(repo).card(pr)?.headSha || null;
+    const known = [head, ...knownShas(repo, pr)];
     updatePr(repo, pr, (s) => {
         // Findings may use top-level file/line/endLine (or "path:12-20") instead of files[]; convert them.
         if (Array.isArray(review.findings)) review.findings = review.findings.map((f) => adaptFinding(f, "", { partial: !replace })).filter(Boolean);
         const next = replace ? review : mergeReview(s.review || {}, review);
         warnings = normalizeReview(next);
         warnings.push(...ingestMedia(repo, pr, next));
-        next.headSha = next.headSha || head;
+        next.headSha = fullSha(next.headSha, known) || head;
         s.review = next;
         s.reviewSetAt = nowIso();
         s.prReview = { ...(s.prReview || {}), result: s.prReview?.result === "posted" ? "posted" : "drafted", at: nowIso(), draftedAt: nowIso(), headSha: next.headSha };
@@ -1364,6 +1373,7 @@ const tools = [
                     updated.push(kind === "issue" ? `issue #${n}` : n);
                     continue;
                 }
+                const known = kind === "pr" && e.prReview?.headSha ? knownShas(repo, n) : [];
                 updateItem(repo, kind, n, (s) => {
                     if (e.status !== undefined) s.status = e.status ? String(e.status).slice(0, 200) : null;
                     if (e.sessionId) s.session = { id: String(e.sessionId), name: e.name ? String(e.name).slice(0, 120) : s.session?.name || null, linkedAt: s.session?.linkedAt || at };
@@ -1380,7 +1390,7 @@ const tools = [
                     if (e.agentMerge !== undefined) s.monitorPending = null;
                     if (!input || s.answered?.requestId !== input.requestId) s.answered = null;
                     if (input && s.dismissed && s.dismissed !== input.requestId) s.dismissed = null;
-                    if (e.prReview?.ranAt) s.prReview = { ...(s.prReview || {}), result: e.prReview.result || s.prReview?.result || "drafted", at: e.prReview.ranAt, headSha: e.prReview.headSha || s.prReview?.headSha || null, event: e.prReview.event || s.prReview?.event || null, outcome: e.prReview.outcome ? String(e.prReview.outcome).slice(0, 160) : s.prReview?.outcome || null, ...(e.prReview.result === "posted" ? { postedAt: e.prReview.ranAt } : { draftedAt: s.prReview?.draftedAt || e.prReview.ranAt }) };
+                    if (e.prReview?.ranAt) s.prReview = { ...(s.prReview || {}), result: e.prReview.result || s.prReview?.result || "drafted", at: e.prReview.ranAt, headSha: fullSha(e.prReview.headSha, known) || s.prReview?.headSha || null, event: e.prReview.event || s.prReview?.event || null, outcome: e.prReview.outcome ? String(e.prReview.outcome).slice(0, 160) : s.prReview?.outcome || null, ...(e.prReview.result === "posted" ? { postedAt: e.prReview.ranAt } : { draftedAt: s.prReview?.draftedAt || e.prReview.ranAt }) };
                 });
                 updated.push(kind === "issue" ? `issue #${n}` : n);
             }
