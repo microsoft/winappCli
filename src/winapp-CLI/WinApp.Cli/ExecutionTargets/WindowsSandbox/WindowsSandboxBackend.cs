@@ -253,7 +253,8 @@ internal sealed class WindowsSandboxBackend(
         if (lease.IsWarm && !reconnectAlreadyFailed &&
             await TryReconnectAsync(lease, remember: true, cancellationToken).ConfigureAwait(false) is { } reused)
         {
-            return reused;
+            return await ShowToUserAfterHandshakeAsync(reused, lease.InstanceId, options, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // Recheck after a failed reconnect before preparing the caller's exact instance.
@@ -419,12 +420,19 @@ internal sealed class WindowsSandboxBackend(
         // handshake it was created for.
         TryClearResultFolder(bootstrap.HostResult);
 
-        return new TargetConnection(lease.Epoch, transport, lease.IsWarm);
+        // A repaired or adopted Sandbox can still be viewed only from a desktop the user cannot
+        // see. Checked last, after the privileged steps, for the reason measured above: a viewer
+        // that takes over the session mid-bootstrap slows those steps down.
+        var clientConnected = options.RequireInteractiveDesktop &&
+            await ShowToUserAsync(lease.InstanceId, cancellationToken).ConfigureAwait(false);
+
+        return new TargetConnection(lease.Epoch, transport, lease.IsWarm, clientConnected);
     }
 
     /// <inheritdoc/>
-    public async Task<TargetConnection?> TryReconnectAsync(CancellationToken cancellationToken)
+    public async Task<TargetConnection?> TryReconnectAsync(EnsureTargetOptions options, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(options);
         cancellationToken.ThrowIfCancellationRequested();
 
         var expectation = lifecycle.CurrentExpectation();
@@ -467,6 +475,8 @@ internal sealed class WindowsSandboxBackend(
         if (connection is not null)
         {
             _instanceId = instanceId;
+            return await ShowToUserAfterHandshakeAsync(connection, instanceId, options, cancellationToken)
+                .ConfigureAwait(false);
         }
         else
         {
@@ -1311,6 +1321,77 @@ internal sealed class WindowsSandboxBackend(
     /// No other failure is retried: once a command can be dispatched, its result is authoritative
     /// and repeating it could duplicate a side effect.
     /// </remarks>
+    /// <summary>
+    /// For an interactive command, opens a window on the user's desktop once the handshake has
+    /// proved the Sandbox is running.
+    /// </summary>
+    /// <remarks>
+    /// After the handshake, never before: a state record can name a Sandbox that has since ended,
+    /// and connecting to it leaves an error window on the user's screen. The guest needs a few
+    /// seconds to move its input desktop to the new window; the caller polls for that.
+    /// </remarks>
+    private async Task<TargetConnection> ShowToUserAfterHandshakeAsync(
+        TargetConnection connection,
+        string instanceId,
+        EnsureTargetOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (!options.RequireInteractiveDesktop)
+        {
+            return connection;
+        }
+
+        try
+        {
+            var opened = await ShowToUserAsync(instanceId, cancellationToken).ConfigureAwait(false);
+            return connection with { ClientConnected = opened };
+        }
+        catch
+        {
+            await connection.Transport.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Opens a Sandbox window on the user's desktop when a running Sandbox has none there.
+    /// </summary>
+    /// <returns>True when a window was opened.</returns>
+    /// <remarks>
+    /// <para>
+    /// The guest only reports whether <em>some</em> viewer is attached. A viewer on a desktop the
+    /// user cannot see, such as the private desktop an agent tool runs each command on, keeps the
+    /// guest session alive. Trusting the guest alone would let winapp launch an app into a Sandbox
+    /// nobody can see and report it as started. Only one viewer is live at a time, so the new
+    /// window takes the session over and the hidden one shows a lost-connection page.
+    /// </para>
+    /// <para>
+    /// A window that is still connecting counts as present, so a second command arriving moments
+    /// later does not open another. Dead windows are left alone: closing a lost-connection window
+    /// that owns the Sandbox ends the Sandbox at once, without asking.
+    /// </para>
+    /// </remarks>
+    private async Task<bool> ShowToUserAsync(string instanceId, CancellationToken cancellationToken)
+    {
+        if (windowController.HasUsableClient())
+        {
+            return false;
+        }
+
+        try
+        {
+            await ConnectClientAsync(instanceId, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (ExecutionTargetException ex) when (ex.Error.Code == ExecutionTargetErrorCodes.NoInteractiveSession)
+        {
+            // A Sandbox that is no longer running fails to connect here and fails the handshake
+            // that follows, which repairs it; the connect failure adds nothing to report.
+            System.Diagnostics.Trace.TraceWarning($"Could not open a Sandbox window on the user's desktop: {ex.Message}");
+            return false;
+        }
+    }
+
     /// <summary>Connects the interactive client and parks the window this connect created.</summary>
     private Task ConnectClientAsync(
         string instanceId,
@@ -1510,15 +1591,9 @@ internal sealed class WindowsSandboxBackend(
                     ExecutionTargetErrorCodes.InputNotReady,
                     "The Windows Sandbox guest has no input desktop, so real input and screen capture "
                     + "are unavailable.",
-                    userAction: "Reconnect the Sandbox window, then retry.",
+                    userAction: SandboxWindowRecovery.UserAction,
                     context: new Dictionary<string, string> { ["sandboxId"] = instanceId },
-                    nextCommand: new ExecutionTargetNextCommand
-                    {
-                        Command = $"wsb connect --id {instanceId}",
-
-                        // Reconnecting changes what is on screen, so it needs a user decision.
-                        Advisory = true,
-                    },
+                    nextCommand: SandboxWindowRecovery.NextCommand,
                     innerException: ex);
             }
         }

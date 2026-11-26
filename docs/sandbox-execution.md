@@ -48,7 +48,10 @@ To check these prerequisites without starting a Sandbox, run
 
 A cold connection or reconnect can briefly take focus. Once connected, winapp puts
 the Sandbox window behind the window you were using, without activating it; switch to
-**Windows Sandbox** in the taskbar to watch the guest. When winapp started the Sandbox,
+**Windows Sandbox** in the taskbar to watch the guest. The window always opens on your
+desktop, even when an agent tool runs winapp on a hidden desktop of its own. If a
+command that shows the app or sends input finds the Sandbox running with no window on
+your desktop, it opens one first. When winapp started the Sandbox,
 closing that window ends it, just like a Sandbox opened from Start: Windows first asks you
 to confirm, because everything in it is discarded. The next `--on sandbox` command starts a
 fresh one. A Sandbox started with `wsb start` keeps running when its window is closed. See
@@ -199,7 +202,8 @@ Real input and recording require a **connected, nonminimized Sandbox client**. R
 inspection can still work when input cannot. winapp restores a minimized Sandbox window
 behind your current window, without activating it.
 If input is unavailable after reconnecting, the command fails rather than claiming
-it delivered input. Use the reconnect command in the error and retry.
+it delivered input. Run the command in the error, `winapp target screenshot sandbox -o .\sandbox.png`,
+to reopen the Sandbox window on your desktop, then retry.
 
 Use `winapp target snapshot sandbox --json` to check desktop readiness without starting
 or reconnecting the Sandbox. Recognized terminal-error windows do not count as remote
@@ -418,13 +422,13 @@ copying a suggestion keeps it on the same execution target.
 | `sandbox_setup_incomplete` | Open Windows Sandbox from Start and finish client setup/update, then retry |
 | `sandbox_unmanaged_instance`, `sandbox_target_ambiguous` | Inspect the reported instances/windows; do not stop unrelated work to resolve ambiguity |
 | `sandbox_instance_mismatch` | The GUID from `--expect-sandbox` or `WINAPP_EXPECT_SANDBOX` isn't the only running Sandbox. Run `wsb list` and compare IDs before retrying; do not remove the expectation or stop unrelated work to make the command pass |
-| `sandbox_input_not_ready`, `sandbox_no_interactive_session` | Restore the existing client or reconnect as directed, then retry |
+| `sandbox_input_not_ready`, `sandbox_no_interactive_session` | Restore the existing window, or run `winapp target screenshot sandbox -o .\sandbox.png` to reopen it on your desktop, then retry |
 | `sandbox_agent_incompatible` | Follow the version error; upgrade the installed CLI using its installation method if requested. If it asks you to stop the Sandbox, save any work you need, then run `wsb stop --id <id>` (with consent) and retry; it works however the Sandbox was started |
 | `sandbox_transport_failed` | Follow the error's `userAction`. If a folder share failed with `0x80070005`, Windows Sandbox (which shares folders as the SYSTEM account) can't read the reported folder; grant access, then retry: `icacls "<folder>" /grant "*S-1-5-18:(OI)(CI)F"` (`S-1-5-18` is SYSTEM) |
 | `sandbox_agent_busy` | Wait for another command to finish, then retry |
 | `sandbox_terminated`, `sandbox_target_stale`, `sandbox_stale_handle` | Rerun the app and rediscover guest PIDs/windows |
 | `sandbox_state_unavailable` | Ensure `%USERPROFILE%\.winapp\state` is writable, or correct `WINAPP_TARGET_STATE_ROOT` if set |
-| "Only one running instance of Windows Sandbox is allowed" when opening Windows Sandbox from Start | A Sandbox is already running, and Start cannot attach to it. Switch to **Windows Sandbox** in the taskbar. If it has no window, run `wsb list`, then `wsb connect --id <id>` |
+| "Only one running instance of Windows Sandbox is allowed" when opening Windows Sandbox from Start | A Sandbox is already running, and Start cannot attach to it. Switch to **Windows Sandbox** in the taskbar. If it has no window, run `winapp target screenshot sandbox -o .\sandbox.png`, which reopens it on your desktop |
 | `sandbox_deployment_dirty`, `sandbox_transfer_interrupted` | Retry the deployment or transfer |
 | `sandbox_runtime_provision_failed` | Resolve the named dependency or unsupported runtime configuration; see [Shared runtimes](#shared-runtimes) |
 | `sandbox_package_conflict`, `sandbox_provisioned_package_conflict` | Follow the package-specific action; do not remove unrelated or inbox packages |

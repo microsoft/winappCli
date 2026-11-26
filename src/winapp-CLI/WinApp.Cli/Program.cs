@@ -446,6 +446,18 @@ internal static class Program
                 return InvokeWithHelpPointerAsync(parsedArgs);
             }
 
+            // A local run or ui command on a desktop the user cannot see is legal but surprising:
+            // the app it launches, or the windows it looks for, are on that hidden desktop. Said on
+            // standard error so the JSON on standard output stays intact.
+            if (ExecutionTargetSelection.IsCommandInvocation(parsedArgs) &&
+                (parsedArgs.CommandResult.Command is RunCommand || IsUiDescendant(parsedArgs)) &&
+                !targetsSandbox &&
+                !parsedArgs.GetValue(WinAppRootCommand.QuietOption) &&
+                UserDesktop.HiddenDesktopWarning is { } hiddenDesktopWarning)
+            {
+                Console.Error.WriteLine(hiddenDesktopWarning);
+            }
+
             return InvokeCommandAsync();
 
             async Task<int> InvokeCommandAsync()

@@ -33,6 +33,28 @@ internal static class SandboxClientErrorProbe
             ClassName: "Button", ControlType: 50000, IsControlElement: true,
         }) == 1;
 
+    /// <summary>
+    /// The page a viewer shows after another viewer takes its session over: "The connection to the
+    /// Windows Sandbox environment was lost. Do you want to reconnect?", with Reconnect and Close.
+    /// Like the error page it no longer shows the guest, but it has a warning glyph and two buttons.
+    /// </summary>
+    internal static bool IsLostConnection(IReadOnlyList<Control> controls, bool complete) =>
+        complete &&
+        controls.Count == 5 &&
+        controls.All(control => control.AutomationId.Length == 0) &&
+        controls.Count(control => control is
+        {
+            ClassName: "TextBlock", ControlType: 50020, IsControlElement: false,
+        } && control.Name.Length == 1) == 1 &&
+        controls.Count(control => control is
+        {
+            ClassName: "TextBlock", ControlType: 50020, IsControlElement: true,
+        }) == 2 &&
+        controls.Count(control => control is
+        {
+            ClassName: "Button", ControlType: 50000, IsControlElement: true,
+        }) == 2;
+
     internal static SandboxClientSurface Classify(
         IReadOnlyList<Control> shell, IReadOnlyList<Control> page, bool renderer)
     {
@@ -64,7 +86,7 @@ internal static class SandboxClientErrorProbe
         // Sandbox 0.8.107.0's ShowErrorAsync replaces the remote-session page with
         // this raw XAML dialog. Its critical glyph is fixed, not localized. A new
         // shell layout, warning, partial tree, or missing renderer is not proof.
-        if (IsTerminalError(page, complete: true))
+        if (IsTerminalError(page, complete: true) || IsLostConnection(page, complete: true))
         {
             return windowedShell && renderHosts == 0 && !renderer
                 ? SandboxClientSurface.TerminalError

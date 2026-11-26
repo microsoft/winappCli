@@ -1431,6 +1431,7 @@ internal partial class RunCommand : Command, IShortDescription, ITargetAwareComm
                 DevTools = WithDevToolsMode(devTools),
                 Profile = profileRun?.Result,
                 Identity = _runIdentity,
+                HiddenDesktop = UserDesktop.IsElsewhere ? UserDesktop.Current : null,
             };
 
             var json = JsonSerializer.Serialize(result, RunCommandJsonContext.Output.RunCommandResult);
@@ -1837,6 +1838,13 @@ internal sealed class RunCommandResult
 
     /// <summary>The derived identity, for <c>--unique-identity</c> runs only.</summary>
     public DevelopmentIdentity? Identity { get; set; }
+
+    /// <summary>
+    /// The hidden desktop this local run happened on, such as one an agent tool created for the
+    /// command. Its windows are not visible to the user. Omitted on the user's own desktop.
+    /// </summary>
+    [JsonPropertyName("hiddenDesktop")]
+    public string? HiddenDesktop { get; set; }
 
     /// <summary>True when the app ran on an execution target rather than on this machine.</summary>
     /// <remarks>

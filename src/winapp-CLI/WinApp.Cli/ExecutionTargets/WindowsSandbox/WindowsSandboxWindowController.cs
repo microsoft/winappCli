@@ -117,6 +117,13 @@ internal interface IWindowsSandboxWindowController
     /// </summary>
     SandboxClientStatus EnsureClientReady(SandboxClientWindow? remembered, TargetDesktopUse use) =>
         InspectClient(remembered);
+
+    /// <summary>
+    /// Whether the user's desktop has a Sandbox window that is, or may still become, a working view
+    /// of the Sandbox. A window showing a terminal error, such as a lost connection, does not count.
+    /// </summary>
+    /// <remarks>Defaults to true so test doubles never trigger a reconnect they did not script.</remarks>
+    bool HasUsableClient() => true;
 }
 
 /// <summary>Controls only the remote-session window the current connect actually created.</summary>
@@ -157,16 +164,21 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
     }
 
     /// <summary>Creates a controller that routes foreground changes through the shared service.</summary>
+    /// <remarks>
+    /// Every operation runs on the user's desktop, even when winapp itself was started on a private
+    /// desktop by an agent tool: that is where the Sandbox window is opened, and the only place the
+    /// user can see it.
+    /// </remarks>
     public WindowsSandboxWindowController(IDesktopForegroundService foregroundService)
         : this(
-            ListLiveClients,
-            (client, foreground) => PlaceBehindForeground(
+            () => UserDesktop.Run(ListLiveClients),
+            (client, foreground) => UserDesktop.Run(() => PlaceBehindForeground(
                 new HWND(client.Handle),
                 foreground,
-                foregroundService),
-            handle => PInvoke.IsIconic(new HWND(handle)),
-            PInvoke.GetForegroundWindow,
-            IsOnAnyMonitor)
+                foregroundService)),
+            handle => UserDesktop.Run(() => (bool)PInvoke.IsIconic(new HWND(handle))),
+            () => UserDesktop.Run(PInvoke.GetForegroundWindow),
+            handle => UserDesktop.Run(() => IsOnAnyMonitor(handle)))
     {
     }
 
@@ -367,6 +379,15 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         window.StartTicksUtc == ownership.StartTicksUtc;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// A window whose surface cannot be classified yet, typically one still connecting, counts as
+    /// present. Counting only verified sessions would let two commands that arrive together each open
+    /// a window, and each new window takes the session from the one before it.
+    /// </remarks>
+    public bool HasUsableClient() =>
+        _listClients().Any(candidate => candidate.Surface != SandboxClientSurface.TerminalError);
+
+    /// <inheritdoc/>
     public SandboxClientWindow ResolveClient(SandboxClientWindow? remembered) =>
         ResolveCandidates(remembered, _listClients());
 
@@ -528,11 +549,9 @@ internal sealed class WindowsSandboxWindowController : IWindowsSandboxWindowCont
         {
             throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.NoInteractiveSession,
-                "No usable Windows Sandbox window is open on this machine, so there is nothing to capture.",
-                userAction:
-                    "Check existing Sandbox windows for errors. If none shows a connected desktop, " +
-                    "reconnect the existing Sandbox, then retry.",
-                example: "winapp target screenshot sandbox -o .\\sandbox.png");
+                "No Windows Sandbox window is open on your desktop, so winapp cannot capture or send input to it.",
+                userAction: SandboxWindowRecovery.UserAction,
+                nextCommand: SandboxWindowRecovery.NextCommand);
         }
 
         throw ExecutionTargetException.Create(

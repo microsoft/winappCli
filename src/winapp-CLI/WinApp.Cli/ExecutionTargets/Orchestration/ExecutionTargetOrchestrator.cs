@@ -346,7 +346,9 @@ internal sealed class ExecutionTargetOrchestrator(
                 {
                     try
                     {
-                        reconnected = await reconnectable.TryReconnectAsync(cancellationToken).ConfigureAwait(false);
+                        reconnected = await reconnectable.TryReconnectAsync(
+                            new EnsureTargetOptions(options.RequireInteractiveDesktop),
+                            cancellationToken).ConfigureAwait(false);
                     }
                     catch (ExecutionTargetException ex) when (ex.Error.Code is ExecutionTargetErrorCodes.Unsupported
                         or ExecutionTargetErrorCodes.StartFailed or ExecutionTargetErrorCodes.TransportFailed)
@@ -383,6 +385,11 @@ internal sealed class ExecutionTargetOrchestrator(
             // says so here, and waiting up to the lock timeout first would turn an immediate,
             // actionable "the agent is busy" into a stale channel and a confusing transport error.
             var capabilities = await channel.GetCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+            if (options.RequireInteractiveDesktop && connection.ClientConnected)
+            {
+                capabilities = await WaitForRealInputAsync(channel, capabilities, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             mutationLease = options.RequiresMutation ? AcquireLock(cancellationToken) : null;
 
@@ -482,6 +489,40 @@ internal sealed class ExecutionTargetOrchestrator(
                 context: new Dictionary<string, string> { ["targetId"] = backend.Target.Id });
     }
 
+    /// <summary>How long a viewer that was just opened may take to give the guest real input.</summary>
+    /// <remarks>Measured at 2-5 s on a live Sandbox; the bound leaves room for a busy host.</remarks>
+    internal static readonly TimeSpan ClientSettleTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>How often to ask the guest again while a new viewer settles.</summary>
+    internal static readonly TimeSpan ClientSettlePollInterval = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>Delay seam, so settling is exercised without real waiting.</summary>
+    internal Func<TimeSpan, CancellationToken, Task> Delay { get; set; } = Task.Delay;
+
+    /// <summary>
+    /// Asks the guest again until real input is available, after this preparation opened a viewer.
+    /// </summary>
+    /// <remarks>
+    /// When a new viewer takes over a running guest's session, the guest briefly reports no input
+    /// desktop while the session moves. Asking once would fail a command that would succeed a few
+    /// seconds later. Only the guest knows when it is ready, so this polls it rather than sleeping
+    /// a fixed time. A guest that is still not ready at the deadline is reported as before.
+    /// </remarks>
+    private async Task<ExecutionTargetCapabilities> WaitForRealInputAsync(
+        GuestCommandChannel channel,
+        ExecutionTargetCapabilities capabilities,
+        CancellationToken cancellationToken)
+    {
+        var deadline = Stopwatch.GetTimestamp() + (long)(ClientSettleTimeout.TotalSeconds * Stopwatch.Frequency);
+        while (!capabilities.SupportsRealInput && Stopwatch.GetTimestamp() < deadline)
+        {
+            await Delay(ClientSettlePollInterval, cancellationToken).ConfigureAwait(false);
+            capabilities = await channel.GetCapabilitiesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return capabilities;
+    }
+
     /// <summary>
     /// Refuses a command whose required capability the guest does not have.
     /// </summary>
@@ -520,13 +561,7 @@ internal sealed class ExecutionTargetOrchestrator(
             capabilities.SupportsInteractiveDesktop
                 ? "The Windows Sandbox window is disconnected, so real input and screen capture are unavailable."
                 : "The execution target has no interactive desktop, so this command cannot run there.",
-            userAction: "Reconnect the Sandbox window, then retry.",
-            nextCommand: new ExecutionTargetNextCommand
-            {
-                Command = "wsb connect",
-
-                // Reconnecting changes what is on screen, so it needs a user decision.
-                Advisory = true,
-            });
+            userAction: SandboxWindowRecovery.UserAction,
+            nextCommand: SandboxWindowRecovery.NextCommand);
     }
 }

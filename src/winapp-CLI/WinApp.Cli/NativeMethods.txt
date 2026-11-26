@@ -118,6 +118,7 @@ GetProcessWindowStation
 GetUserObjectInformation
 USER_OBJECT_INFORMATION_INDEX
 OpenInputDesktop
+GetThreadDesktop
 CloseDesktop
 DESKTOP_ACCESS_FLAGS
 CreateToolhelp32Snapshot

@@ -91,7 +91,7 @@ public class GuestAgentReadinessTests
     }
 
     [TestMethod]
-    public void Describe_DisconnectedClient_ReportsInputNotReadyWithAdvisoryReconnect()
+    public void Describe_DisconnectedClient_ReportsInputNotReadyWithWinappReconnect()
     {
         var error = GuestAgentReadiness.Describe(GuestReadinessFailure.NoInputDesktop);
 
@@ -99,8 +99,8 @@ public class GuestAgentReadinessTests
         // missing session.
         Assert.AreEqual(ExecutionTargetErrorCodes.InputNotReady, error.Code);
 
-        // Reconnecting changes what is on screen, so it must never run automatically.
-        Assert.IsTrue(error.NextCommand!.Advisory);
+        // Never `wsb connect`: from an agent tool's hidden desktop it opens the window there.
+        Assert.StartsWith("winapp ", error.NextCommand!.Command, StringComparison.Ordinal);
     }
 
     [TestMethod]
