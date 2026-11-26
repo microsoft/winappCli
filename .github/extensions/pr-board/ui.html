@@ -1859,7 +1859,7 @@ function seeTabHtml(c) {
     ${asked ? `<span class="hint">${icon("running", "sm")} Asked for them…</span>` : `<button class="primary" data-act="try-ask" data-what="media" data-pr="${c.number}">Ask for screenshots or a video</button>`}</div>`;
   return media.map((m, i) => {
     const head = `<div class="see-h"><b>${esc(m.title || (m.kind === "comparison" ? "Before and after" : m.kind === "video" ? "Video" : "Screenshot"))}</b>${m.caption ? `<span class="hint">${mdInline(m.caption)}</span>` : ""}</div>`;
-    if (m.kind !== "comparison") return `<section class="sec see">${head}<div class="see-one">${m.file ? mediaEl(c, m.file, m.title || "") : ""}</div></section>`;
+    if (m.kind !== "comparison") return `<section class="sec see">${head}<div class="see-one">${m.file ? mediaEl(c, m.file, m.title || "") : m.text !== undefined ? `<pre class="see-text">${esc(m.text)}</pre>` : ""}</div></section>`;
     const k = `${c.number}:${i}`;
     const images = m.beforeFile && m.afterFile && !isVideo(m.beforeFile) && !isVideo(m.afterFile);
     const mode = images ? seeModes.get(k) || "side" : "side";

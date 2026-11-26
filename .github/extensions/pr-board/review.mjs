@@ -120,11 +120,11 @@ export const REVIEW_SCHEMA = {
                     kind: { type: "string", enum: ["comparison", "image", "video"] },
                     title: { type: "string" },
                     caption: { type: "string", description: "One plain line: what to notice." },
-                    path: { type: "string", description: "kind image or video: absolute path to a .png/.jpg/.gif/.webp or .mp4/.webm." },
-                    before: { type: "string", description: "kind comparison: absolute path to the main-branch image or video." },
-                    after: { type: "string", description: "kind comparison: absolute path to this PR's image or video." },
-                    beforeText: { type: "string", description: "kind comparison: main's terminal output, for CLI changes." },
-                    afterText: { type: "string", description: "kind comparison: this PR's terminal output." },
+                    path: { type: "string", description: "kind image or video: absolute path to a .png/.jpg/.gif/.webp or .mp4/.webm. A .txt/.log file is shown as text." },
+                    before: { type: "string", description: "kind comparison: absolute path to the main-branch image or video, or a .txt/.log transcript (read as beforeText)." },
+                    after: { type: "string", description: "kind comparison: absolute path to this PR's image or video, or a .txt/.log transcript (read as afterText)." },
+                    beforeText: { type: "string", description: "kind comparison: main's terminal output, inline, for CLI changes." },
+                    afterText: { type: "string", description: "kind comparison: this PR's terminal output, inline." },
                 },
                 required: ["kind"],
             },
@@ -154,8 +154,8 @@ product manager first: plain words, what changes for the person using the produc
      user runs them in a terminal where \`winapp\` is this PR's build.
    - media, when the change is user-visible: before (main) and after (this PR) screenshots or a short
      video, captured with \`winapp ui screenshot\` / \`winapp ui record\` (add \`--audio\` for sound), saved as
-     files; pass their absolute paths. For CLI-only changes, a before/after transcript (beforeText /
-     afterText) of the same command on main and on this PR.
+     files; pass their absolute paths. For CLI-only changes, a before/after transcript of the same
+     command on main and on this PR: inline as beforeText / afterText, or as .txt files in before / after.
    - findings: category, severity, plain title, description (what and why it matters), recommendation
      (smallest fix), files with line numbers on the PR head (so it can be posted inline), diagramRefs.
      On your own PR, when you fix a finding, set its \`status: "fixed"\` (pr_board_update_review with the

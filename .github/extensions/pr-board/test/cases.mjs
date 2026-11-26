@@ -1225,18 +1225,29 @@ export function register(test) {
         const dir = fs.mkdtempSync(`${ctx.board.home}\\shots-`);
         fs.writeFileSync(`${dir}\\before.png`, png("d1242f")); fs.writeFileSync(`${dir}\\after.png`, png("1a7f37"));
         fs.writeFileSync(`${dir}\\clip.mp4`, Buffer.alloc(4096, 7));
+        // Transcripts saved as text files (the session's terminal output, with its color codes).
+        fs.writeFileSync(`${dir}\\main.txt`, "\uFEFF> winapp ui record --audio\r\n\x1b[31mUnrecognized option '--audio'\x1b[0m\r\n");
+        fs.writeFileSync(`${dir}\\pr.txt`, "> winapp ui record --audio\r\nRecording with sound\r\n");
+        fs.writeFileSync(`${dir}\\help.log`, "Usage: winapp ui record [options]\n");
         const r = await ctx.board.tool("pr_board_update_review", { repo: REPO, pr: 104, patch: { media: [
             { kind: "comparison", title: "The dialog", caption: "The button moved", before: `${dir}\\before.png`, after: `${dir}\\after.png` },
             { kind: "comparison", title: "The CLI", beforeText: "> winapp x\nUnrecognized option", afterText: "> winapp x\nDone" },
             { kind: "video", title: "A clip", path: `${dir}\\clip.mp4` },
-            { kind: "image", title: "Missing", path: `${dir}\\nope.png` }] } });
+            { kind: "image", title: "Missing", path: `${dir}\\nope.png` },
+            { kind: "comparison", title: "Audio flag", before: `${dir}\\main.txt`, after: `${dir}\\pr.txt` },
+            { kind: "image", title: "Help text", path: `${dir}\\help.log` }] } });
         assert.ok(r.warnings.some((w) => /media 4 \("Missing"\) path: .*nope\.png doesn't exist/.test(w)), JSON.stringify(r.warnings));
+        assert.deepEqual(r.warnings.filter((w) => !/^media 4 /.test(w)), [], "the text files caused warnings");
+        const audio = state(ctx).prs["104"].review.media.find((m) => m.title === "Audio flag");
+        assert.deepEqual([audio.beforeText, audio.afterText], ["> winapp ui record --audio\nUnrecognized option '--audio'\n", "> winapp ui record --audio\nRecording with sound\n"], "a .txt transcript wasn't read as text");
         await openRow(page, 104);
         await tabTo(page, "see");
         await page.waitFor(`[...document.querySelectorAll('#wsScroll .see-side img')].filter((i) => i.complete && i.naturalWidth > 0).length === 2`, 5000, "both screenshots");
         const see = await text(page, "#wsScroll");
         assert.match(see, /The dialog The button moved/);
         assert.match(see, /Before \(main\).*Unrecognized option.*After \(this PR\).*Done/);
+        assert.match(see, /Audio flag Before \(main\) > winapp ui record --audio Unrecognized option '--audio' After \(this PR\) > winapp ui record --audio Recording with sound/);
+        assert.match(see, /Help text Usage: winapp ui record \[options\]/);
         assert.doesNotMatch(see, /Missing/);
         assert.equal(await exists(page, "#wsScroll video"), true);
         await page.click('#wsScroll [data-act="see-mode"][data-mode="slider"]');

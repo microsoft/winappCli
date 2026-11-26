@@ -498,7 +498,7 @@ export function trySeePrompt(card, repo, what) {
             `${who} to capture before (main, e.g. the installed winapp) and after (this PR's build at ${head}) for the change that's easiest to see:`,
             `- something on screen: screenshots with \`winapp ui screenshot\`, or a short video with \`winapp ui record --duration-sec 10\` (add \`--audio\` when sound matters);`,
             `- a CLI change: the same command's output on main and on this PR, as text.`,
-            `Then put them on the board with \`pr_board_update_review({ repo: "${repo}", pr: ${card.number}, patch: { media: [{ kind: "comparison", title, caption, before: <absolute path>, after: <absolute path> } or { kind: "comparison", title, beforeText, afterText } or { kind: "video", title, path }] } })\`. Paths are absolute files on this machine; the board copies them.`,
+            `Then put them on the board with \`pr_board_update_review({ repo: "${repo}", pr: ${card.number}, patch: { media: [{ kind: "comparison", title, caption, before: <absolute path>, after: <absolute path> } or { kind: "comparison", title, beforeText, afterText } or { kind: "video", title, path }] } })\`. Paths are absolute files on this machine; the board copies them, and reads a .txt or .log transcript as text.`,
         ]
         : [
             `The PR board canvas: the user wants to **try** ${repo}#${card.number} "${card.title}" (${card.url}) themselves, in a terminal where \`winapp\` is this PR's build (${head}).`,

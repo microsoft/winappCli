@@ -33,21 +33,40 @@ function ingest(repo, pr, path, label) {
     return { name };
 }
 
+// Terminal transcripts: a session may pass a file instead of inline text. The board reads it as text.
+const TEXT_EXTS = new Set([".txt", ".log", ".out", ".ansi", ".md"]);
+const MAX_TEXT_FILE = 2 * 1024 * 1024;
+function readTextFile(path, label) {
+    if (!isAbsolute(path)) return { warning: `${label}: "${path}" isn't an absolute path` };
+    if (!existsSync(path)) return { warning: `${label}: ${path} doesn't exist` };
+    if (statSync(path).size > MAX_TEXT_FILE) return { warning: `${label}: ${path} is over 2 MB; pass the relevant part as text instead` };
+    const text = readFileSync(path, "utf8").replace(/^\uFEFF/, "").replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(\x07|\x1b\\)/g, "").replace(/\r\n/g, "\n");
+    return { text };
+}
+
 // Replace file paths in review.media with board-served names, in place. Returns warnings.
 export function ingestMedia(repo, pr, review) {
     const warnings = [];
     for (const [i, m] of (review.media || []).entries()) {
         const label = `media ${i + 1}${m.title ? ` ("${m.title}")` : ""}`;
-        for (const [from, to] of [["path", "file"], ["before", "beforeFile"], ["after", "afterFile"]]) {
+        for (const [from, to, textKey] of [["path", "file", "text"], ["before", "beforeFile", "beforeText"], ["after", "afterFile", "afterText"]]) {
             if (!m[from]) continue;
+            if (typeof m[from] === "string" && TEXT_EXTS.has(extname(m[from]).toLowerCase())) {
+                const t = readTextFile(m[from], `${label} ${from}`);
+                if (t.warning) warnings.push(t.warning);
+                else if (m[textKey] === undefined) m[textKey] = t.text;
+                delete m[from];
+                continue;
+            }
             const r = ingest(repo, pr, m[from], `${label} ${from}`);
             if (r.warning) warnings.push(r.warning);
             if (r.name) m[to] = r.name;
             delete m[from];
         }
-        for (const k of ["beforeText", "afterText"]) if (m[k] !== undefined) m[k] = String(m[k]).slice(0, 20000);
+        for (const k of ["beforeText", "afterText", "text"]) if (m[k] !== undefined) m[k] = String(m[k]).slice(0, 20000);
+        if ((m.beforeText !== undefined || m.afterText !== undefined) && !m.file) m.kind = "comparison";
         for (const k of ["title", "caption"]) if (m[k] !== undefined) m[k] = String(m[k]).slice(0, 300);
-        const has = m.file || m.beforeFile || m.afterFile || m.beforeText || m.afterText;
+        const has = m.file || m.beforeFile || m.afterFile || m.beforeText || m.afterText || m.text;
         if (!has) { warnings.push(`${label}: nothing to show (no file that could be copied, and no text)`); m.skip = true; }
     }
     review.media = (review.media || []).filter((m) => !m.skip);

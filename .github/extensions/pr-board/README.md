@@ -412,8 +412,9 @@ Quick things to try:
 **See it** shows before and after: screenshots side by side or with a slider, videos (with sound
 when they have it), or the same command's output on main and on the PR. The review session captures
 them with `winapp ui screenshot` and `winapp ui record` (`media` in the structured review, with
-absolute paths to the files); the board copies them under `artifacts/media/`. With nothing yet,
-**Ask for screenshots or a video** asks the session.
+absolute paths to the files); the board copies them under `artifacts/media/`. Command output can be
+inline text (`beforeText` / `afterText`) or `.txt` / `.log` files, which the board reads as text. With
+nothing yet, **Ask for screenshots or a video** asks the session.
 
 ## The Code tab
 
