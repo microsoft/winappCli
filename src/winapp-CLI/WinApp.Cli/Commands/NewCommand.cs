@@ -851,7 +851,11 @@ internal class NewCommand : Command, IShortDescription
                 : null;
             if (restoreProblem is not null)
             {
-                var suggestedVersion = await FindRestorableWindowsAppSdkVersionAsync(restoreProblem, outputDir, cancellationToken);
+                // An experimental template (e.g. Reactor) can depend on what the newest release added, so an
+                // older release isn't a safe suggestion for it; it keeps the <version> placeholder.
+                var suggestedVersion = entry.IsExperimental
+                    ? null
+                    : await FindRestorableWindowsAppSdkVersionAsync(restoreProblem, outputDir, cancellationToken);
                 if (isJson)
                 {
                     PrintJson(true, entry.ShortName, name!, outputDir.FullName, null, entry.IsExperimental, packVersion,
@@ -885,8 +889,8 @@ internal class NewCommand : Command, IShortDescription
             ScaffoldRestoreCheck.Problem problem, DirectoryInfo outputDir, CancellationToken cancellationToken)
         {
             var failedVersion = problem.MissingWindowsAppSdkVersion;
-            // Only stable releases: an experimental template needs its experimental APIs, so an older
-            // release could compile differently and isn't a safe suggestion.
+            // Only stable releases: a prerelease needs its prerelease APIs, so an older stable release
+            // could compile differently and isn't a safe suggestion.
             if (!problem.WindowsAppSdkPackageMissing || failedVersion is null || failedVersion.Contains('-', StringComparison.Ordinal))
             {
                 return null;

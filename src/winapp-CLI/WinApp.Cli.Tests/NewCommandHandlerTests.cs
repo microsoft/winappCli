@@ -2268,9 +2268,9 @@ public class NewCommandHandlerTests : BaseCommandTests
     /// Scripts the happy path, but the scaffold step also writes <paramref name="assetsJson"/> (when given) to
     /// <c>&lt;-o&gt;\obj\project.assets.json</c>, the way dotnet new's restore post action does.
     /// </summary>
-    private void ScriptScaffoldWithRestoreResult(string? assetsJson, string scaffoldOutput = "The template was created successfully.")
+    private void ScriptScaffoldWithRestoreResult(string? assetsJson, string scaffoldOutput = "The template was created successfully.", Action? scriptTemplates = null)
     {
-        ScriptHappyPath();
+        (scriptTemplates ?? (() => ScriptHappyPath()))();
         var happyPath = _dotnet.RunDotnetArgumentListHandler!;
         _dotnet.RunDotnetArgumentListHandler = args =>
         {
@@ -2374,6 +2374,24 @@ public class NewCommandHandlerTests : BaseCommandTests
         var restore = ParseJson(TestAnsiConsole.Output).GetProperty("Restore");
         Assert.IsFalse(restore.TryGetProperty("SuggestedWindowsAppSdkVersion", out _));
         Assert.EndsWith("--version <version>", restore.GetProperty("FixCommands").EnumerateArray().Single().GetString()!);
+    }
+
+    [TestMethod]
+    public async Task Handler_RestoreFailed_ExperimentalTemplate_LeavesVersionPlaceholder()
+    {
+        // Reactor can depend on what the newest Windows App SDK added, so an older release isn't suggested.
+        _nuget.DefaultVersion = "2.6.5";
+        var outDir = Path.Join(_tempDirectory.FullName, "ReactorApp");
+        ScriptScaffoldWithRestoreResult(
+            MissingWindowsAppSdkPartAssets(Path.Join(outDir, "ReactorApp.csproj")),
+            scriptTemplates: () => ScriptWithStandaloneReactorPack("microsoft-ui-reactor"));
+        var command = GetRequiredService<NewCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json", "--template", "reactor", "--name", "ReactorApp"]);
+
+        var restore = ParseJson(TestAnsiConsole.Output).GetProperty("Restore");
+        Assert.EndsWith("--version <version>", restore.GetProperty("FixCommands").EnumerateArray().Single().GetString()!);
+        Assert.IsEmpty(_nuget.QueriedPackages);
     }
 
     [TestMethod]
