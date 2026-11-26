@@ -199,6 +199,17 @@ Each template's canonical short name is the first alias `dotnet new` lists for i
 - Installs or updates the official WinUI template pack (`Microsoft.WindowsAppSDK.WinUI.CSharp.Templates`) on demand
 - Enumerates the available templates from the installed pack and delegates scaffolding to `dotnet new <short-name>`
 
+If the template's packages don't restore (for example, your NuGet feed is missing part of the newest Windows App SDK), the project is still created and `winapp new` exits 0, like `dotnet new`. Instead of ✅ it prints the NuGet errors and the command that fixes them:
+
+```text
+⚠️  Created WinUI app MyApp at C:\src\MyApp, but its NuGet packages didn't restore:
+    NU1102: Unable to find package Microsoft.WindowsAppSDK.AI with version (>= 2.7.0)
+Your NuGet feed is missing part of Windows App SDK 2.7.0. Pin the newest version it has in full:
+    dotnet add MyApp\MyApp.csproj package Microsoft.WindowsAppSDK --version 2.6.5
+```
+
+With `--json`, the same run adds a `Restore` object with `Errors` (`Code`, `Package`, `Message`), `FixCommands`, and, when one was found, `SuggestedWindowsAppSdkVersion`. Run the `FixCommands` before you build. `Restore` is left out when restore succeeded.
+
 WinUI app templates already include Windows packaging and identity (`Package.appxmanifest`), so no separate `winapp init` step is required. For app templates, use `winapp run` to build and launch the app. The `winui-lib` template produces a class library to reference from an app project (it has no app manifest). The `winui-unittest` template is a **packaged MSTest app whose tests run when the app is launched** (`winapp run`) — not via `dotnet test`. `winapp new` scaffolds against your installed .NET SDK's target framework and prints the appropriate next step for the template you choose.
 
 Pass the global `--verbose` (`-v`) flag to echo every underlying `dotnet` invocation (pack query, update check, install, `dotnet new list`, scaffold) along with its full output — useful for diagnosing template-pack or scaffolding issues.
