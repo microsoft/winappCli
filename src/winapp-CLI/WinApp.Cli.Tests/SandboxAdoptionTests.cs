@@ -477,7 +477,8 @@ public class SandboxAdoptionTests
             EnsureTargetOptions.Interactive, TestContext.CancellationToken));
 
         Assert.AreEqual(ExecutionTargetErrorCodes.NoInteractiveSession, ex.Error.Code);
-        Assert.AreEqual(SandboxWindowRecovery.NextCommand, ex.Error.NextCommand);
+        // Reopening runs this same connect, so the error must not send the user back to it.
+        Assert.IsNull(ex.Error.NextCommand);
     }
 
     [TestMethod]

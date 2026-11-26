@@ -1382,14 +1382,14 @@ internal sealed class WindowsSandboxBackend(
         await ConnectClientAsync(instanceId, cancellationToken).ConfigureAwait(false);
 
         // A connect that left only an error page, or no window, would let a hidden viewer keep the
-        // guest reporting input while the user still sees nothing.
+        // guest reporting input while the user still sees nothing. The usual reopen command would
+        // repeat the connect that just failed, so the way out is a fresh Sandbox.
         if (!windowController.HasUsableClient())
         {
             throw ExecutionTargetException.Create(
                 ExecutionTargetErrorCodes.NoInteractiveSession,
                 "winapp could not open a working Windows Sandbox window on your desktop.",
-                userAction: SandboxWindowRecovery.UserAction,
-                nextCommand: SandboxWindowRecovery.NextCommand);
+                userAction: "Retry the command. If it keeps failing, close Windows Sandbox and try again.");
         }
 
         return true;
