@@ -244,7 +244,9 @@ public class NugetServiceCoverageTests : BaseCommandTests
     }
 
     [TestMethod]
-    public async Task GetLatestVersionAsync_WindowsAppSdk_SkipsReleaseWhosePinnedSubPackageIsNotPublishedYet()
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task GetLatestVersionAsync_WindowsAppSdk_SkipsReleaseWhosePinnedSubPackageIsNotPublishedYet(bool reportSkippedRelease)
     {
         if (NugetPackagesEnvOverridesConfig)
         {
@@ -265,9 +267,16 @@ public class NugetServiceCoverageTests : BaseCommandTests
             var logger = new LevelLogger<NugetService>(Microsoft.Extensions.Logging.LogLevel.Information);
             var service = CreateServiceRootedAt(root, logger);
 
-            var stable = await service.GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, TestContext.CancellationToken);
+            var stable = await service.GetLatestVersionAsync("Microsoft.WindowsAppSDK", SdkInstallMode.Stable, reportSkippedRelease, TestContext.CancellationToken);
 
             Assert.AreEqual("1.6.0", stable, "A release that cannot be restored yet must not be selected.");
+
+            if (!reportSkippedRelease)
+            {
+                // `winapp new` only suggests the version, so it must not claim it is "using" it.
+                Assert.IsEmpty(logger.Entries.Where(e => e.Level == Microsoft.Extensions.Logging.LogLevel.Information));
+                return;
+            }
 
             // The user is told why they got the older release.
             var note = logger.Entries.Single(e => e.Level == Microsoft.Extensions.Logging.LogLevel.Information).Message;

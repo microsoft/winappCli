@@ -4,6 +4,7 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -315,8 +316,13 @@ internal class NewCommand : Command, IShortDescription
         IAnsiConsole ansiConsole,
         ITemplateCacheReader templateCacheReader,
         ITemplateUpdateCheckThrottle templateUpdateThrottle,
+        INugetService nugetService,
+        NugetSourceProvider nugetSourceProvider,
         ILogger<Handler> logger) : AsynchronousCommandLineAction
     {
+        /// <summary>Upper bound on the feed lookup for a Windows App SDK version to suggest after a failed restore.</summary>
+        internal static readonly TimeSpan SuggestedVersionLookupTimeout = TimeSpan.FromSeconds(30);
+
         /// <summary>How the caller asked us to resolve the template-pack version.</summary>
         private enum VersionMode
         {
@@ -794,6 +800,7 @@ internal class NewCommand : Command, IShortDescription
             int exitCode;
             string stdout;
             string stderr;
+            var scaffoldStartedUtc = DateTime.UtcNow;
             if (logger.IsEnabled(LogLevel.Debug))
             {
                 // Verbose: stream dotnet new's output live so its post-creation actions (restore,
@@ -835,6 +842,28 @@ internal class NewCommand : Command, IShortDescription
                 return ExitScaffoldFailed;
             }
 
+            // dotnet new exits 0 even when its post actions (pin the Version="*" packages, restore) failed,
+            // which leaves a project that can't build. Item templates are skipped: they are added to an
+            // existing project whose earlier restore results aren't ours to report. The exit code stays 0,
+            // like dotnet new's, because the files were created; the warning and JSON field say what to fix.
+            var restoreProblem = entry.IsProject
+                ? ScaffoldRestoreCheck.Detect(outputDir, stdout + "\n" + stderr, scaffoldStartedUtc)
+                : null;
+            if (restoreProblem is not null)
+            {
+                var suggestedVersion = await FindRestorableWindowsAppSdkVersionAsync(restoreProblem, outputDir, cancellationToken);
+                if (isJson)
+                {
+                    PrintJson(true, entry.ShortName, name!, outputDir.FullName, null, entry.IsExperimental, packVersion,
+                        BuildRestoreResult(restoreProblem, outputDir, suggestedVersion));
+                }
+                else
+                {
+                    WriteRestoreWarning(entry, name!, outputDir, currentDir, restoreProblem, suggestedVersion, quiet);
+                }
+                return ExitSuccess;
+            }
+
             if (isJson)
             {
                 PrintJson(true, entry.ShortName, name!, outputDir.FullName, null, entry.IsExperimental, packVersion);
@@ -845,6 +874,135 @@ internal class NewCommand : Command, IShortDescription
             }
 
             return ExitSuccess;
+        }
+
+        /// <summary>
+        /// When restore failed because the feed lacks part of the Windows App SDK release the template picked,
+        /// returns the newest older stable release whose parts are all on the project's feeds. Null when
+        /// that can't be established, so the fix command shows a placeholder instead of a guess.
+        /// </summary>
+        private async Task<string?> FindRestorableWindowsAppSdkVersionAsync(
+            ScaffoldRestoreCheck.Problem problem, DirectoryInfo outputDir, CancellationToken cancellationToken)
+        {
+            var failedVersion = problem.MissingWindowsAppSdkVersion;
+            // Only stable releases: an experimental template needs its experimental APIs, so an older
+            // release could compile differently and isn't a safe suggestion.
+            if (!problem.WindowsAppSdkPackageMissing || failedVersion is null || failedVersion.Contains('-', StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            try
+            {
+                // dotnet resolves nuget.config from the project, so look up versions on the same feeds.
+                var projectDir = problem.ProjectPath is { } projectPath && Path.GetDirectoryName(projectPath) is { } dir
+                    ? new DirectoryInfo(dir)
+                    : outputDir;
+                nugetSourceProvider.SetConfigRoot(projectDir);
+
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(SuggestedVersionLookupTimeout);
+                var candidate = await WithSpinnerAsync(
+                    "Looking for a Windows App SDK version your NuGet feed has...",
+                    () => nugetService.GetLatestVersionAsync(BuildToolsService.WINAPP_SDK_PACKAGE, SdkInstallMode.Stable, reportSkippedRelease: false, timeout.Token));
+
+                // The newest complete release must be older than the one that failed, or it isn't a fix.
+                return NuGetVersionHelper.Compare(candidate, failedVersion) is < 0 ? candidate : null;
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogDebug("Could not find a Windows App SDK version to suggest: {Message}", ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The commands that fix <paramref name="problem"/>. <paramref name="projectArgument"/> is the project
+        /// path to pass to dotnet (relative for the terminal, absolute for JSON).
+        /// </summary>
+        internal static List<string> BuildRestoreFixCommands(ScaffoldRestoreCheck.Problem problem, string projectArgument, string? suggestedVersion)
+        {
+            var project = QuoteArgument(projectArgument);
+            return problem.WindowsAppSdkPackageMissing
+                ? [$"dotnet add {project} package {BuildToolsService.WINAPP_SDK_PACKAGE} --version {suggestedVersion ?? "<version>"}"]
+                : [$"dotnet restore {project}"];
+        }
+
+        private static string QuoteArgument(string value)
+            => value.Length > 0 && value.IndexOfAny([' ', '\t', '&', '(', ')', ';', ',', '\'']) < 0 ? value : $"\"{value}\"";
+
+        /// <summary>Packages still on the template's <c>Version="*"</c> placeholder that the fix command doesn't pin.</summary>
+        private static List<string> RemainingFloatingPackages(ScaffoldRestoreCheck.Problem problem)
+            => [.. problem.FloatingPackages.Where(p => !(problem.WindowsAppSdkPackageMissing
+                && p.Equals(BuildToolsService.WINAPP_SDK_PACKAGE, StringComparison.OrdinalIgnoreCase)))];
+
+        private static NewRestoreResult BuildRestoreResult(ScaffoldRestoreCheck.Problem problem, DirectoryInfo outputDir, string? suggestedVersion)
+            => new()
+            {
+                Succeeded = false,
+                Errors = [.. problem.Errors.Select(e => new NewRestoreError { Code = e.Code, Package = e.Package, Message = e.Message })],
+                SuggestedWindowsAppSdkVersion = suggestedVersion,
+                FixCommands = BuildRestoreFixCommands(problem, problem.ProjectPath ?? outputDir.FullName, suggestedVersion),
+                FloatingPackages = problem.FloatingPackages.Count > 0 ? [.. problem.FloatingPackages] : null,
+            };
+
+        /// <summary>
+        /// Replaces the success line when the project was created but its packages didn't restore: shows the
+        /// NuGet errors and the command that fixes them. Logged as a warning so it also shows under --quiet.
+        /// </summary>
+        private void WriteRestoreWarning(
+            WinUiTemplateEntry entry, string name, DirectoryInfo outputDir, DirectoryInfo currentDir,
+            ScaffoldRestoreCheck.Problem problem, string? suggestedVersion, bool quiet)
+        {
+            const string Indent = "    ";
+            var message = new System.Text.StringBuilder();
+            message.Append(CultureInfo.InvariantCulture, $"{UiSymbols.Warning}  Created WinUI {ProjectKind(entry)} {name} at {outputDir.FullName}, but its NuGet packages didn't restore:");
+
+            var errors = problem.Errors.Count > 0
+                ? problem.Errors
+                : [new ScaffoldRestoreCheck.RestoreError(null, null, "dotnet new reported a failed post action. Re-run with --verbose to see its output.")];
+            foreach (var error in errors)
+            {
+                var lines = error.Message.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+                message.AppendLine().Append(Indent).Append(error.Code is null ? lines[0] : $"{error.Code}: {lines[0]}");
+                foreach (var continuation in lines.Skip(1).Where(l => l.Trim().Length > 0))
+                {
+                    message.AppendLine().Append(Indent).Append("  ").Append(continuation.Trim());
+                }
+            }
+
+            message.AppendLine();
+            if (problem.WindowsAppSdkPackageMissing)
+            {
+                var release = problem.MissingWindowsAppSdkVersion is { } failed ? $"Windows App SDK {failed}" : "the newest Windows App SDK";
+                message.Append(suggestedVersion is not null
+                    ? $"Your NuGet feed is missing part of {release}. Pin the newest version it has in full:"
+                    : $"Your NuGet feed is missing part of {release}. Pin an older version that your feed has in full:");
+            }
+            else
+            {
+                message.Append("Fix the errors above (check your NuGet sources with 'dotnet nuget list source'), then run:");
+            }
+
+            var projectPath = problem.ProjectPath ?? outputDir.FullName;
+            foreach (var command in BuildRestoreFixCommands(problem, Path.GetRelativePath(currentDir.FullName, projectPath), suggestedVersion))
+            {
+                message.AppendLine().Append(Indent).Append(command);
+            }
+
+            var floating = RemainingFloatingPackages(problem);
+            if (floating.Count > 0)
+            {
+                message.AppendLine().Append(CultureInfo.InvariantCulture,
+                    $"{string.Join(", ", floating)} still {(floating.Count == 1 ? "uses" : "use")} the template's Version=\"*\". Pin {(floating.Count == 1 ? "it" : "them")} too (dotnet add package <name> --version <version>) so every restore gets the same versions.");
+            }
+
+            logger.LogWarning("{Message}", message.ToString());
+
+            if (!quiet)
+            {
+                WriteExperimentalNote(entry);
+            }
         }
 
         /// <summary>Classifies the raw <c>--template-version</c> value into a mode plus explicit version.</summary>
@@ -1336,10 +1494,7 @@ internal class NewCommand : Command, IShortDescription
             var relative = Path.GetRelativePath(currentDir.FullName, outputDir.FullName);
             ansiConsole.MarkupLineInterpolated($"{UiSymbols.Check} Created WinUI {ProjectKind(entry)} [green]{name}[/] at [blue]{outputDir.FullName}[/].");
 
-            if (entry.IsExperimental)
-            {
-                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Warning}  [yellow]{entry.ShortName}[/] is an experimental template. It depends on prerelease packages whose APIs can change or be removed in a future release.");
-            }
+            WriteExperimentalNote(entry);
 
             if (entry.HasTag("Library"))
             {
@@ -1356,6 +1511,14 @@ internal class NewCommand : Command, IShortDescription
             else
             {
                 ansiConsole.MarkupLineInterpolated($"{UiSymbols.Next} Next: [blue]cd \"{relative}\"[/] then [blue]winapp run[/].");
+            }
+        }
+
+        private void WriteExperimentalNote(WinUiTemplateEntry entry)
+        {
+            if (entry.IsExperimental)
+            {
+                ansiConsole.MarkupLineInterpolated($"{UiSymbols.Warning}  [yellow]{entry.ShortName}[/] is an experimental template. It depends on prerelease packages whose APIs can change or be removed in a future release.");
             }
         }
 
@@ -1659,7 +1822,7 @@ internal class NewCommand : Command, IShortDescription
             return (null, unparseable);
         }
 
-        private void PrintJson(bool created, string? templateShortName, string name, string path, string? error, bool? experimental = null, string? templateVersion = null)
+        private void PrintJson(bool created, string? templateShortName, string name, string path, string? error, bool? experimental = null, string? templateVersion = null, NewRestoreResult? restore = null)
         {
             var result = new NewCommandResult
             {
@@ -1669,6 +1832,7 @@ internal class NewCommand : Command, IShortDescription
                 Name = name,
                 Path = path,
                 TemplateVersion = templateVersion,
+                Restore = restore,
                 Error = error
             };
 
@@ -1716,7 +1880,33 @@ internal sealed class NewCommandResult
     public string? Name { get; set; }
     public string? Path { get; set; }
     public string? TemplateVersion { get; set; }
+
+    /// <summary>
+    /// Present only when the project was created but its NuGet packages didn't restore, so it won't build
+    /// until <see cref="NewRestoreResult.FixCommands"/> are run. <see cref="Created"/> stays true.
+    /// </summary>
+    public NewRestoreResult? Restore { get; set; }
     public string? Error { get; set; }
+}
+
+internal sealed class NewRestoreResult
+{
+    public bool Succeeded { get; set; }
+    public List<NewRestoreError>? Errors { get; set; }
+
+    /// <summary>The newest Windows App SDK release whose packages are all on the project's feeds, when one was found.</summary>
+    public string? SuggestedWindowsAppSdkVersion { get; set; }
+    public List<string>? FixCommands { get; set; }
+
+    /// <summary>Direct package references still on the template's <c>Version="*"</c> placeholder.</summary>
+    public List<string>? FloatingPackages { get; set; }
+}
+
+internal sealed class NewRestoreError
+{
+    public string? Code { get; set; }
+    public string? Package { get; set; }
+    public string? Message { get; set; }
 }
 
 internal sealed class NewTemplateInfo

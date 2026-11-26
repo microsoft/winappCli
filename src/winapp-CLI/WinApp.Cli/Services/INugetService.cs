@@ -27,6 +27,14 @@ internal interface INugetService
     Task<string> GetLatestVersionAsync(string packageName, SdkInstallMode sdkInstallMode, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Same as <see cref="GetLatestVersionAsync(string, SdkInstallMode, CancellationToken)"/>. When
+    /// <paramref name="reportSkippedRelease"/> is false, an incomplete Windows App SDK release is skipped without
+    /// telling the user, for callers that only want to suggest a version rather than use it.
+    /// </summary>
+    Task<string> GetLatestVersionAsync(string packageName, SdkInstallMode sdkInstallMode, bool reportSkippedRelease, CancellationToken cancellationToken = default)
+        => GetLatestVersionAsync(packageName, sdkInstallMode, cancellationToken);
+
+    /// <summary>
     /// Downloads and extracts <paramref name="package"/> (and its transitive dependencies) into the NuGet
     /// global packages folder, resolving sources and credentials from the user's nuget.config hierarchy.
     /// Returns a map of every installed package ID to its normalized on-disk version.

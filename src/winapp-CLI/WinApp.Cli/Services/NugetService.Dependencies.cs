@@ -108,7 +108,10 @@ internal partial class NugetService
         return trimmed;
     }
 
-    public async Task<string> GetLatestVersionAsync(string packageName, SdkInstallMode sdkInstallMode, CancellationToken cancellationToken = default)
+    public Task<string> GetLatestVersionAsync(string packageName, SdkInstallMode sdkInstallMode, CancellationToken cancellationToken = default)
+        => GetLatestVersionAsync(packageName, sdkInstallMode, reportSkippedRelease: true, cancellationToken);
+
+    public async Task<string> GetLatestVersionAsync(string packageName, SdkInstallMode sdkInstallMode, bool reportSkippedRelease, CancellationToken cancellationToken = default)
     {
         if (sdkInstallMode == SdkInstallMode.None)
         {
@@ -161,7 +164,7 @@ internal partial class NugetService
 
         if (string.Equals(packageName, BuildToolsService.WINAPP_SDK_PACKAGE, StringComparison.OrdinalIgnoreCase))
         {
-            return await SelectNewestPublishedReleaseAsync(packageName, list, cancellationToken);
+            return await SelectNewestPublishedReleaseAsync(packageName, list, reportSkippedRelease, cancellationToken);
         }
 
         return list[^1];
@@ -184,7 +187,7 @@ internal partial class NugetService
     /// answer skips a release: when availability cannot be determined (a source could not be queried or none
     /// is eligible), the newest release is kept, so a feed outage never causes a downgrade.
     /// </remarks>
-    private async Task<string> SelectNewestPublishedReleaseAsync(string packageName, List<string> sortedVersions, CancellationToken cancellationToken)
+    private async Task<string> SelectNewestPublishedReleaseAsync(string packageName, List<string> sortedVersions, bool reportSkippedRelease, CancellationToken cancellationToken)
     {
         NugetSourceProvider.EnsureCredentialService();
         using var cacheContext = new SourceCacheContext();
@@ -196,7 +199,7 @@ internal partial class NugetService
             var missing = await FindUnpublishedDependencyAsync(packageName, sortedVersions[i], cacheContext, cancellationToken);
             if (missing is null)
             {
-                if (newestMissing is not null)
+                if (newestMissing is not null && reportSkippedRelease)
                 {
                     _logger.LogInformation(
                         "{UISymbol} {PackageName} {Newest} is still being published ({Missing} is not available yet); using {Selected}.",

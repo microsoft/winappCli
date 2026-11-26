@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using WinApp.Cli.Commands;
+using WinApp.Cli.Helpers;
 using WinApp.Cli.Services;
 using WinApp.Cli.Telemetry;
 using WinApp.Cli.Telemetry.Events;
@@ -24,11 +25,13 @@ public class NewCommandHandlerTests : BaseCommandTests
 {
     private readonly FakeDotNetService _dotnet = new();
     private readonly FakeTemplateCacheReader _templateCache = new();
+    private readonly FakeNugetService _nuget = new();
 
     protected override IServiceCollection ConfigureServices(IServiceCollection services)
         => services
             .AddSingleton<IDotNetService>(_dotnet)
-            .AddSingleton<ITemplateCacheReader>(_templateCache);
+            .AddSingleton<ITemplateCacheReader>(_templateCache)
+            .AddSingleton<INugetService>(_nuget);
 
     /// <summary>
     /// The templates the scripted Microsoft pack contains. Both the <c>dotnet new list</c> table and
@@ -2259,6 +2262,191 @@ public class NewCommandHandlerTests : BaseCommandTests
         {
             TelemetryFactory.SetOverrideForTesting(null);
         }
+    }
+
+    /// <summary>
+    /// Scripts the happy path, but the scaffold step also writes <paramref name="assetsJson"/> (when given) to
+    /// <c>&lt;-o&gt;\obj\project.assets.json</c>, the way dotnet new's restore post action does.
+    /// </summary>
+    private void ScriptScaffoldWithRestoreResult(string? assetsJson, string scaffoldOutput = "The template was created successfully.")
+    {
+        ScriptHappyPath();
+        var happyPath = _dotnet.RunDotnetArgumentListHandler!;
+        _dotnet.RunDotnetArgumentListHandler = args =>
+        {
+            var result = happyPath(args);
+            var outIdx = args.ToList().IndexOf("-o");
+            if (args.Count >= 2 && args[0] == "new" && args[1] is not ("install" or "uninstall" or "list" or "update") && outIdx >= 0)
+            {
+                if (assetsJson is not null)
+                {
+                    var obj = Directory.CreateDirectory(Path.Join(args[outIdx + 1], "obj"));
+                    File.WriteAllText(Path.Join(obj.FullName, "project.assets.json"), assetsJson);
+                }
+                return (0, scaffoldOutput, string.Empty);
+            }
+            return result;
+        };
+    }
+
+    /// <summary>
+    /// A trimmed <c>project.assets.json</c> from a real failed restore: the feed has Windows App SDK 2.7.0 but
+    /// not its Microsoft.WindowsAppSDK.AI 2.7.0 part, and the template's packages are still at Version="*".
+    /// </summary>
+    private static string MissingWindowsAppSdkPartAssets(string projectPath) => JsonSerializer.Serialize(new
+    {
+        version = 4,
+        libraries = new Dictionary<string, object>
+        {
+            ["CommunityToolkit.Mvvm/8.4.2"] = new { },
+            ["Microsoft.WindowsAppSDK/2.7.0"] = new { },
+            ["Microsoft.WindowsAppSDK.Base/2.7.0"] = new { },
+        },
+        project = new
+        {
+            restore = new { projectPath },
+            frameworks = new Dictionary<string, object>
+            {
+                ["net9.0-windows10.0.26100.0"] = new
+                {
+                    dependencies = new Dictionary<string, object>
+                    {
+                        ["CommunityToolkit.Mvvm"] = new { target = "Package", version = "[*, )" },
+                        ["Microsoft.WindowsAppSDK"] = new { target = "Package", version = "[*, )" },
+                    },
+                },
+            },
+        },
+        logs = new object[]
+        {
+            new
+            {
+                code = "NU1102",
+                level = "Error",
+                message = "Unable to find package Microsoft.WindowsAppSDK.AI with version (>= 2.7.0)\r\n  - Found 1 version(s) in corp-feed [ Nearest version: 2.6.5 ]",
+                libraryId = "Microsoft.WindowsAppSDK.AI",
+            },
+            new { code = "NU1603", level = "Warning", message = "A warning that must not be reported.", libraryId = "Some.Package" },
+        },
+    });
+
+    [TestMethod]
+    public async Task Handler_RestoreFailedAfterScaffold_Json_ReportsRestoreWithSuggestedVersion()
+    {
+        _nuget.DefaultVersion = "2.6.5";
+        var outDir = Path.Join(_tempDirectory.FullName, "TodoApp");
+        var projectPath = Path.Join(outDir, "TodoApp.csproj");
+        ScriptScaffoldWithRestoreResult(MissingWindowsAppSdkPartAssets(projectPath));
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json", "--name", "TodoApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode, "Like dotnet new, the files were created, so the exit code stays 0.");
+        var json = ParseJson(TestAnsiConsole.Output);
+        Assert.IsTrue(json.GetProperty("Created").GetBoolean());
+        var restore = json.GetProperty("Restore");
+        Assert.IsFalse(restore.GetProperty("Succeeded").GetBoolean());
+        var error = restore.GetProperty("Errors").EnumerateArray().Single();
+        Assert.AreEqual("NU1102", error.GetProperty("Code").GetString());
+        Assert.AreEqual("Microsoft.WindowsAppSDK.AI", error.GetProperty("Package").GetString());
+        Assert.AreEqual("2.6.5", restore.GetProperty("SuggestedWindowsAppSdkVersion").GetString());
+        Assert.AreEqual(
+            $"dotnet add {projectPath} package Microsoft.WindowsAppSDK --version 2.6.5",
+            restore.GetProperty("FixCommands").EnumerateArray().Single().GetString());
+        var floating = restore.GetProperty("FloatingPackages").EnumerateArray().Select(p => p.GetString()).ToList();
+        Assert.HasCount(2, floating);
+        Assert.Contains("CommunityToolkit.Mvvm", floating);
+        Assert.Contains("Microsoft.WindowsAppSDK", floating);
+        Assert.Contains("Microsoft.WindowsAppSDK", _nuget.QueriedPackages);
+    }
+
+    [TestMethod]
+    public async Task Handler_RestoreFailed_NoOlderCompleteRelease_LeavesVersionPlaceholder()
+    {
+        // The newest release the feed reports is the one that just failed, so it can't be the fix.
+        _nuget.DefaultVersion = "2.7.0";
+        var outDir = Path.Join(_tempDirectory.FullName, "TodoApp");
+        ScriptScaffoldWithRestoreResult(MissingWindowsAppSdkPartAssets(Path.Join(outDir, "TodoApp.csproj")));
+        var command = GetRequiredService<NewCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json", "--name", "TodoApp"]);
+
+        var restore = ParseJson(TestAnsiConsole.Output).GetProperty("Restore");
+        Assert.IsFalse(restore.TryGetProperty("SuggestedWindowsAppSdkVersion", out _));
+        Assert.EndsWith("--version <version>", restore.GetProperty("FixCommands").EnumerateArray().Single().GetString()!);
+    }
+
+    [TestMethod]
+    [DoNotParallelize] // InvokeWithAmbientConsoleCaptureAsync swaps the process-wide AnsiConsole.
+    public async Task Handler_RestoreFailedAfterScaffold_Text_WarnsInsteadOfSuccess()
+    {
+        _nuget.DefaultVersion = "2.6.5";
+        var outDir = Path.Join(_tempDirectory.FullName, "TodoApp");
+        ScriptScaffoldWithRestoreResult(MissingWindowsAppSdkPartAssets(Path.Join(outDir, "TodoApp.csproj")));
+        var command = GetRequiredService<NewCommand>();
+
+        var (exitCode, ambientOutput) = await InvokeWithAmbientConsoleCaptureAsync(command, ["--use-defaults", "--name", "TodoApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        Assert.DoesNotContain(UiSymbols.Check, TestAnsiConsole.Output, "A project whose packages didn't restore must not be reported with a success check.");
+        // The console wraps long lines, so compare with all whitespace runs collapsed to one space.
+        var output = System.Text.RegularExpressions.Regex.Replace(ambientOutput + ConsoleStdOut + ConsoleStdErr, @"\s+", " ");
+        Assert.Contains("but its NuGet packages didn't restore", output);
+        Assert.Contains("NU1102: Unable to find package Microsoft.WindowsAppSDK.AI", output);
+        Assert.Contains($"dotnet add {Path.Join("TodoApp", "TodoApp.csproj")} package Microsoft.WindowsAppSDK --version 2.6.5", output);
+        Assert.Contains("CommunityToolkit.Mvvm still uses the template's Version=\"*\"", output);
+        Assert.DoesNotContain("A warning that must not be reported", output);
+    }
+
+    [TestMethod]
+    public async Task Handler_PostActionFailedWithoutAssetsFile_ReportsDotnetNewErrors()
+    {
+        const string output =
+            "The template \"WinUI Blank App\" was created successfully.\n" +
+            "Processing post-creation actions...\n" +
+            "error: NU1301: Unable to load the service index for source https://example.invalid/index.json.\n" +
+            "Failed to add a reference to the project file.\n" +
+            "Post action failed.\n";
+        ScriptScaffoldWithRestoreResult(assetsJson: null, output);
+        var command = GetRequiredService<NewCommand>();
+
+        var exitCode = await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json", "--name", "OfflineApp"]);
+
+        Assert.AreEqual(NewCommand.ExitSuccess, exitCode);
+        var restore = ParseJson(TestAnsiConsole.Output).GetProperty("Restore");
+        var error = restore.GetProperty("Errors").EnumerateArray().Single();
+        Assert.AreEqual("NU1301", error.GetProperty("Code").GetString());
+        Assert.StartsWith("Unable to load the service index", error.GetProperty("Message").GetString()!);
+        Assert.StartsWith("dotnet restore ", restore.GetProperty("FixCommands").EnumerateArray().Single().GetString()!);
+        Assert.IsEmpty(_nuget.QueriedPackages, "Only a missing Windows App SDK package needs a version lookup.");
+    }
+
+    [TestMethod]
+    public async Task Handler_RestoreSucceeded_OmitsRestoreField()
+    {
+        ScriptScaffoldWithRestoreResult("""{ "version": 4, "logs": [ { "code": "NU1603", "level": "Warning", "message": "w" } ] }""");
+        var command = GetRequiredService<NewCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json", "--name", "CleanApp"]);
+
+        Assert.IsFalse(ParseJson(TestAnsiConsole.Output).TryGetProperty("Restore", out _));
+    }
+
+    [TestMethod]
+    public async Task Handler_StaleAssetsFileFromBeforeScaffold_IsIgnored()
+    {
+        // --force into a folder that already holds an old project's failed restore: that file isn't this run's.
+        var outDir = Directory.CreateDirectory(Path.Join(_tempDirectory.FullName, "ForcedApp"));
+        var obj = Directory.CreateDirectory(Path.Join(outDir.FullName, "obj"));
+        var stale = Path.Join(obj.FullName, "project.assets.json");
+        File.WriteAllText(stale, MissingWindowsAppSdkPartAssets(Path.Join(outDir.FullName, "Old.csproj")));
+        File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddHours(-1));
+        ScriptScaffoldWithRestoreResult(assetsJson: null);
+        var command = GetRequiredService<NewCommand>();
+
+        await ParseAndInvokeWithCaptureAsync(command, ["--use-defaults", "--json", "--name", "ForcedApp", "--force"]);
+
+        Assert.IsFalse(ParseJson(TestAnsiConsole.Output).TryGetProperty("Restore", out _));
     }
 
     /// <summary>Test double capturing <see cref="ITelemetry.Log{T}"/> calls (event + relatedActivityId).</summary>

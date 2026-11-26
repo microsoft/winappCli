@@ -49,6 +49,8 @@ The pack ships two styles of app. **XAML** templates (`winui`, `winui-navview`, 
 
 > A first run, template-pack update, or newly published Windows App SDK version may take longer while missing NuGet packages download and restore. If scaffolding continues beyond 10 seconds, `winapp new` updates its status message rather than silently waiting.
 
+> If the template's packages didn't restore, `winapp new` still exits 0 but prints ⚠️ instead of ✅, and `--json` output includes a `Restore` object. Run its `FixCommands` (for example `dotnet add <project> package Microsoft.WindowsAppSDK --version <version>`) before you build or add more packages.
+
 ```powershell
 # Interactive — pick a template, then name/output
 winapp new
