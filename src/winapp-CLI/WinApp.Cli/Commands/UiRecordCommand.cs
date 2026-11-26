@@ -55,8 +55,6 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
     [
         "winapp ui record -a <app> --duration-sec 10 -o demo.mp4",
         "winapp ui record <selector> -w <hwnd> --duration-sec 5",
-        "winapp ui record -a <app> --cursor --duration-sec 10 -o demo.mp4",
-        "winapp ui record -w <hwnd> --padding 40 --background \"#1e1e1e\" -o framed.mp4",
         "winapp ui record -w <hwnd> --padding 40 --background \"#00FF00\" -o green-screen.mp4",
     ];
 
