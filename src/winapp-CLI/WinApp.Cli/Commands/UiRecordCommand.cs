@@ -34,13 +34,28 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         Description = "With --cursor, draw the pointer but no click rings.",
     };
 
+    internal static readonly Option<string> PaddingOption = new("--padding")
+    {
+        Description = "Empty space around the window, for menus and flyouts that reach past its edge. " +
+            "'auto' (default) trims the video to the window plus any popup that appeared; a number keeps that many " +
+            "pixels on every side, cutting off popups beyond it; 0 records only the window. Whole-window recordings only.",
+        HelpName = "px",
+    };
+
+    internal static readonly Option<string> BackgroundOption = new("--background")
+    {
+        Description = "Color of the empty space around the window: #RRGGBB, or black (default), white, green, blue, magenta. " +
+            "Use a key color such as #00FF00 to remove it in a video editor; video compression softens the key edge slightly.",
+        HelpName = "color",
+    };
+
     public string ShortDescription => "Record a window or element region to MP4";
 
     public IReadOnlyList<string> Examples { get; } =
     [
         "winapp ui record -a <app> --duration-sec 10 -o demo.mp4",
         "winapp ui record <selector> -w <hwnd> --duration-sec 5",
-        "winapp ui record -a <app> --cursor --duration-sec 10 -o demo.mp4",
+        "winapp ui record -w <hwnd> --padding 40 --background \"#00FF00\" -o green-screen.mp4",
     ];
 
     public string? Usage => "winapp ui record [<selector>] (-a <app> | -w <hwnd>) [options]";
@@ -49,7 +64,8 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         : base("record", "Record the target window (or an element's region) to an H.264 MP4 video. " +
                "By default records until Ctrl+C or redirected-stdin newline/EOF. " +
                "Use --duration-sec for a timed run, --frames for timestamped JPEG evidence, " +
-               "and --capture-screen for overlays and popups.")
+               "and --capture-screen for overlays from other processes. The app's own menus and flyouts are " +
+               "recorded without it.")
     {
         Arguments.Add(SharedUiOptions.SelectorArgument);
         Options.Add(SharedUiOptions.AppOption);
@@ -63,6 +79,8 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         Options.Add(OverwriteOption);
         Options.Add(CursorOption);
         Options.Add(NoClickHighlightOption);
+        Options.Add(PaddingOption);
+        Options.Add(BackgroundOption);
         Options.Add(WinAppRootCommand.JsonOption);
         UiQueryOptions.AddTo(this);
     }
@@ -85,6 +103,8 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
         // Prevents the stdin monitor from racing disposal of its cancellation source.
         private volatile bool _stdinMonitorStopped;
         private UiRecordResolvedOptions? _resolvedOptions;
+        private int? _padding;
+        private int _background;
 
         protected override string Operation => "ui record";
 
@@ -163,6 +183,14 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
             return (parseResult.GetValue(CursorOption), !parseResult.GetValue(NoClickHighlightOption));
         }
 
+        /// <summary>Raw <c>--padding</c> and <c>--background</c>, or nulls for verbs that don't offer them.</summary>
+        protected virtual (string? Padding, string? Background) Framing(ParseResult parseResult)
+        {
+            ArgumentNullException.ThrowIfNull(parseResult);
+
+            return (parseResult.GetValue(PaddingOption), parseResult.GetValue(BackgroundOption));
+        }
+
         /// <summary>How the recording is described while it runs.</summary>
         protected virtual string DescribeSubject(UiTarget uiTarget)
         {
@@ -198,6 +226,14 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
             if (!TrySelectSubject(parseResult, json))
             {
                 return 1;
+            }
+
+            var (padding, background) = Framing(parseResult);
+            var wholeWindow = !IsDesktop && !CaptureScreen(parseResult) && ElementSelector(parseResult) is null &&
+                !UiQueryOptions.HasElementFilters(parseResult);
+            if (UiRecordOptionValidator.ParseFraming(padding, background, wholeWindow, out _padding, out _background) is { } framingError)
+            {
+                return ReportOptionError(parseResult, framingError);
             }
 
             return ValidateElementFilters(parseResult, json);
@@ -319,6 +355,8 @@ internal class UiRecordCommand : Command, IShortDescription, IHelpExamples
                     FramesDirectory = framesDirectory,
                     Cursor = cursor,
                     ClickHighlight = clickHighlight,
+                    Padding = _padding,
+                    BackgroundColor = _background,
                 };
 
                 var (result, coordinationWarning) = await RecordUnderTurnAsync(

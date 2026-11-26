@@ -99,14 +99,21 @@ internal sealed partial class UiRecordingService
             => Math.Max(2, value % 2 == 0 ? value : value - 1);
     }
 
-    /// <summary>Crops and scales BGRA pixels, centering content when padding is required.</summary>
+    /// <summary>
+    /// Crops and scales BGRA pixels, centering content when padding is required. A non-black
+    /// <c>background</c> (0xRRGGBB) shows through transparent pixels, such as the empty border around a
+    /// window and the soft shadows of its menus; black keeps the original pixels as they are.
+    /// </summary>
     internal static byte[] ProcessFrame(
         byte[] source, int sourceWidth, int sourceHeight,
         int cropX, int cropY, int cropW, int cropH,
         int encoderWidth, int encoderHeight,
-        int displayWidth, int displayHeight)
+        int displayWidth, int displayHeight,
+        int? background = null)
     {
-        if (!RequiresFrameTransform(
+        // Over black, a transparent pixel looks the same as its own color, so only other colors need blending.
+        var blend = background is { } color && (color & 0xFFFFFF) != 0;
+        if (!blend && !RequiresFrameTransform(
                 sourceWidth,
                 sourceHeight,
                 cropX,
@@ -130,7 +137,7 @@ internal sealed partial class UiRecordingService
             sourceWidth,
             sourceHeight);
 
-        var srcInfo = new SKImageInfo(sourceWidth, sourceHeight, SKColorType.Bgra8888, SKAlphaType.Opaque);
+        var srcInfo = new SKImageInfo(sourceWidth, sourceHeight, SKColorType.Bgra8888, blend ? SKAlphaType.Premul : SKAlphaType.Opaque);
         using var srcBitmap = new SKBitmap(srcInfo);
         Marshal.Copy(source, 0, srcBitmap.GetPixels(), Math.Min(source.Length, srcInfo.BytesSize));
 
@@ -138,7 +145,7 @@ internal sealed partial class UiRecordingService
         using var dstBitmap = new SKBitmap(dstInfo);
         using (var canvas = new SKCanvas(dstBitmap))
         {
-            canvas.Clear(SKColors.Black);
+            canvas.Clear(blend ? new SKColor((uint)(0xFF000000 | (uint)background!.Value)) : SKColors.Black);
             var (offsetX, offsetY, fitW, fitH) = CaptureGeometry.ComputeFittedContentRect(
                 cropW, cropH, encoderWidth, encoderHeight, displayWidth, displayHeight);
             var srcRect = SKRect.Create(cropX, cropY, cropW, cropH);

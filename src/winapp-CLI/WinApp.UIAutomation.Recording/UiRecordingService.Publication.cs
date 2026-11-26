@@ -56,6 +56,8 @@ internal sealed partial class UiRecordingService
                 CaptureScreen = options.CaptureScreen,
                 Cursor = options.Cursor,
                 ClickHighlight = options.ClickHighlight,
+                Padding = options.Padding,
+                BackgroundColor = options.BackgroundColor,
             }, ct, onRecordingStarted).ConfigureAwait(false);
 
             // Cancellation stops sampling, not publication of the finalized evidence.

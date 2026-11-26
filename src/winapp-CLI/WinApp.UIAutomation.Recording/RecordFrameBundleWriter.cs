@@ -51,6 +51,9 @@ internal sealed class RecordFrameCompletion
     public required int VideoFrameCount { get; init; }
     public long? VideoFileSize { get; init; }
     public string? PublicationDirectory { get; init; }
+
+    /// <summary>When set, the images and the pointer positions in the index are cut down to match the trimmed video.</summary>
+    public RecordTrimPlan? Trim { get; init; }
 }
 
 internal sealed class RecordFrameBundleWriter : IRecordFrameSink
@@ -203,6 +206,12 @@ internal sealed class RecordFrameBundleWriter : IRecordFrameSink
         _channel.Writer.TryComplete();
         await _worker.ConfigureAwait(false);
         await DisposeIndexWriterAsync().ConfigureAwait(false);
+        if (completion.Trim is { } trim)
+        {
+            await TrimBundleAsync(trim).ConfigureAwait(false);
+        }
+        var imageWidth = completion.Trim?.OutputWidth ?? _configuration.Width;
+        var imageHeight = completion.Trim?.OutputHeight ?? _configuration.Height;
 
         var indexBytes = new FileInfo(_indexPath).Length;
         var timingElapsedMs = IsTruncated
@@ -242,8 +251,8 @@ internal sealed class RecordFrameBundleWriter : IRecordFrameSink
             },
             Frames = new RecordFrameImagesManifest
             {
-                Width = _configuration.Width,
-                Height = _configuration.Height,
+                Width = imageWidth,
+                Height = imageHeight,
                 Truncated = IsTruncated,
                 ByteLimit = _maximumBundleBytes,
             },
@@ -452,6 +461,70 @@ internal sealed class RecordFrameBundleWriter : IRecordFrameSink
             _channel.Writer.TryComplete(ex);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Cuts every image down to the trimmed video's area and moves the pointer and click positions in the
+    /// index to match, so the bundle keeps describing exactly what the MP4 shows.
+    /// </summary>
+    private async Task TrimBundleAsync(RecordTrimPlan trim)
+    {
+        long imageBytes = 0;
+        foreach (var path in Directory.EnumerateFiles(_framesDirectory, "*.jpg"))
+        {
+            byte[] pixels;
+            // Decode from a .NET stream: Skia's own file API doesn't handle long paths.
+            using (var file = File.OpenRead(path))
+            using (var decoded = SKBitmap.Decode(file) ?? throw new IOException($"Could not read frame image {path}."))
+            using (var bgra = decoded.Copy(SKColorType.Bgra8888) ?? throw new IOException($"Could not convert frame image {path}."))
+            {
+                if (bgra.Width != trim.SourceWidth || bgra.Height != trim.SourceHeight)
+                {
+                    throw new IOException($"Frame image {path} is {bgra.Width}x{bgra.Height}, not {trim.SourceWidth}x{trim.SourceHeight}.");
+                }
+                pixels = bgra.Bytes;
+            }
+            var jpeg = s_encodeJpeg(trim.Apply(pixels), trim.OutputWidth, trim.OutputHeight);
+            await File.WriteAllBytesAsync(path, jpeg, _lifetimeCts.Token).ConfigureAwait(false);
+            imageBytes += jpeg.Length;
+        }
+        Interlocked.Exchange(ref _imageBytes, imageBytes);
+
+        var lines = await File.ReadAllLinesAsync(_indexPath, _lifetimeCts.Token).ConfigureAwait(false);
+        var rewritten = new List<string>(lines.Length);
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+            var entry = JsonSerializer.Deserialize(line, RecordFrameIndexJsonContext.Default.RecordFrameIndexEntry)
+                ?? throw new IOException("The frame index has an empty entry.");
+            var cursor = entry.Cursor;
+            if (cursor is not null)
+            {
+                var (x, y, inside) = trim.MapPoint(cursor.X, cursor.Y);
+                cursor = new RecordFrameCursor { X = x, Y = y, Visible = cursor.Visible, InFrame = cursor.InFrame && inside };
+            }
+            var clicks = entry.Clicks?.Select(click =>
+            {
+                var (x, y, _) = trim.MapPoint(click.X, click.Y);
+                return new RecordFrameClick { Button = click.Button, Kind = click.Kind, ElapsedMs = click.ElapsedMs, X = x, Y = y };
+            }).ToArray();
+            rewritten.Add(JsonSerializer.Serialize(new RecordFrameIndexEntry
+            {
+                SampleIndex = entry.SampleIndex,
+                ElapsedMs = entry.ElapsedMs,
+                MediaTimeMs = entry.MediaTimeMs,
+                ImageIndex = entry.ImageIndex,
+                File = entry.File,
+                Changed = entry.Changed,
+                Cursor = cursor,
+                Clicks = clicks,
+            }, RecordFrameIndexJsonContext.Default.RecordFrameIndexEntry));
+        }
+        await File.WriteAllTextAsync(_indexPath, string.Concat(rewritten.Select(l => l + "\n")),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), _lifetimeCts.Token).ConfigureAwait(false);
     }
 
     private static byte[] EncodeJpeg(byte[] bgra, int width, int height)

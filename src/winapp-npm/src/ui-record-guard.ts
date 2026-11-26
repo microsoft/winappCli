@@ -32,6 +32,7 @@ type UiRecordArgSpec = {
 
 export const UI_RECORD_ARG_SPECS: readonly UiRecordArgSpec[] = [
   { property: 'app', flag: '--app', kind: 'value' },
+  { property: 'background', flag: '--background', kind: 'value' },
   { property: 'captureScreen', flag: '--capture-screen', kind: 'boolean' },
   { property: 'className', flag: '--class-name', kind: 'value', keepEmpty: true },
   { property: 'cursor', flag: '--cursor', kind: 'boolean' },
@@ -44,6 +45,7 @@ export const UI_RECORD_ARG_SPECS: readonly UiRecordArgSpec[] = [
   { property: 'noClickHighlight', flag: '--no-click-highlight', kind: 'boolean' },
   { property: 'output', flag: '--output', kind: 'value' },
   { property: 'overwrite', flag: '--overwrite', kind: 'boolean' },
+  { property: 'padding', flag: '--padding', kind: 'value' },
   { property: 'on', flag: '--on', kind: 'value' },
   { property: 'root', flag: '--root', kind: 'value', keepEmpty: true },
   { property: 'type', flag: '--type', kind: 'value', keepEmpty: true },

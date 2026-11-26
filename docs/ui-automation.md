@@ -592,11 +592,17 @@ winapp ui record -a myapp --frames --duration-sec 10 --fps 10 --output evidence.
 # Stop an unbounded recording through stdin
 "" | winapp ui record -a myapp --json --output capture.mp4
 
-# Include screen overlays and popups
+# Include overlays from other processes (foregrounds the window)
 winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups.mp4
 
 # Show the mouse pointer and a ring at each click
 winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
+
+# Framed demo: 40 pixels of dark space around the window
+winapp ui record -a myapp --padding 40 --background "#1e1e1e" --output framed.mp4
+
+# Green screen: remove the green border in a video editor
+winapp ui record -a myapp --padding 40 --background "#00FF00" --output green-screen.mp4
 ```
 
 **Options:**
@@ -609,6 +615,8 @@ winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
 - `--frames` — Write timestamped JPEG evidence to `<output-name>.frames`. Supports 1-30 fps and `--max-edge` 64-4096 (default 1280). Frame data is capped at 1 GiB; the MP4 continues if the cap is reached.
 - `--cursor` — Draw the mouse pointer into the video, as the user sees it, with a short colored ring where each click happens (yellow for left, blue for right, purple for other buttons). Off by default.
 - `--no-click-highlight` — With `--cursor`, draw the pointer but no click rings.
+- `--padding auto|<px>` — Empty space around the window for menus and flyouts that reach past its edge. `auto` (default) adds space only when a popup needs it; a number keeps that many pixels on every side; `0` records only the window. See [Menus and flyouts in recordings](#menus-and-flyouts-in-recordings).
+- `--background <color>` — Color of that empty space: `#RRGGBB`, or `black` (default), `white`, `green`, `blue`, `magenta`. To key it out in a video editor, use a color the app doesn't use, such as `#00FF00`. Video compression softens the edge of the key slightly.
 
 **Agent-readable frame artifacts:**
 
@@ -667,9 +675,14 @@ look like part of the app. Recordings draw these popups over the selected window
 whenever they are open. No flag is needed.
 
 - Only visible popups that belong to the selected window and its process are included.
-- The recording keeps the selected window's size, so the part of a flyout that extends past the
-  window's edge is cut off. To record that popup in full, find its HWND with
-  `winapp ui list-windows` and record it with `-w <hwnd>`.
+- If a popup reaches past the window's edge, it is recorded in full and the video is one size from start
+  to end. When the recording stops, winapp cuts it once to the window plus every popup that reached past
+  it, so it takes a few extra seconds per minute of recording. If no popup reached past the window, the
+  video is exactly the window and there's no extra step. A popup more than 400 pixels past the
+  window is cut off, and the result's `warnings` says so.
+- With `--padding <px>`, every frame has that many pixels of empty space on every side instead, and
+  popups beyond it are cut off. `--padding 0` records only the window.
+- `--background <color>` sets the color of the empty space, black by default.
 - If Windows refuses to capture a popup directly, winapp renders it with PrintWindow instead. It then
   appears as a plain rectangle, without rounded corners or transparency.
 - If a popup can't be captured, the recording continues without it and the result's `warnings`

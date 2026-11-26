@@ -236,6 +236,10 @@ winapp ui record -a myapp --capture-screen --duration-sec 5 --output with-popups
 # Show the mouse pointer and click rings (for demos of click-driven flows)
 winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
 
+# Framed demo, or a green border to key out in a video editor
+winapp ui record -a myapp --padding 40 --background "#1e1e1e" --output framed.mp4
+winapp ui record -a myapp --padding 40 --background "#00FF00" --output green-screen.mp4
+
 # Programmatic stop: pipe a newline to stop and finalize the MP4 (for agent/script callers)
 "" | winapp ui record -a myapp --json --output capture.mp4
 ```
@@ -246,7 +250,7 @@ winapp ui record -a myapp --cursor --duration-sec 10 --output demo.mp4
   request `--overwrite` to replace them after the new take finishes. Previous frame
   directories are archived, not deleted. On partial failure, keep the reported evidence
   and follow `recoveryHint`.
-- Default recording draws open menus, flyouts and tooltips over the window in place; no flag is needed. They're clipped to the window's bounds, and popups from other processes need `--capture-screen` (see [Menus and flyouts in recordings](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#menus-and-flyouts-in-recordings)).
+- Default recording draws open menus, flyouts and tooltips over the window in place; no flag is needed. With the default `--padding auto`, a popup that reaches past the window's edge is recorded in full and the video keeps one size; without such a popup the video is exactly the window. `--padding <px>` keeps a fixed border, `--padding 0` records only the window, and `--background` colors the border. Popups from other processes need `--capture-screen` (see [Menus and flyouts in recordings](https://github.com/microsoft/WinAppCli/blob/main/docs/ui-automation.md#menus-and-flyouts-in-recordings)).
 - `--capture-screen` captures from the screen DC so overlays and popups are included; the window is brought to the foreground first. When WGC is unavailable and `--capture-screen` is not passed, the CLI returns an error — re-run with `--capture-screen` to consent to screen-DC capture. Because the screen DC captures whatever is genuinely in front, the target's foreground is **verified immediately before capture**; if activation was refused the command fails with `foreground_not_target` and writes nothing rather than returning an image of the wrong window.
 - Providing a selector that doesn't match any element fails immediately with `element_not_found` (rather than silently recording the whole window).
 - A selector for an item in an open menu, flyout, tooltip, or teaching tip records from that item's popup window, not the window behind it.

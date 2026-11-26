@@ -24,6 +24,19 @@ public interface IFrameGrabber : IDisposable
     IReadOnlyCollection<string> Warnings => [];
 
     /// <summary>
+    /// Where the captured window sits in the most recently returned frame, in frame pixels. Set when frames
+    /// include an empty border around the window that leaves room for its menus, flyouts and other popups.
+    /// <see langword="null"/> for implementations whose frames are exactly the window.
+    /// </summary>
+    PointerRect? WindowBounds => null;
+
+    /// <summary>
+    /// The part of the most recently returned frame that shows the window or one of its popups, in frame
+    /// pixels. Everything outside it is empty border. <see langword="null"/> when the whole frame is content.
+    /// </summary>
+    PointerRect? ContentBounds => null;
+
+    /// <summary>
     /// <see langword="true"/> once the capture session has ended — typically because the captured
     /// window closed. Callers should stop sampling and finish up.
     /// </summary>
@@ -90,7 +103,7 @@ public interface IWindowCapture
 
     /// <summary>
     /// Whether continuous frame capture is available on this system. When <see langword="false"/>,
-    /// <see cref="StartFrameGrabber"/> throws and callers must fall back to another capture path.
+    /// <see cref="StartFrameGrabber(nint, int)"/> throws and callers must fall back to another capture path.
     /// </summary>
     bool IsFrameCaptureSupported { get; }
 
@@ -102,6 +115,21 @@ public interface IWindowCapture
     /// Frame capture is not available on this system.
     /// </exception>
     IFrameGrabber StartFrameGrabber(nint hwnd, int fps = 0);
+
+    /// <summary>
+    /// Opens a persistent capture session whose frames keep an empty border around the window, so menus,
+    /// flyouts and other popups the window owns are drawn in full when they reach past its edge.
+    /// <see cref="IFrameGrabber.WindowBounds"/> and <see cref="IFrameGrabber.ContentBounds"/> say which part
+    /// of each frame is in use. The border's size never changes during the session.
+    /// </summary>
+    /// <param name="hwnd">The window to capture.</param>
+    /// <param name="fps">Expected sampling rate (0 lets the implementation choose).</param>
+    /// <param name="popupMargin">Border, in pixels, past each window edge. 0 gives frames that are exactly the window.</param>
+    /// <param name="fixedMargin">
+    /// <see langword="true"/> to keep <paramref name="popupMargin"/> on every side; <see langword="false"/> to stop
+    /// at the monitor's edge, where no popup can open.
+    /// </param>
+    IFrameGrabber StartFrameGrabber(nint hwnd, int fps, int popupMargin, bool fixedMargin) => StartFrameGrabber(hwnd, fps);
 
     /// <summary>
     /// Captures a window's pixels (BGRA) via <c>PrintWindow</c>, foregrounding and retrying once when

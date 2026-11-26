@@ -134,6 +134,8 @@ test('buildUiRecordArgs: all options produce correct arg list', () => {
     maxEdge: 1080,
     noClickHighlight: true,
     output: 'out.mp4',
+    padding: '40',
+    background: '#00FF00',
     window: 12345,
     quiet: true,
     verbose: false, // falsy — must NOT appear
@@ -165,6 +167,8 @@ test('buildUiRecordArgs: all options produce correct arg list', () => {
   assert.equal(args[args.indexOf('--max-edge') + 1], '1080');
   assert.ok(args.includes('--output'));
   assert.equal(args[args.indexOf('--output') + 1], 'out.mp4');
+  assert.equal(args[args.indexOf('--padding') + 1], '40');
+  assert.equal(args[args.indexOf('--background') + 1], '#00FF00');
   assert.ok(args.includes('--window'));
   assert.equal(args[args.indexOf('--window') + 1], '12345');
   assert.ok(args.includes('--quiet'));

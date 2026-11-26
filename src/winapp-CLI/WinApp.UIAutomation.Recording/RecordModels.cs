@@ -46,6 +46,20 @@ public sealed class RecordOptions
     /// Ignored when <see cref="Cursor"/> is <see langword="false"/>.
     /// </summary>
     public bool ClickHighlight { get; init; } = true;
+
+    /// <summary>
+    /// Empty space around a whole-window recording, for menus and flyouts that reach past the window's edge.
+    /// <see langword="null"/> (the default) leaves room while recording and, only if a popup reached past the
+    /// window, trims the finished video to the window plus those popups. A number keeps that many pixels on
+    /// every side, clipping popups beyond it. 0 records only the window. Ignored for element and screen recordings.
+    /// </summary>
+    public int? Padding { get; init; }
+
+    /// <summary>
+    /// Color of the empty space around the window, as 0xRRGGBB. Default black. A key color such as 0x00FF00
+    /// lets a video editor remove the background.
+    /// </summary>
+    public int BackgroundColor { get; init; }
 }
 
 /// <summary>Result of an MP4 recording.</summary>

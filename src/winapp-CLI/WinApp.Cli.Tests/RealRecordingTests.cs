@@ -37,6 +37,333 @@ public partial class RealRecordingTests
             => new Mp4SinkWriterEncoder(path, width, height, fps, bitrate, overwriteExisting: false);
         RecordFrameBundleWriter.ResetTestSeams();
         UiRecordingService.ResetWindowStateSeams();
+        UiRecordingService.s_trimVideo = Mp4Trimmer.Trim;
+    }
+
+    /// <summary>Opaque BGRA pixels of one gray level.</summary>
+    private static byte[] OpaqueGray(int width, int height, byte level)
+    {
+        var pixels = new byte[width * height * 4];
+        for (var i = 0; i < pixels.Length; i += 4)
+        {
+            (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]) = (level, level, level, 255);
+        }
+        return pixels;
+    }
+
+    /// <summary>
+    /// A 64x64 window whose frames carry a 16-pixel border, and, once the first frame is recorded when
+    /// <paramref name="menuOpens"/>, a 64x16 menu directly above the window, inside the border.
+    /// </summary>
+    private static WindowCaptureSession BorderedWindow(Func<bool> menuOpen, int margin = 16)
+        => new(new FakeFrameGrabber(OpaqueGray(64, 64, 0x44), 64, 64), () => new(0, 0, 64, 64),
+            () => menuOpen() ? [new(42, new(0, -16, 64, 0))] : [],
+            _ => new FakeFrameGrabber(OpaqueGray(64, 16, 0xEE), 64, 16), margins: new(margin, margin, margin, margin));
+
+    [TestMethod]
+    public async Task RecordAsync_AutoPadding_MenuMidRecording_JoinsWindowAndPaddedFramesThenTrims()
+    {
+        using var fx = new UiaTestFixture();
+        var encoders = new List<FakeVideoEncoder>();
+        using var grabber = BorderedWindow(() => encoders.Count > 0 && encoders[0].FramesWritten > 0);
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) =>
+        {
+            var encoder = new FakeVideoEncoder(path, width, height);
+            encoders.Add(encoder);
+            return encoder;
+        };
+        (RecordTrimSources Sources, RecordTrimPlan Plan)? trim = null;
+        UiRecordingService.s_trimVideo = (sources, destination, plan, _) =>
+        {
+            trim = (sources, plan);
+            File.WriteAllBytes(destination, [9, 9]);
+        };
+
+        var result = await NewRecordingService(NewAutomation(), capture).RecordAsync(SessionFor(fx), null, new RecordOptions
+        {
+            OutputPath = ScratchOutput("auto-menu.mp4"),
+            DurationSec = 2,
+            Fps = 2,
+        }, CancellationToken.None);
+
+        Assert.AreEqual((UiRecordingService.AutoPopupMargin, false), capture.RequestedBorder);
+        Assert.HasCount(2, encoders);
+        Assert.AreEqual((64, 64), (encoders[0].Width, encoders[0].Height), "the window alone, for frames before the menu");
+        Assert.AreEqual((96, 96), (encoders[1].Width, encoders[1].Height), "the padded frames, once the menu opened");
+        Assert.IsNotNull(trim);
+        Assert.AreEqual(1, trim.Value.Sources.PaddedStartFrame);
+        Assert.AreEqual(encoders[0].FramesWritten - 1, encoders[1].FramesWritten);
+        Assert.AreEqual((16, 0, 64, 80), (trim.Value.Plan.CropX, trim.Value.Plan.CropY, trim.Value.Plan.CropWidth, trim.Value.Plan.CropHeight));
+        Assert.AreEqual((64, 80), (result.Width, result.Height), "the window plus the menu above it");
+        Assert.AreEqual(2, result.FileSize, "the joined video replaces the window recording");
+    }
+
+    [TestMethod]
+    public async Task RecordAsync_AutoPadding_NoMenu_RecordsExactlyTheWindowWithoutReencoding()
+    {
+        using var fx = new UiaTestFixture();
+        var encoders = new List<FakeVideoEncoder>();
+        using var grabber = BorderedWindow(() => false);
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) =>
+        {
+            var encoder = new FakeVideoEncoder(path, width, height);
+            encoders.Add(encoder);
+            return encoder;
+        };
+        UiRecordingService.s_trimVideo = (_, _, _, _) => throw new AssertFailedException("nothing needs re-encoding");
+
+        var result = await NewRecordingService(NewAutomation(), capture).RecordAsync(SessionFor(fx), null, new RecordOptions
+        {
+            OutputPath = ScratchOutput("auto-no-menu.mp4"),
+            DurationSec = 2,
+            Fps = 2,
+        }, CancellationToken.None);
+
+        Assert.AreEqual((64, 64), (result.Width, result.Height));
+        var encoder = encoders.Single();
+        Assert.IsTrue(encoder.LastFrame!.Chunk(4).All(p => p[0] == 0x44), "every pixel is the window, none is border");
+    }
+
+    [TestMethod]
+    public async Task RecordAsync_FixedPadding_KeepsTheBorderInTheBackgroundColor()
+    {
+        // --padding 16 --background #00FF00: every frame is the window plus 16 green pixels on each side, and the
+        // menu that opens above the window is cut off at the top edge of that border.
+        using var fx = new UiaTestFixture();
+        var encoders = new List<FakeVideoEncoder>();
+        using var grabber = BorderedWindow(() => encoders.Count > 0 && encoders[0].FramesWritten > 0);
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) =>
+        {
+            var encoder = new FakeVideoEncoder(path, width, height);
+            encoders.Add(encoder);
+            return encoder;
+        };
+        UiRecordingService.s_trimVideo = (_, _, _, _) => throw new AssertFailedException("fixed padding is never re-encoded");
+
+        var result = await NewRecordingService(NewAutomation(), capture).RecordAsync(SessionFor(fx), null, new RecordOptions
+        {
+            OutputPath = ScratchOutput("green-border.mp4"),
+            DurationSec = 2,
+            Fps = 2,
+            Padding = 16,
+            BackgroundColor = 0x00FF00,
+        }, CancellationToken.None);
+
+        Assert.AreEqual((16, true), capture.RequestedBorder);
+        Assert.AreEqual((96, 96), (result.Width, result.Height));
+        var last = encoders.Single().LastFrame!;
+        Assert.AreSequenceEqual(new byte[] { 0, 255, 0, 255 }, last[0..4], "corner is background");
+        Assert.AreEqual((byte)0xEE, last[(8 * 96 + 40) * 4], "menu, inside the border above the window");
+        Assert.AreEqual((byte)0x44, last[(48 * 96 + 48) * 4], "window");
+    }
+
+    [TestMethod]
+    public async Task RecordAsync_PaddingZero_RecordsOnlyTheWindow()
+    {
+        using var fx = new UiaTestFixture();
+        using var grabber = new WindowCaptureSession(new FakeFrameGrabber(OpaqueGray(64, 64, 0x44), 64, 64),
+            () => new(0, 0, 64, 64), () => [], _ => throw new AssertFailedException("no popups"));
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) => new FakeVideoEncoder(path, width, height);
+
+        var result = await NewRecordingService(NewAutomation(), capture).RecordAsync(SessionFor(fx), null, new RecordOptions
+        {
+            OutputPath = ScratchOutput("window-only.mp4"),
+            DurationSec = 1,
+            Fps = 1,
+            Padding = 0,
+        }, CancellationToken.None);
+
+        Assert.IsNull(capture.RequestedBorder, "no border is asked for");
+        Assert.AreEqual((64, 64), (result.Width, result.Height));
+    }
+
+    [TestMethod]
+    public async Task RecordAsync_AutoPadding_JoinFails_KeepsTheWindowRecordingAndWarns()
+    {
+        using var fx = new UiaTestFixture();
+        var encoders = new List<FakeVideoEncoder>();
+        using var grabber = BorderedWindow(() => encoders.Count > 0 && encoders[0].FramesWritten > 0);
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) =>
+        {
+            var encoder = new FakeVideoEncoder(path, width, height);
+            encoders.Add(encoder);
+            return encoder;
+        };
+        UiRecordingService.s_trimVideo = (_, _, _, _) => throw new InvalidOperationException("decoder unavailable");
+        var output = ScratchOutput("join-failed.mp4");
+
+        var result = await NewRecordingService(NewAutomation(), capture).RecordAsync(SessionFor(fx), null, new RecordOptions
+        {
+            OutputPath = output,
+            DurationSec = 2,
+            Fps = 2,
+        }, CancellationToken.None);
+
+        Assert.AreEqual((64, 64), (result.Width, result.Height));
+        Assert.IsTrue(File.Exists(output));
+        Assert.IsNotNull(result.Warnings);
+        Assert.Contains("could not be widened", result.Warnings.Single());
+        Assert.Contains("decoder unavailable", result.Warnings.Single());
+        Assert.IsEmpty(Directory.GetFiles(Path.GetDirectoryName(output)!, "*.padded.mp4"), "the padded recording is cleaned up");
+    }
+
+    [TestMethod]
+    public async Task RecordAsync_AutoPadding_WindowResized_RecordsThePaddedFramesSoNothingIsCut()
+    {
+        // The window grows from 64x64 to 96x64 after the first frame. The window-only crop from the first
+        // frame would cut off its right side, so the recorder must also record padded frames and join them.
+        using var fx = new UiaTestFixture();
+        var encoders = new List<FakeVideoEncoder>();
+        var grown = new ResizingFrameGrabber(OpaqueGray(64, 64, 0x44), 64, OpaqueGray(96, 64, 0x44), 96, 64,
+            () => encoders.Count > 0 && encoders[0].FramesWritten > 0);
+        using var grabber = new WindowCaptureSession(grown, () => grown.Grown ? new(0, 0, 96, 64) : new(0, 0, 64, 64),
+            () => [], _ => throw new AssertFailedException("no popups"), margins: new(16, 16, 16, 16));
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) =>
+        {
+            var encoder = new FakeVideoEncoder(path, width, height);
+            encoders.Add(encoder);
+            return encoder;
+        };
+        RecordTrimSources? sources = null;
+        UiRecordingService.s_trimVideo = (s, destination, _, _) =>
+        {
+            sources = s;
+            File.WriteAllBytes(destination, [9, 9]);
+        };
+
+        await NewRecordingService(NewAutomation(), capture).RecordAsync(SessionFor(fx), null, new RecordOptions
+        {
+            OutputPath = ScratchOutput("auto-resize.mp4"),
+            DurationSec = 2,
+            Fps = 2,
+        }, CancellationToken.None);
+
+        Assert.HasCount(2, encoders, "a resize must start the padded recording");
+        Assert.IsNotNull(sources);
+        Assert.AreEqual(1, sources.PaddedStartFrame);
+    }
+
+    [TestMethod]
+    public async Task RecordAsync_AutoPadding_PaddedEncoderCannotStart_KeepsTheWindowRecording()
+    {
+        using var fx = new UiaTestFixture();
+        var encoders = new List<FakeVideoEncoder>();
+        using var grabber = BorderedWindow(() => encoders.Count > 0 && encoders[0].FramesWritten > 0);
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) =>
+        {
+            if (encoders.Count > 0)
+            {
+                throw new InvalidOperationException("frame too large");
+            }
+            var encoder = new FakeVideoEncoder(path, width, height);
+            encoders.Add(encoder);
+            return encoder;
+        };
+        UiRecordingService.s_trimVideo = (_, _, _, _) => throw new AssertFailedException("nothing to join");
+
+        var result = await NewRecordingService(NewAutomation(), capture).RecordAsync(SessionFor(fx), null, new RecordOptions
+        {
+            OutputPath = ScratchOutput("padded-cannot-start.mp4"),
+            DurationSec = 2,
+            Fps = 2,
+        }, CancellationToken.None);
+
+        Assert.AreEqual((64, 64), (result.Width, result.Height));
+        Assert.AreEqual(4, encoders.Single().FramesWritten, "the window kept recording");
+        Assert.Contains("could not be widened", result.Warnings!.Single());
+    }
+
+    [TestMethod]
+    [DataRow(null, 96, DisplayName = "auto: window crop sized like --padding 0")]
+    [DataRow(16, 96, DisplayName = "fixed: --max-edge covers the border too")]
+    public async Task RecordAsync_MaxEdge_IsTheLongestEdgeOfTheFinalVideo(int? padding, int maxEdge)
+    {
+        // A 128x96 window with a 16 px border and --max-edge 64. With auto padding and no popup, the video is
+        // the window scaled to 64x48 with no border pixels; with a fixed border, the whole frame fits in 64.
+        using var fx = new UiaTestFixture();
+        var encoders = new List<FakeVideoEncoder>();
+        using var grabber = new WindowCaptureSession(new FakeFrameGrabber(OpaqueGray(128, 96, 0x44), 128, 96),
+            () => new(0, 0, 128, 96), () => [], _ => throw new AssertFailedException("no popups"),
+            margins: new(16, 16, 16, 16));
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) =>
+        {
+            var encoder = new FakeVideoEncoder(path, width, height);
+            encoders.Add(encoder);
+            return encoder;
+        };
+
+        var result = await NewRecordingService(NewAutomation(), capture).RecordAsync(SessionFor(fx), null, new RecordOptions
+        {
+            OutputPath = ScratchOutput("max-edge.mp4"),
+            DurationSec = 1,
+            Fps = 1,
+            MaxEdge = maxEdge,
+            Padding = padding,
+            BackgroundColor = 0x00FF00,
+        }, CancellationToken.None);
+
+        Assert.IsLessThanOrEqualTo(maxEdge, Math.Max(result.Width, result.Height));
+        if (padding is null)
+        {
+            Assert.AreEqual((96, 72), (result.Width, result.Height));
+            Assert.IsTrue(encoders.Single().LastFrame!.Chunk(4).All(p => p[1] < 0x80),
+                "no green border pixel in a window-only video");
+        }
+    }
+
+    [TestMethod]
+    public void ComputeEncodableTargetSize_ScalesDownFramesTheEncoderWouldReject()
+    {
+        // A 1366x874 window with --padding 1000 is 3366x2874, which H.264 rejects.
+        var (w, h, _, _) = UiRecordingService.ComputeEncodableTargetSize(3366, 2874, 0);
+        Assert.IsLessThanOrEqualTo(UiRecordingService.MaxEncoderMacroblocks, ((w + 15) / 16) * ((h + 15) / 16));
+        Assert.AreEqual(3366.0 / 2874, (double)w / h, 0.01, "aspect ratio is kept");
+        var (smallW, smallH, _, _) = UiRecordingService.ComputeEncodableTargetSize(1446, 1034, 0);
+        Assert.AreEqual((1446, 1034), (smallW, smallH));
+
+        // A wide frame where a single size-reduction step still rounds up past the limit.
+        var (wideW, wideH, _, _) = UiRecordingService.ComputeEncodableTargetSize(5724, 1636, 0);
+        Assert.IsLessThanOrEqualTo(UiRecordingService.MaxEncoderMacroblocks, ((wideW + 15) / 16) * ((wideH + 15) / 16));
+    }
+
+    [TestMethod]
+    public async Task RecordAsync_ElementCrop_IgnoresTheBorderAroundTheWindow()
+    {
+        // Recording the top-left 64x64 of a 96x96 window whose frames have a 16-pixel border above it. The crop
+        // must start at the element, 16 rows down in the frame, not in the empty border.
+        using var fx = new UiaTestFixture();
+        Assert.IsTrue(NewAutomation().TryGetWindowRect(fx.Hwnd, out var bounds));
+        var automation = new FakeUiAutomationService
+        {
+            FindSingleResult = new UiElement { WindowHandle = fx.Hwnd, X = bounds.Left, Y = bounds.Top, Width = 64, Height = 64 },
+        };
+        using var grabber = new WindowCaptureSession(
+            new FakeFrameGrabber(Enumerable.Repeat((byte)0x44, 96 * 96 * 4).ToArray(), 96, 96), () => new(0, 0, 96, 96),
+            () => [], _ => throw new AssertFailedException("no popups"), margins: new(0, 16, 0, 0));
+        var capture = new FakeWindowCapture { Supported = true, StartGrabberCallback = (_, _) => grabber };
+        FakeVideoEncoder? encoder = null;
+        Mp4SinkWriterEncoder.s_createNoClobber = (path, width, height, _, _) => encoder = new FakeVideoEncoder(path, width, height);
+        UiRecordingService.s_trimVideo = (_, _, _, _) => throw new AssertFailedException("element recordings are not trimmed");
+
+        var result = await NewRecordingService(automation, capture).RecordAsync(SessionFor(fx), "element", new RecordOptions
+        {
+            OutputPath = ScratchOutput("element-with-border.mp4"),
+            DurationSec = 1,
+            Fps = 1,
+        }, CancellationToken.None);
+
+        Assert.AreEqual((64, 64), (result.Width, result.Height));
+        Assert.IsNull(capture.RequestedBorder, "element recordings don't ask for a border");
+        Assert.IsNotNull(encoder?.LastFrame);
+        Assert.IsTrue(encoder.LastFrame.All(b => b == 0x44), "every pixel is the element, none is border");
     }
 
     [TestMethod]
@@ -46,8 +373,10 @@ public partial class RealRecordingTests
     [DataRow(10, 15, -1, nameof(RecordOptions.MaxEdge))]
     [DataRow(10, 15, 1, nameof(RecordOptions.MaxEdge))]
     [DataRow(10, 15, 63, nameof(RecordOptions.MaxEdge))]
+    [DataRow(10, 15, 0, nameof(RecordOptions.Padding), -1)]
+    [DataRow(10, 15, 0, nameof(RecordOptions.Padding), 10_000)]
     public async Task RecordAsync_InvalidOptions_ThrowsBeforeTouchingTheWindow(
-        int durationSec, int fps, int maxEdge, string expectedParameter)
+        int durationSec, int fps, int maxEdge, string expectedParameter, int? padding = null)
     {
         // Direct library calls skip the CLI's command-layer validation. Without this guard fps 0
         // divided by zero when computing the frame interval, and a negative duration recorded
@@ -64,6 +393,7 @@ public partial class RealRecordingTests
                 DurationSec = durationSec,
                 Fps = fps,
                 MaxEdge = maxEdge,
+                Padding = padding,
             }, CancellationToken.None));
 
         Assert.IsNotNull(exception.ParamName);
@@ -871,6 +1201,31 @@ public partial class RealRecordingTests
             $"{setupDelay.TotalMilliseconds}ms setup was excluded from {result.ElapsedMs}ms elapsed");
     }
 
+    /// <summary>Returns the first frame until <c>grow</c> is true, then a larger one, like a window being resized.</summary>
+    private sealed class ResizingFrameGrabber(byte[] small, int smallWidth, byte[] large, int largeWidth, int height, Func<bool> grow)
+        : IFrameGrabber
+    {
+        private long _version;
+
+        public bool Grown { get; private set; }
+
+        public bool IsClosed => false;
+
+        public (byte[] Pixels, int Width, int Height, long Version)? TryGetLatest()
+        {
+            Grown |= grow();
+            return Grown
+                ? (large, largeWidth, height, Interlocked.Increment(ref _version))
+                : (small, smallWidth, height, Interlocked.Increment(ref _version));
+        }
+
+        public Task<bool> WaitForFirstFrameAsync(TimeSpan timeout, CancellationToken ct) => Task.FromResult(true);
+
+        public void Dispose()
+        {
+        }
+    }
+
     private sealed class FakeFrameGrabber(byte[] pixels, int width, int height) : IFrameGrabber
     {
         private long _version;
@@ -937,6 +1292,8 @@ public partial class RealRecordingTests
 
         public int FramesWritten { get; private set; }
 
+        public byte[]? LastFrame { get; private set; }
+
         public bool Completed { get; private set; }
 
         public bool Disposed { get; private set; }
@@ -955,6 +1312,7 @@ public partial class RealRecordingTests
             Assert.AreEqual(Width * Height * 4, bgra.Length);
             Assert.IsTrue(sampleDurationHns > 0);
             FramesWritten++;
+            LastFrame = bgra.ToArray();
         }
 
         public void Complete()

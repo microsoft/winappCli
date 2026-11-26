@@ -215,6 +215,73 @@ public class WindowCaptureSessionTests
     }
 
     [TestMethod]
+    public void Sampling_WithMargins_FrameSizeNeverChangesAndMenuPastEdgeIsDrawnInFull()
+    {
+        // A 2x2 window at (100, 200) with a one-pixel border. A 2x2 menu opens upward and to the right,
+        // so its top row is above the window and its right column is past the window's right edge.
+        byte[] red = [0, 0, 255, 255];
+        byte[] green = [0, 255, 0, 255];
+        byte[] empty = [0, 0, 0, 0];
+        var root = new FakeGrabber([.. red, .. red, .. red, .. red], 2, 2);
+        var popups = new List<WindowCaptureSession.SecondaryWindow>();
+        using var composite = new WindowCaptureSession(root, () => new(100, 200, 102, 202),
+            () => popups.ToList(), _ => new FakeGrabber([.. green, .. green, .. green, .. green], 2, 2),
+            margins: new(1, 1, 1, 1));
+
+        var closed = composite.TryGetLatest()!.Value;
+        Assert.AreEqual((4, 4), (closed.Width, closed.Height));
+        Assert.AreEqual(new PointerRect(1, 1, 3, 3), composite.WindowBounds);
+        Assert.AreEqual(new PointerRect(1, 1, 3, 3), composite.ContentBounds, "only the window is in use");
+
+        popups.Add(new(2, new(101, 199, 103, 201)));
+        var open = composite.TryGetLatest()!.Value;
+        Assert.AreEqual((4, 4), (open.Width, open.Height), "a menu opening must not change the frame size");
+        byte[] expected =
+        [
+            .. empty, .. empty, .. green, .. green,
+            .. empty, .. red, .. green, .. green,
+            .. empty, .. red, .. red, .. empty,
+            .. empty, .. empty, .. empty, .. empty,
+        ];
+        Assert.AreSequenceEqual(expected, open.Pixels);
+        Assert.AreEqual(new PointerRect(1, 0, 4, 3), composite.ContentBounds, "the menu's area is in use too");
+        Assert.IsEmpty(composite.Warnings);
+
+        popups.Clear();
+        var reclosed = composite.TryGetLatest()!.Value;
+        Assert.AreEqual((4, 4), (reclosed.Width, reclosed.Height), "the menu closing must not change the frame size");
+    }
+
+    [TestMethod]
+    public void Sampling_MenuPastTheMargin_IsCutOffAndReported()
+    {
+        var root = new FakeGrabber([0, 0, 255, 255]);
+        using var composite = new WindowCaptureSession(root, () => new(0, 0, 1, 1),
+            () => [new(7, new(0, -2, 1, 0))], _ => new FakeGrabber([0, 255, 0, 255, 0, 255, 0, 255], 1, 2),
+            margins: new(0, 1, 0, 0));
+
+        var frame = composite.TryGetLatest()!.Value;
+
+        Assert.AreEqual((1, 2), (frame.Width, frame.Height));
+        Assert.AreEqual(new PointerRect(0, 0, 1, 2), composite.ContentBounds);
+        Assert.HasCount(1, composite.Warnings);
+        Assert.Contains("HWND 7", composite.Warnings.First());
+        Assert.Contains("cut off", composite.Warnings.First());
+    }
+
+    [TestMethod]
+    public void ComputeMargins_StopAtTheMonitorEdge()
+    {
+        // A window 100 pixels from the monitor's top-left: popups can't open above or left of the screen.
+        var margins = WindowCaptureSession.ComputeMargins(
+            window: new(100, 100, 1500, 1000), monitor: new(0, 0, 3840, 2160), margin: 400);
+        Assert.AreEqual(new WindowCaptureSession.CanvasMargins(100, 100, 400, 400), margins);
+
+        var maximized = WindowCaptureSession.ComputeMargins(new(0, 0, 3840, 2160), new(0, 0, 3840, 2160), 400);
+        Assert.IsTrue(maximized.IsEmpty);
+    }
+
+    [TestMethod]
     public void Sampling_ClosedDrainKeepsMonotonicVersionAndReleasesChildren()
     {
         var root = new FakeGrabber([0, 0, 255, 255]);

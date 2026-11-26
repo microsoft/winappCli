@@ -152,6 +152,70 @@ internal static class UiRecordOptionValidator
     private static UiRecordOptionError Invalid(string message) =>
         new(UiJsonError.CodeInvalidArguments, message);
 
+    /// <summary>Largest --padding, in pixels. More is almost certainly a typo.</summary>
+    internal const int MaximumPadding = 1000;
+
+    private static readonly Dictionary<string, int> s_namedColors = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["black"] = 0x000000,
+        ["white"] = 0xFFFFFF,
+        ["green"] = 0x00FF00,
+        ["blue"] = 0x0000FF,
+        ["magenta"] = 0xFF00FF,
+    };
+
+    /// <summary>
+    /// Parses <c>--padding</c> and <c>--background</c>.
+    /// </summary>
+    /// <param name="padding">Raw <c>--padding</c>, or null when omitted.</param>
+    /// <param name="background">Raw <c>--background</c>, or null when omitted.</param>
+    /// <param name="wholeWindow">Whether this recording is of a whole window, where both options apply.</param>
+    /// <param name="paddingPixels">Null for auto, otherwise the fixed padding.</param>
+    /// <param name="color">The background as 0xRRGGBB.</param>
+    public static UiRecordOptionError? ParseFraming(
+        string? padding, string? background, bool wholeWindow, out int? paddingPixels, out int color)
+    {
+        paddingPixels = null;
+        color = 0;
+        var explicitPadding = padding is not null && !string.Equals(padding, "auto", StringComparison.OrdinalIgnoreCase);
+        if (explicitPadding)
+        {
+            if (!int.TryParse(padding, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var px) ||
+                px > MaximumPadding)
+            {
+                return Invalid($"--padding must be 'auto' or a whole number of pixels from 0 through {MaximumPadding}, not '{padding}'.");
+            }
+            paddingPixels = px;
+        }
+
+        if (background is not null)
+        {
+            if (s_namedColors.TryGetValue(background, out var named))
+            {
+                color = named;
+            }
+            else if (background.Length == 7 && background[0] == '#' &&
+                int.TryParse(background.AsSpan(1), System.Globalization.NumberStyles.AllowHexSpecifier,
+                    System.Globalization.CultureInfo.InvariantCulture, out var rgb))
+            {
+                color = rgb;
+            }
+            else
+            {
+                return Invalid($"--background must be #RRGGBB or one of black, white, green, blue, magenta, not '{background}'.");
+            }
+        }
+
+        if (!wholeWindow && (explicitPadding || background is not null))
+        {
+            return new UiRecordOptionError(
+                UiJsonError.CodeInvalidArguments,
+                "--padding and --background only apply when recording a whole window.",
+                "Remove the selector and --capture-screen, or remove --padding and --background.");
+        }
+        return null;
+    }
+
     internal static string DefaultOutputPath() =>
         $"recording-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.mp4";
 }
